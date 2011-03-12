@@ -3,8 +3,8 @@ unit clipper4;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.0 (Alpha - currently without output polygon orientation code) *
-* Date      :  10 March 2011                                                   *
+* Version   :  4.0.3                                                           *
+* Date      :  12 March 2011                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -55,14 +55,14 @@ type
     ytop : integer;
     tmpX :  integer;
     dx   : double;   //the inverse of slope
-    polyType: TPolyType;
-    side: TEdgeSide;
+    polyType : TPolyType;
+    side     : TEdgeSide;
     windDelta: integer; //1 or -1 depending on winding direction
-    windCnt: integer;
-    windCnt2: integer;  //winding count of the opposite polytype
-    outIdx: integer;
-    next: PEdge;
-    prev: PEdge;
+    windCnt  : integer;
+    windCnt2 : integer;  //winding count of the opposite polytype
+    outIdx   : integer;
+    next     : PEdge;
+    prev     : PEdge;
     nextInLML: PEdge;
     prevInAEL: PEdge;
     nextInAEL: PEdge;
@@ -75,7 +75,7 @@ type
 
   PScanbeam = ^TScanbeam;
   TScanbeam = record
-    y: integer;
+    y   : integer;
     next: PScanbeam;
   end;
 
@@ -83,21 +83,22 @@ type
   TIntersectNode = record
     edge1: PEdge;
     edge2: PEdge;
-    pt: TPoint;
-    next: PIntersectNode;
+    pt   : TPoint;
+    next : PIntersectNode;
   end;
 
   PLocalMinima = ^TLocalMinima;
   TLocalMinima = record
-    y: integer;
-    leftBound: PEdge;
+    y         : integer;
+    leftBound : PEdge;
     rightBound: PEdge;
-    next: PLocalMinima;
+    next      : PLocalMinima;
   end;
 
   PPolyPt = ^TPolyPt;
   TPolyPt = record
-    pt: TPoint;
+    idx : integer;
+    pt  : TPoint;
     next: PPolyPt;
     prev: PPolyPt;
   end;
@@ -123,6 +124,7 @@ type
   TClipper4 = class(TClipperBase4)
   private
     fPolyPtList    : TList;
+    fHoleStateList : TList;     //list of (hole state) booleans
     fClipType      : TClipType;
     fScanbeam      : PScanbeam; //scanbeam list
     fActiveEdges   : PEdge;     //active edge list
@@ -153,7 +155,6 @@ type
     procedure DeleteFromSEL(e: PEdge);
     procedure IntersectEdges(e1,e2: PEdge;
       const pt: TPoint; protects: TIntersectProtects = []);
-    function GetMaximaPair(e: PEdge): PEdge;
     procedure DoMaxima(e: PEdge; const topY: integer);
     procedure UpdateEdgeIntoAEL(var e: PEdge);
     function FixupIntersections: boolean;
@@ -179,7 +180,12 @@ type
     destructor Destroy; override;
   end;
 
+function IsClockwise(const pts: TArrayOfPoint): boolean;
+
 implementation
+
+type
+  TDoublePoint = record X, Y: double; end;
 
 const
   horizontal: double = -3.4e+38;
@@ -192,6 +198,23 @@ resourcestring
 
 //------------------------------------------------------------------------------
 // Miscellaneous Functions ...
+//------------------------------------------------------------------------------
+
+function IsClockwise(const pts: TArrayOfPoint): boolean; overload;
+var
+  i, highI: integer;
+  area: double;
+begin
+  result := true;
+  highI := high(pts);
+  if highI < 2 then exit;
+  //or ...(x2-x1)(y2+y1)
+  area := pts[highI].x * pts[0].y - pts[0].x * pts[highI].y;
+  for i := 0 to highI-1 do
+    area := area + pts[i].x * pts[i+1].y - pts[i+1].x * pts[i].y;
+  //area := area/2;
+  result := area > 0; //ie reverse of normal formula because Y axis inverted
+end;
 //------------------------------------------------------------------------------
 
 function SlopesEqual(e1, e2: PEdge): boolean; overload;
@@ -247,7 +270,6 @@ end;
 
 function TopX(edge: PEdge; const currentY: integer): integer;
 begin
-  assert(edge.ytop <> edge.ybot, 'topX error: horizontal edge');
   if currentY = edge.ytop then result := edge.xtop
   else if edge.xtop = edge.xbot then result := edge.xbot
   else result := edge.xbot + round(edge.dx*(currentY - edge.ybot));
@@ -326,7 +348,22 @@ begin
     dispose(tmpPp);
   end;
 end;
+//------------------------------------------------------------------------------
 
+function IsClockwise(pt: PPolyPt): boolean; overload;
+var
+  area: double;
+  startPt: PPolyPt;
+begin
+  area := 0;
+  startPt := pt;
+  repeat
+    area := area + (pt.pt.X * pt.next.pt.Y) - (pt.next.pt.X * pt.pt.Y);
+    pt := pt.next;
+  until pt = startPt;
+  //area := area /2;
+  result := area > 0; //ie reverse of normal formula because Y axis inverted
+end;
 
 //------------------------------------------------------------------------------
 // TClipperBase4 methods ...
@@ -498,6 +535,7 @@ begin
   len := j+1;
   while true do
   begin
+    //nb: test for point equality before testing slopes ...
     if PointsEqual(pg[j], pg[0]) then dec(j)
     else if PointsEqual(pg[0], pg[1]) or SlopesEqual(pg[j], pg[0], pg[1]) then
     begin
@@ -510,7 +548,7 @@ begin
       for i := 2 to j do pg[i-1] := pg[i];
       dec(j);
     end;
-    //exit loop if nothing changed or too few vertices ...
+    //exit loop if nothing is changed or there are too few vertices ...
     if (j = len -1) or (j < 2) then break;
     len := j +1;
   end;
@@ -518,7 +556,7 @@ begin
 
   GetMem(edges, sizeof(TEdge)*len);
 
-  //convert 'edges' to a double-linked-list and initialize the vars ...
+  //convert vertices to a double-linked-list of edges and initialize ...
   edges[0].xcurr := pg[0].X;
   edges[0].ycurr := pg[0].Y;
   InitEdge(@edges[len-1], @edges[0], @edges[len-2], pg[len-1]);
@@ -529,7 +567,8 @@ begin
   e := @edges[0];
   fEdgeList.Add(e);
 
-  //reset xcurr & ycurr and find 'eHighest' ...
+  //reset xcurr & ycurr and find 'eHighest' (given the Y axis coordinates
+  //increase downward so the 'highest' edge will have the smallest ytop) ...
   eHighest := e;
   repeat
     e.xcurr := e.xbot;
@@ -634,6 +673,7 @@ constructor TClipper4.Create;
 begin
   inherited Create;
   fPolyPtList := TList.Create;
+  fHoleStateList := TList.Create;
 end;
 //------------------------------------------------------------------------------
 
@@ -641,6 +681,7 @@ destructor TClipper4.Destroy;
 begin
   DisposeScanbeamList;
   fPolyPtList.Free;
+  fHoleStateList.Free;
   inherited;
 end;
 //------------------------------------------------------------------------------
@@ -695,6 +736,7 @@ begin
     if not Reset then exit;
     botY := PopScanbeam;
     repeat
+      //fHoleCheck := -1;
       InsertLocalMinimaIntoAEL(botY);
       ProcessHorizontals;
       topY := PopScanbeam;
@@ -708,8 +750,8 @@ begin
     //result := false;
   end;
   finally
-    fExecuteLocked := false;
     DisposeAllPolyPts;
+    fExecuteLocked := false;
   end;
 end;
 //------------------------------------------------------------------------------
@@ -758,9 +800,12 @@ var
   i: integer;
 begin
   for i := 0 to fPolyPtList.Count -1 do
+  begin
     if assigned(fPolyPtList[i]) then
       DisposePolyPts(PPolyPt(fPolyPtList[i]));
+  end;
   fPolyPtList.Clear;
+  fHoleStateList.Clear;
 end;
 //------------------------------------------------------------------------------
 
@@ -828,19 +873,17 @@ end;
 
 function TClipper4.IsNonZeroFillType(edge: PEdge): boolean;
 begin
-  case edge.polyType of
-    ptSubject: result := fSubjFillType = pftNonZero;
-    else result := fClipFillType = pftNonZero;
-  end;
+  if edge.polyType = ptSubject then
+    result := fSubjFillType = pftNonZero else
+    result := fClipFillType = pftNonZero;
 end;
 //------------------------------------------------------------------------------
 
 function TClipper4.IsNonZeroAltFillType(edge: PEdge): boolean;
 begin
-  case edge.polyType of
-    ptSubject: result := fClipFillType = pftNonZero;
-    else result := fSubjFillType = pftNonZero;
-  end;
+  if edge.polyType = ptSubject then
+    result := fClipFillType = pftNonZero else
+    result := fSubjFillType = pftNonZero;
 end;
 //------------------------------------------------------------------------------
 
@@ -871,9 +914,33 @@ end;
 //------------------------------------------------------------------------------
 
 procedure TClipper4.AddLocalMinPoly(e1, e2: PEdge; const pt: TPoint);
+var
+  isAHole: boolean;
+  e: PEdge;
+  eX: integer;
 begin
+  isAHole := false;
+  e := fActiveEdges;
+  while assigned(e) do
+  begin
+    if (e.outIdx < 0) then
+      e := e.nextInAEL
+    else
+    begin
+      eX := TopX(e, pt.Y);
+      if (eX = pt.X) then
+      begin
+        isAHole := boolean(fHoleStateList[e.outIdx]);
+        break;
+      end
+      else if (eX < pt.X) then
+        isAHole := not isAHole;
+      e := e.nextInAEL;
+    end;
+  end;
   AddPolyPt(e1, pt);
   e2.outIdx := e1.outIdx;
+  fHoleStateList[e1.outIdx] := pointer(isAHole);
   if (e2.dx = horizontal)  or (e1.dx > e2.dx) then
   begin
     e1.side := esLeft;
@@ -1215,6 +1282,9 @@ begin
   p2_lft := PPolyPt(fPolyPtList[e2.outIdx]);
   p2_rt := p2_lft.prev;
 
+  if fHoleStateList[e1.outIdx] <> fHoleStateList[e2.outIdx] then
+    fHoleStateList[e1.outIdx] := pointer(false);
+
   //join e2 poly onto e1 poly and delete pointers to e2 ...
   if e1.side = esLeft then
   begin
@@ -1290,8 +1360,10 @@ begin
     new(result);
     result.pt := pt;
     e.outIdx := fPolyPtList.Add(result);
+    result.idx := e.outIdx;
     result.next := result;
     result.prev := result;
+    fHoleStateList.Add(pointer(false));
   end else
   begin
     result := nil;
@@ -1301,6 +1373,7 @@ begin
     if assigned(result) then exit;
 
     new(result);
+    result.idx := e.outIdx;
     result.pt := pt;
     result.next := fp;
     result.prev := fp.prev;
@@ -1345,19 +1418,19 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function IsMaxima(e: PEdge; const Y: double): boolean;
+function IsMaxima(e: PEdge; const Y: integer): boolean;
 begin
   result := assigned(e) and (e.ytop = Y) and not assigned(e.nextInLML);
 end;
 //------------------------------------------------------------------------------
 
-function IsIntermediate(e: PEdge; const Y: double): boolean;
+function IsIntermediate(e: PEdge; const Y: integer): boolean;
 begin
   result := (e.ytop = Y) and assigned(e.nextInLML);
 end;
 //------------------------------------------------------------------------------
 
-function TClipper4.GetMaximaPair(e: PEdge): PEdge;
+function GetMaximaPair(e: PEdge): PEdge;
 begin
   result := e.next;
   if not IsMaxima(result, e.ytop) or (result.xtop <> e.xtop) then
@@ -1466,7 +1539,7 @@ procedure TClipper4.ProcessHorizontal(horzEdge: PEdge);
 
 var
   e, eNext, eMaxPair: PEdge;
-  horzLeft, horzRight: double;
+  horzLeft, horzRight: integer;
   Direction: TDirection;
 const
   ProtectLeft: array[boolean] of TIntersectProtects = ([ipRight], [ipLeft,ipRight]);
@@ -1857,6 +1930,7 @@ var
   i,j,k,cnt: integer;
   p: PPolyPt;
 begin
+
   for i := 0 to fPolyPtList.Count -1 do
     if assigned(fPolyPtList[i]) then
       fPolyPtList[i] := FixupOutPolygon(fPolyPtList[i]);
@@ -1874,6 +1948,9 @@ begin
         inc(cnt);
       until (p = PPolyPt(fPolyPtList[i]));
       if (cnt < 3) then continue;
+
+      if IsClockwise(p) = boolean(fHoleStateList[i]) then
+        ReversePolyPtLinks(p);
 
       setLength(result[k], cnt);
       for j := 0 to cnt -1 do
@@ -1940,34 +2017,33 @@ begin
     CopyAELToSEL;
     int1 := fIntersectNodes;
     int2 := fIntersectNodes.next;
-
     while assigned(int2) do
     begin
-      e1 := int1^.edge1;
+      e1 := int1.edge1;
       if (e1.prevInSEL = int1.edge2) then e2 := e1.prevInSEL
       else if (e1.nextInSEL = int1.edge2) then e2 := e1.nextInSEL
       else
       begin
+        //The current intersection is out of order, so try and swap it with
+        //a subsequent intersections ...
         while assigned(int2) do
         begin
-          //the current intersection isn't valid, so check
-          //subsequent intersections for a valid swap otherwise abort ...
-          e1 := int2^.edge1;
-          e2 := int2.edge2;
-          if (e1.nextInSEL = e2) or (e1.prevInSEL = e2) then break;
-          int2 := int2.next; //keep trying ...
+          if (int2.edge1.nextInSEL = int2.edge2) or
+            (int2.edge1.prevInSEL = int2.edge2) then break
+          else int2 := int2.next;
         end;
         if not assigned(int2) then exit; //oops!!!
-
         //found an intersect node that can be swapped ...
         SwapIntersectNodes(int1, int2);
-        continue;
+        e1 := int1.edge1;
+        e2 := int1.edge2;
       end;
       SwapPositionsInSEL(e1, e2);
       int1 := int1.next;
       int2 := int1.next;
     end;
 
+    //finally, check the last intersection too ...
     e1 := int1.edge1;
     if (e1.prevInSEL = int1.edge2) then e2 := e1.prev
     else if (e1.nextInSEL = int1.edge2) then e2 := e1.next
