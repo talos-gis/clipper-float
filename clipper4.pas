@@ -3,8 +3,8 @@ unit clipper4;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.0.3                                                           *
-* Date      :  12 March 2011                                                   *
+* Version   :  4.0.5 (beta)                                                    *
+* Date      :  15 March 2011                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -97,10 +97,26 @@ type
 
   PPolyPt = ^TPolyPt;
   TPolyPt = record
-    idx : integer;
-    pt  : TPoint;
-    next: PPolyPt;
-    prev: PPolyPt;
+    pt    : TPoint;
+    next  : PPolyPt;
+    prev  : PPolyPt;
+    isDone: boolean;
+  end;
+
+  PTracer = ^TTracer;
+  TTracer = record
+    dirF : boolean; //direction (forward = true)
+    pp   : PPolyPt;
+    next : PTracer;
+    prev : PTracer;
+  end;
+
+  PHoleInfo = ^THoleInfo;
+  THoleInfo = record
+    pp       : PPolyPt;
+    isHole   : boolean;
+    idx      : integer;
+    IsDone   : boolean;
   end;
 
   TClipperBase4 = class
@@ -124,7 +140,7 @@ type
   TClipper4 = class(TClipperBase4)
   private
     fPolyPtList    : TList;
-    fHoleStateList : TList;     //list of (hole state) booleans
+    fHoleInfoList  : TList;
     fClipType      : TClipType;
     fScanbeam      : PScanbeam; //scanbeam list
     fActiveEdges   : PEdge;     //active edge list
@@ -169,6 +185,7 @@ type
     procedure DisposeIntersectNodes;
     function ResultAsPointArray: TArrayOfArrayOfPoint;
     function FixupOutPolygon(outPoly: PPolyPt): PPolyPt;
+    procedure GetHoleStates;
   protected
     function Reset: boolean; override;
   public
@@ -181,6 +198,7 @@ type
   end;
 
 function IsClockwise(const pts: TArrayOfPoint): boolean;
+function Area(const pts: TArrayOfPoint): double;
 
 implementation
 
@@ -217,6 +235,19 @@ begin
 end;
 //------------------------------------------------------------------------------
 
+function Area(const pts: TArrayOfPoint): double;
+var
+  i, highI: integer;
+begin
+  result := 0;
+  highI := high(pts);
+  if highI < 2 then exit;
+  result := pts[highI].x * pts[0].y - pts[0].x * pts[highI].y;
+  for i := 0 to highI-1 do
+    result := result + pts[i].x * pts[i+1].y - pts[i+1].x * pts[i].y;
+end;
+//------------------------------------------------------------------------------
+
 function SlopesEqual(e1, e2: PEdge): boolean; overload;
 begin
   if (e1.ybot = e1.ytop) then result := (e2.ybot = e2.ytop)
@@ -237,7 +268,9 @@ end;
 
 function SlopesEqual(const pt1, pt2, pt3: TPoint): boolean; overload;
 begin
-  result := SlopesEqual(pt1, pt2, pt2, pt3);
+  if (pt1.Y = pt2.Y) then result := (pt2.Y = pt3.Y)
+  else if (pt2.Y = pt3.Y) then result := false
+  else result := ((pt1.Y-pt2.Y)*(pt2.X-pt3.X)-(pt1.X-pt2.X)*(pt2.Y-pt3.Y)) = 0;
 end;
 //---------------------------------------------------------------------------
 
@@ -245,6 +278,13 @@ procedure SetDx(e: PEdge);
 begin
   if (e.ybot = e.ytop) then e.dx := horizontal
   else e.dx := (e.xtop - e.xbot)/(e.ytop - e.ybot);
+end;
+//---------------------------------------------------------------------------
+
+function GetDx(const pt1, pt2: TPoint): double;
+begin
+  if (pt1.Y = pt2.Y) then result := horizontal
+  else result := (pt2.X - pt1.X)/(pt2.Y - pt1.Y);
 end;
 //---------------------------------------------------------------------------
 
@@ -268,11 +308,21 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TopX(edge: PEdge; const currentY: integer): integer;
+function TopX(edge: PEdge; const currentY: integer): integer; overload;
 begin
   if currentY = edge.ytop then result := edge.xtop
   else if edge.xtop = edge.xbot then result := edge.xbot
   else result := edge.xbot + round(edge.dx*(currentY - edge.ybot));
+end;
+//------------------------------------------------------------------------------
+
+function TopX(const pt1, pt2: TPoint; const currentY: integer): integer; overload;
+begin
+  //precondition: pt1.Y <> pt2.Y
+  if currentY = pt1.Y then result := pt1.X
+  else if currentY = pt2.Y then result := pt2.X
+  else if pt1.X = pt2.X then result := pt1.X
+  else result := pt1.X + trunc((currentY - pt1.Y)*(pt1.X-pt2.X)/(pt1.Y-pt2.Y));
 end;
 //------------------------------------------------------------------------------
 
@@ -673,7 +723,7 @@ constructor TClipper4.Create;
 begin
   inherited Create;
   fPolyPtList := TList.Create;
-  fHoleStateList := TList.Create;
+  fHoleInfoList := TList.Create;
 end;
 //------------------------------------------------------------------------------
 
@@ -681,7 +731,7 @@ destructor TClipper4.Destroy;
 begin
   DisposeScanbeamList;
   fPolyPtList.Free;
-  fHoleStateList.Free;
+  fHoleInfoList.Free;
   inherited;
 end;
 //------------------------------------------------------------------------------
@@ -736,7 +786,6 @@ begin
     if not Reset then exit;
     botY := PopScanbeam;
     repeat
-      //fHoleCheck := -1;
       InsertLocalMinimaIntoAEL(botY);
       ProcessHorizontals;
       topY := PopScanbeam;
@@ -801,11 +850,12 @@ var
 begin
   for i := 0 to fPolyPtList.Count -1 do
   begin
+    Dispose(PHoleInfo(fHoleInfoList[i]));
     if assigned(fPolyPtList[i]) then
       DisposePolyPts(PPolyPt(fPolyPtList[i]));
   end;
   fPolyPtList.Clear;
-  fHoleStateList.Clear;
+  fHoleInfoList.Clear;
 end;
 //------------------------------------------------------------------------------
 
@@ -914,33 +964,9 @@ end;
 //------------------------------------------------------------------------------
 
 procedure TClipper4.AddLocalMinPoly(e1, e2: PEdge; const pt: TPoint);
-var
-  isAHole: boolean;
-  e: PEdge;
-  eX: integer;
 begin
-  isAHole := false;
-  e := fActiveEdges;
-  while assigned(e) do
-  begin
-    if (e.outIdx < 0) then
-      e := e.nextInAEL
-    else
-    begin
-      eX := TopX(e, pt.Y);
-      if (eX = pt.X) then
-      begin
-        isAHole := boolean(fHoleStateList[e.outIdx]);
-        break;
-      end
-      else if (eX < pt.X) then
-        isAHole := not isAHole;
-      e := e.nextInAEL;
-    end;
-  end;
   AddPolyPt(e1, pt);
   e2.outIdx := e1.outIdx;
-  fHoleStateList[e1.outIdx] := pointer(isAHole);
   if (e2.dx = horizontal)  or (e1.dx > e2.dx) then
   begin
     e1.side := esLeft;
@@ -1276,14 +1302,13 @@ var
   OKIdx, ObsoleteIdx: integer;
   e: PEdge;
 begin
+  PHoleInfo(fHoleInfoList[e2.outIdx]).idx := e1.outIdx;
+
   //get the start and ends of both output polygons ...
   p1_lft := PPolyPt(fPolyPtList[e1.outIdx]);
   p1_rt := p1_lft.prev;
   p2_lft := PPolyPt(fPolyPtList[e2.outIdx]);
   p2_rt := p2_lft.prev;
-
-  if fHoleStateList[e1.outIdx] <> fHoleStateList[e2.outIdx] then
-    fHoleStateList[e1.outIdx] := pointer(false);
 
   //join e2 poly onto e1 poly and delete pointers to e2 ...
   if e1.side = esLeft then
@@ -1353,17 +1378,24 @@ function TClipper4.AddPolyPt(e: PEdge; const pt: TPoint): PPolyPt;
 var
   fp: PPolyPt;
   ToFront: boolean;
+  hi: PHoleInfo;
 begin
   ToFront := e.side = esLeft;
   if e.outIdx < 0 then
   begin
     new(result);
-    result.pt := pt;
     e.outIdx := fPolyPtList.Add(result);
-    result.idx := e.outIdx;
+    result.pt := pt;
     result.next := result;
     result.prev := result;
-    fHoleStateList.Add(pointer(false));
+    result.isDone := false;
+
+    new(hi);
+    hi.pp := result;
+    hi.isHole := false;
+    hi.idx := e.outIdx;
+    hi.IsDone := false;
+    fHoleInfoList.Add(hi);
   end else
   begin
     result := nil;
@@ -1373,11 +1405,11 @@ begin
     if assigned(result) then exit;
 
     new(result);
-    result.idx := e.outIdx;
     result.pt := pt;
     result.next := fp;
     result.prev := fp.prev;
     result.prev.next := result;
+    result.isDone := false;
     fp.prev := result;
     if ToFront then fPolyPtList[e.outIdx] := result;
   end;
@@ -1930,6 +1962,7 @@ var
   i,j,k,cnt: integer;
   p: PPolyPt;
 begin
+  GetHoleStates; //Get hole states *before* FixupOutPolygon()
 
   for i := 0 to fPolyPtList.Count -1 do
     if assigned(fPolyPtList[i]) then
@@ -1949,7 +1982,7 @@ begin
       until (p = PPolyPt(fPolyPtList[i]));
       if (cnt < 3) then continue;
 
-      if IsClockwise(p) = boolean(fHoleStateList[i]) then
+      if IsClockwise(p) = PHoleInfo(fHoleInfoList[i]).isHole then
         ReversePolyPtLinks(p);
 
       setLength(result[k], cnt);
@@ -2075,6 +2108,191 @@ begin
     edge1 := e1;
     edge2 := e2;
     pt := p;
+  end;
+end;
+//------------------------------------------------------------------------------
+
+function SortFunc(item1, item2: pointer): integer;
+begin
+  result := PHoleInfo(item2).pp.pt.Y - PHoleInfo(item1).pp.pt.Y;
+end;
+//------------------------------------------------------------------------------
+
+procedure TClipper4.GetHoleStates;
+var
+  i, currY, ppX: integer;
+  sortedHoleInfos: TList;
+  t, t2, tracers, tracersEnd: PTracer;
+  minPP, currPP, nextPP, tmpPP: PPolyPt;
+  hole: boolean;
+  dxF, dxP: double;
+
+  function NextPolyPt(t: PTracer): PPolyPt;
+  begin
+    if t.dirF then result := t.pp.next else result := t.pp.prev;
+  end;
+
+  procedure AddTracer(p: PPolyPt; isForward: boolean);
+  var
+    t: PTracer;
+  begin
+    p.isDone := true;
+    new(t);
+    t.dirF := isForward;
+    t.pp := p;
+    if not assigned(tracers) then
+    begin
+      tracers := t;
+      tracersEnd := t;
+      t.next := nil;
+      t.prev := nil;
+    end else
+    begin
+      tracersEnd.next := t;
+      t.prev := tracersEnd;
+      t.next := nil;
+      tracersEnd := t;
+    end;
+  end;
+
+  procedure DeleteTracer(t: PTracer);
+  begin
+    if assigned(t.prev) then t.prev.next := t.next else tracers := t.next;
+    if assigned(t.next) then t.next.prev := t.prev else tracersEnd := t.prev;
+    dispose(t);
+  end;
+
+  procedure UpdateTracer(t: PTracer; currY: integer);
+  var
+    firstPP, nextPP: PPolyPt;
+  begin
+    firstPP := t.pp;
+    while true do
+    begin
+      t.pp.isDone := true;
+      nextPP := NextPolyPt(t);
+      if nextPP^.pt.Y < currY -2 then exit;
+      t.pp := nextPP;
+      if t.pp.isDone then break;
+    end;
+    DeleteTracer(t);
+  end;
+
+  function IsClose(const pt1, pt2: TPoint; epsilon: integer = 2): boolean;
+  begin
+    result := (abs(pt1.X - pt2.X) + abs(pt1.Y - pt2.Y) <= epsilon);
+  end;
+
+begin
+  if fHoleInfoList.Count = 0 then exit;
+  sortedHoleInfos := TList.Create;
+  try
+    sortedHoleInfos.Capacity := fHoleInfoList.count;
+    for i := 0 to fHoleInfoList.count -1 do
+      sortedHoleInfos.Add(fHoleInfoList[i]);
+    sortedHoleInfos.Sort(SortFunc);
+
+    tracers := nil;
+
+    with PHoleInfo(sortedHoleInfos[0])^ do
+    begin
+      while not assigned(fPolyPtList[idx]) do
+        idx := PHoleInfo(fHoleInfoList[idx]).idx;
+      PHoleInfo(fHoleInfoList[idx]).IsDone := true;
+      PHoleInfo(fHoleInfoList[idx]).isHole := false;
+      AddTracer(pp, true);
+      AddTracer(pp, false);
+    end;
+
+    for i := 1 to sortedHoleInfos.count -1 do
+      with PHoleInfo(sortedHoleInfos[i])^ do
+      begin
+        minPP := pp;
+        currY := minPP.pt.Y;
+
+        //first update tracers so they are current with currY ...
+        t := tracers;
+        while assigned(t) do
+        begin
+          t2 := t.next; //save t.next because t might be disposed
+          UpdateTracer(t, currY);
+          t := t2;
+        end;
+
+        //sure we haven't passed through this 'minima' ...
+        if minPP.isDone then continue;
+
+        while not assigned(fPolyPtList[idx]) do
+          idx := PHoleInfo(fHoleInfoList[idx]).idx;
+
+        if not PHoleInfo(fHoleInfoList[idx]).IsDone then
+        begin
+          //calc hole state ...
+          hole := false;
+          t := tracers;
+          while assigned(t) do
+          begin
+            currPP := t.pp;
+            nextPP := NextPolyPt(t);
+            if (currPP.pt.X > minPP.pt.X +1) and (nextPP.pt.X > minPP.pt.X +1) then
+              //do nothing
+            else if (currPP.pt.X < minPP.pt.X -1) and (nextPP.pt.X < minPP.pt.X -1) then
+              hole := not hole
+            else
+            begin
+              ppX := TopX(currPP.pt, nextPP.pt, minPP.pt.Y);
+              if ppX +2 < minPP.pt.X then hole := not hole
+              else if ppX -2 > minPP.pt.X then //do nothing
+              else
+              begin
+                //compare slopes of current edge with slope that bisects minima
+                //being careful when other vertices are closely adjacent.
+                //nb: while very close, this still isn't 100% ...
+                if IsClose(nextPP.pt, minPP.pt) then currPP := nextPP;
+                tmpPP := minPP.next;
+                while (tmpPP.next <> minPP) and IsClose(minPP.pt, tmpPP.pt) do
+                  tmpPP := tmpPP.next;
+                dxF := GetDx(minPP.pt, tmpPP.pt);
+                tmpPP := minPP.prev;
+                while (tmpPP.prev <> minPP) and IsClose(minPP.pt, tmpPP.pt) do
+                  tmpPP := tmpPP.prev;
+                dxP := GetDx(minPP.pt, tmpPP.pt);
+                if (dxF = horizontal) then
+                begin
+                  if minPP.next.pt.X > minPP.pt.X then hole := not hole;
+                end
+                else if (dxP = horizontal) then
+                begin
+                  if minPP.prev.pt.X > minPP.pt.X then hole := not hole;
+                end
+                else
+                begin
+                  dxF := (dxF + dxP)/2; //dx that bisects the minima vertex
+                  if t.dirF then
+                    dxP := GetDx(currPP.pt, currPP.next.pt) else
+                    dxP := GetDx(currPP.pt, currPP.prev.pt);
+                  if dxP > dxF then hole := not hole;
+                end;
+              end;
+            end;
+            t := t.next;
+          end;
+          PHoleInfo(fHoleInfoList[idx]).IsDone := true;
+          PHoleInfo(fHoleInfoList[idx]).isHole := hole;
+        end;
+        AddTracer(minPP, true);
+        AddTracer(minPP, false);
+      end;
+  finally
+    //clean up ...
+    t := tracers;
+    while assigned(t) do
+    begin
+      t2 := t.next;
+      Dispose(t);
+      t := t2;
+    end;
+    sortedHoleInfos.free;
   end;
 end;
 //------------------------------------------------------------------------------
