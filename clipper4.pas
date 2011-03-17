@@ -41,7 +41,6 @@ type
   TIntersectProtect = (ipLeft, ipRight);
   TIntersectProtects = set of TIntersectProtect;
   TDirection = (dRightToLeft, dLeftToRight);
-
   TArrayOfPoint = array of TPoint;
   TArrayOfArrayOfPoint = array of TArrayOfPoint;
 
@@ -121,9 +120,9 @@ type
 
   TClipperBase4 = class
   private
-    fEdgeList   : TList;
-    fLmList     : PLocalMinima; //localMinima list
-    fCurrLm     : PLocalMinima; //current localMinima node
+    fEdgeList      : TList;
+    fLmList        : PLocalMinima; //localMinima list
+    fCurrLm        : PLocalMinima; //current localMinima node
     procedure DisposeLocalMinimaList;
   protected
     function Reset: boolean; virtual;
@@ -133,7 +132,7 @@ type
     constructor Create; virtual;
     destructor Destroy; override;
     procedure AddPolygon(const polygon: TArrayOfPoint; polyType: TPolyType);
-    procedure AddPolyPolygon(const polyPolygon: TArrayOfArrayOfPoint; polyType: TPolyType);
+    procedure AddPolygons(const polygons: TArrayOfArrayOfPoint; polyType: TPolyType);
     procedure Clear; virtual;
   end;
 
@@ -183,7 +182,7 @@ type
     procedure AppendPolygon(e1, e2: PEdge);
     procedure DisposeAllPolyPts;
     procedure DisposeIntersectNodes;
-    function ResultAsPointArray: TArrayOfArrayOfPoint;
+    function GetResult: TArrayOfArrayOfPoint;
     function FixupOutPolygon(outPoly: PPolyPt): PPolyPt;
     procedure GetHoleStates;
   protected
@@ -201,9 +200,6 @@ function IsClockwise(const pts: TArrayOfPoint): boolean;
 function Area(const pts: TArrayOfPoint): double;
 
 implementation
-
-type
-  TDoublePoint = record X, Y: double; end;
 
 const
   horizontal: double = -3.4e+38;
@@ -227,9 +223,9 @@ begin
   highI := high(pts);
   if highI < 2 then exit;
   //or ...(x2-x1)(y2+y1)
-  area := pts[highI].x * pts[0].y - pts[0].x * pts[highI].y;
+  area := int64(pts[highI].x) * pts[0].y - int64(pts[0].x) * pts[highI].y;
   for i := 0 to highI-1 do
-    area := area + pts[i].x * pts[i+1].y - pts[i+1].x * pts[i].y;
+    area := area + int64(pts[i].x) * pts[i+1].y - int64(pts[i+1].x) * pts[i].y;
   //area := area/2;
   result := area > 0; //ie reverse of normal formula because Y axis inverted
 end;
@@ -253,16 +249,7 @@ begin
   if (e1.ybot = e1.ytop) then result := (e2.ybot = e2.ytop)
   else if (e2.ybot = e2.ytop) then result := false
   else result :=
-    ((e1.ytop-e1.ybot)*(e2.xtop-e2.xbot)-(e1.xtop-e1.xbot)*(e2.ytop-e2.ybot)) = 0;
-end;
-//---------------------------------------------------------------------------
-
-function SlopesEqual(const pt1a, pt1b, pt2a, pt2b: TPoint): boolean; overload;
-begin
-  if (pt1a.Y = pt1b.Y) then result := (pt2a.Y = pt2b.Y)
-  else if (pt2a.Y = pt2b.Y) then result := false
-  else result :=
-    ((pt1a.Y-pt1b.Y)*(pt2a.X-pt2b.X)- (pt1a.X-pt1b.X)*(pt2a.Y-pt2b.Y)) = 0;
+    (Int64(e1.ytop-e1.ybot)*(e2.xtop-e2.xbot)-Int64(e1.xtop-e1.xbot)*(e2.ytop-e2.ybot)) = 0;
 end;
 //---------------------------------------------------------------------------
 
@@ -270,7 +257,7 @@ function SlopesEqual(const pt1, pt2, pt3: TPoint): boolean; overload;
 begin
   if (pt1.Y = pt2.Y) then result := (pt2.Y = pt3.Y)
   else if (pt2.Y = pt3.Y) then result := false
-  else result := ((pt1.Y-pt2.Y)*(pt2.X-pt3.X)-(pt1.X-pt2.X)*(pt2.Y-pt3.Y)) = 0;
+  else result := (Int64(pt1.Y-pt2.Y)*(pt2.X-pt3.X)-Int64(pt1.X-pt2.X)*(pt2.Y-pt3.Y)) = 0;
 end;
 //---------------------------------------------------------------------------
 
@@ -318,11 +305,11 @@ end;
 
 function TopX(const pt1, pt2: TPoint; const currentY: integer): integer; overload;
 begin
-  //precondition: pt1.Y <> pt2.Y
-  if currentY = pt1.Y then result := pt1.X
+  //preconditions: pt1.Y <> pt2.Y and pt1.Y > pt2.Y
+  if currentY >= pt1.Y then result := pt1.X
   else if currentY = pt2.Y then result := pt2.X
   else if pt1.X = pt2.X then result := pt1.X
-  else result := pt1.X + trunc((currentY - pt1.Y)*(pt1.X-pt2.X)/(pt1.Y-pt2.Y));
+  else result := pt1.X + trunc(Int64(currentY - pt1.Y)*(pt1.X-pt2.X)/(pt1.Y-pt2.Y));
 end;
 //------------------------------------------------------------------------------
 
@@ -408,7 +395,7 @@ begin
   area := 0;
   startPt := pt;
   repeat
-    area := area + (pt.pt.X * pt.next.pt.Y) - (pt.next.pt.X * pt.pt.Y);
+    area := area + int64(pt.pt.X)*pt.next.pt.Y - int64(pt.next.pt.X)*pt.pt.Y;
     pt := pt.next;
   until pt = startPt;
   //area := area /2;
@@ -565,7 +552,6 @@ var
   pg: TArrayOfPoint;
 begin
   {AddPolygon}
-
   len := length(polygon);
   if len < 3 then exit;
   setlength(pg, len);
@@ -574,7 +560,7 @@ begin
   for i := 1 to len-1 do
   begin
     if PointsEqual(pg[j], polygon[i]) then continue
-    else if (j > 0) and SlopesEqual(pg[j-1],pg[j],polygon[i]) then
+    else if (j > 0) and SlopesEqual(pg[j-1], pg[j], polygon[i]) then
     begin
       if PointsEqual(pg[j-1], polygon[i]) then dec(j);
     end else inc(j);
@@ -605,6 +591,7 @@ begin
   if len < 3 then exit;
 
   GetMem(edges, sizeof(TEdge)*len);
+  fEdgeList.Add(edges);
 
   //convert vertices to a double-linked-list of edges and initialize ...
   edges[0].xcurr := pg[0].X;
@@ -614,11 +601,9 @@ begin
     InitEdge(@edges[i], @edges[i+1], @edges[i-1], pg[i]);
   InitEdge(@edges[0], @edges[1], @edges[len-1], pg[0]);
 
-  e := @edges[0];
-  fEdgeList.Add(e);
-
   //reset xcurr & ycurr and find 'eHighest' (given the Y axis coordinates
   //increase downward so the 'highest' edge will have the smallest ytop) ...
+  e := @edges[0];
   eHighest := e;
   repeat
     e.xcurr := e.xbot;
@@ -639,12 +624,12 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure TClipperBase4.AddPolyPolygon(const polyPolygon: TArrayOfArrayOfPoint;
+procedure TClipperBase4.AddPolygons(const polygons: TArrayOfArrayOfPoint;
   polyType: TPolyType);
 var
   i: integer;
 begin
-  for i := 0 to high(polyPolygon) do AddPolygon(polyPolygon[i], polyType);
+  for i := 0 to high(polygons) do AddPolygon(polygons[i], polyType);
 end;
 //------------------------------------------------------------------------------
 
@@ -793,7 +778,7 @@ begin
       ProcessEdgesAtTopOfScanbeam(topY);
       botY := topY;
     until fScanbeam = nil;
-    solution := ResultAsPointArray;
+    solution := GetResult;
     result := true;
   except
     //result := false;
@@ -1957,7 +1942,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipper4.ResultAsPointArray: TArrayOfArrayOfPoint;
+function TClipper4.GetResult: TArrayOfArrayOfPoint;
 var
   i,j,k,cnt: integer;
   p: PPolyPt;
@@ -2058,7 +2043,7 @@ begin
       else
       begin
         //The current intersection is out of order, so try and swap it with
-        //a subsequent intersections ...
+        //a subsequent intersection ...
         while assigned(int2) do
         begin
           if (int2.edge1.nextInSEL = int2.edge2) or
@@ -2077,12 +2062,8 @@ begin
     end;
 
     //finally, check the last intersection too ...
-    e1 := int1.edge1;
-    if (e1.prevInSEL = int1.edge2) then e2 := e1.prev
-    else if (e1.nextInSEL = int1.edge2) then e2 := e1.next
-    else exit; // oops!!
-
-    result := true;
+    result := (int1.edge1.prevInSEL = int1.edge2) or
+      (int1.edge1.nextInSEL = int1.edge2);
   finally
     fSortedEdges := nil;
   end;
@@ -2164,14 +2145,13 @@ var
 
   procedure UpdateTracer(t: PTracer; currY: integer);
   var
-    firstPP, nextPP: PPolyPt;
+    nextPP: PPolyPt;
   begin
-    firstPP := t.pp;
     while true do
     begin
       t.pp.isDone := true;
       nextPP := NextPolyPt(t);
-      if nextPP^.pt.Y < currY -2 then exit;
+      if nextPP.pt.Y < currY -2 then exit;
       t.pp := nextPP;
       if t.pp.isDone then break;
     end;
@@ -2219,15 +2199,16 @@ begin
           t := t2;
         end;
 
-        //sure we haven't passed through this 'minima' ...
+        //check we haven't already passed through this 'minima' ...
         if minPP.isDone then continue;
 
+        //get the 'final' idx of the output polygon ...
         while not assigned(fPolyPtList[idx]) do
           idx := PHoleInfo(fHoleInfoList[idx]).idx;
 
+        //if the hole state hasn't already been calculated, do it now ...
         if not PHoleInfo(fHoleInfoList[idx]).IsDone then
         begin
-          //calc hole state ...
           hole := false;
           t := tracers;
           while assigned(t) do
