@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.0.5 (beta)                                                    *
-* Date      :  17 March 2011                                                   *
+* Version   :  4.0.6 (beta)                                                    *
+* Date      :  18 March 2011                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -51,9 +51,9 @@ bool IsClockwise(const Polygon &poly)
 {
   int highI = poly.size() -1;
   if (highI < 2) return false;
-  double area = (long64)poly[highI].X * poly[0].Y -(long64)poly[0].X * poly[highI].Y;
+  double area = (double)poly[highI].X * poly[0].Y -(double)poly[0].X * poly[highI].Y;
   for (int i = 0; i < highI; ++i)
-    area += (long64)poly[i].X * poly[i+1].Y -(long64)poly[i+1].X * poly[i].Y;
+    area += (double)poly[i].X * poly[i+1].Y -(double)poly[i+1].X * poly[i].Y;
   //area := area/2;
   return area > 0; //ie reverse of normal formula because Y axis inverted
 }
@@ -63,23 +63,24 @@ double Area(const Polygon &poly)
 {
   int highI = poly.size() -1;
   if (highI < 2) return false;
-  double area = poly[highI].X * poly[0].Y - poly[0].X * poly[highI].Y;
+  double area =
+    (long64)poly[highI].X * poly[0].Y - (long64)poly[0].X * poly[highI].Y;
   for (int i = 0; i < highI; ++i)
-    area += poly[i].X * poly[i+1].Y - poly[i+1].X * poly[i].Y;
+    area += (long64)poly[i].X * poly[i+1].Y - (long64)poly[i+1].X * poly[i].Y;
   return area/2;
 }
 //------------------------------------------------------------------------------
 
-Point MakePoint(const int X, const int Y)
+IntPoint MakePoint(const int X, const int Y)
 {
-  Point p;
+  IntPoint p;
   p.X = X;
   p.Y = Y;
   return p;
 }
 //------------------------------------------------------------------------------
 
-bool SlopesEqual(TEdge &e1, TEdge &e2)
+bool SlopesEqual(TEdge4 &e1, TEdge4 &e2)
 {
   if (e1.ybot == e1.ytop) return (e2.ybot == e2.ytop);
   else if (e2.ybot == e2.ytop) return false;
@@ -88,7 +89,7 @@ bool SlopesEqual(TEdge &e1, TEdge &e2)
 }
 //------------------------------------------------------------------------------
 
-bool SlopesEqual(const Point pt1, const Point pt2, const Point pt3)
+bool SlopesEqual(const IntPoint pt1, const IntPoint pt2, const IntPoint pt3)
 {
   if (pt1.Y == pt2.Y) return (pt2.Y == pt3.Y);
   else if (pt2.Y == pt3.Y) return false;
@@ -97,21 +98,21 @@ bool SlopesEqual(const Point pt1, const Point pt2, const Point pt3)
 }
 //------------------------------------------------------------------------------
 
-void SetDx(TEdge &e)
+void SetDx(TEdge4 &e)
 {
   if (e.ybot == e.ytop) e.dx = horizontal;
   else e.dx = (double)(e.xtop - e.xbot)/(e.ytop - e.ybot);
 }
 //---------------------------------------------------------------------------
 
-double GetDx(const Point pt1, const Point pt2)
+double GetDx(const IntPoint pt1, const IntPoint pt2)
 {
   if (pt1.Y == pt2.Y) return horizontal;
   else return (double)(pt2.X - pt1.X)/(pt2.Y - pt1.Y);
 }
 //---------------------------------------------------------------------------
 
-void SwapSides(TEdge &edge1, TEdge &edge2)
+void SwapSides(TEdge4 &edge1, TEdge4 &edge2)
 {
   EdgeSide side =  edge1.side;
   edge1.side = edge2.side;
@@ -119,7 +120,7 @@ void SwapSides(TEdge &edge1, TEdge &edge2)
 }
 //------------------------------------------------------------------------------
 
-void SwapPolyIndexes(TEdge &edge1, TEdge &edge2)
+void SwapPolyIndexes(TEdge4 &edge1, TEdge4 &edge2)
 {
   int outIdx =  edge1.outIdx;
   edge1.outIdx = edge2.outIdx;
@@ -127,25 +128,28 @@ void SwapPolyIndexes(TEdge &edge1, TEdge &edge2)
 }
 //------------------------------------------------------------------------------
 
-int TopX(TEdge &edge, const int currentY)
+int TopX(TEdge4 &edge, const int currentY)
 {
   if( currentY == edge.ytop ) return edge.xtop;
-  return edge.xbot + edge.dx *(currentY - edge.ybot);
+  return edge.xbot + (int)(edge.dx *(currentY - edge.ybot) +0.5);
 }
 //------------------------------------------------------------------------------
 
-int TopX(const Point pt1, const Point pt2, const int currentY)
+int TopX(const IntPoint pt1, const IntPoint pt2, const int currentY)
 {
   //preconditions: pt1.Y <> pt2.Y and pt1.Y > pt2.Y
   if (currentY >= pt1.Y) return pt1.X;
   else if (currentY == pt2.Y) return pt2.X;
   else if (pt1.X == pt2.X) return pt1.X;
-  else return pt1.X +
-    std::floor((double)(currentY - pt1.Y)*(pt1.X-pt2.X)/(pt1.Y-pt2.Y));
+  else
+  {
+    double q = (pt1.X-pt2.X)/(pt1.Y-pt2.Y);
+    return (int)(pt1.X + (currentY - pt1.Y) *q + 0.5);
+  }
 }
 //------------------------------------------------------------------------------
 
-bool IntersectPoint(TEdge &edge1, TEdge &edge2, Point &ip)
+bool IntersectPoint(TEdge4 &edge1, TEdge4 &edge2, IntPoint &ip)
 {
   double b1, b2;
   if (SlopesEqual(edge1, edge2)) return false;
@@ -158,7 +162,7 @@ bool IntersectPoint(TEdge &edge1, TEdge &edge2, Point &ip)
     } else
     {
       b2 = edge2.ybot - (edge2.xbot/edge2.dx);
-      ip.Y = ip.X/edge2.dx + b2;
+      ip.Y = (int)(ip.X/edge2.dx + b2 +0.5);
     }
   }
   else if (edge2.dx == 0)
@@ -170,15 +174,15 @@ bool IntersectPoint(TEdge &edge1, TEdge &edge2, Point &ip)
     } else
     {
       b1 = edge1.ybot - (edge1.xbot/edge1.dx);
-      ip.Y = ip.X/edge1.dx + b1;
+      ip.Y = (int)(ip.X/edge1.dx + b1 +0.5);
     }
   } else
   {
     b1 = edge1.xbot - edge1.ybot * edge1.dx;
     b2 = edge2.xbot - edge2.ybot * edge2.dx;
     b2 = (b2-b1)/(edge1.dx - edge2.dx);
-    ip.Y = b2;
-    ip.X = edge1.dx * b2 + b1;
+    ip.Y = (int)(b2 + 0.5);
+    ip.X = (int)(edge1.dx * b2 + b1 + 0.5);
   }
 
   return
@@ -218,7 +222,7 @@ void DisposePolyPts(PolyPt*& pp)
 
 bool IsClockwise(PolyPt *pt)
 {
-  double area = 0;
+  long64 area = 0;
   PolyPt* startPt = pt;
   do
   {
@@ -232,15 +236,16 @@ bool IsClockwise(PolyPt *pt)
 }
 //------------------------------------------------------------------------------
 
-bool PointsEqual( const Point &pt1, const Point &pt2)
+bool PointsEqual( const IntPoint &pt1, const IntPoint &pt2)
 {
   return ( pt1.X == pt2.X && pt1.Y == pt2.Y );
 }
 //------------------------------------------------------------------------------
 
-void InitEdge(TEdge *e, TEdge *eNext, TEdge *ePrev, const Point &pt, PolyType polyType)
+void InitEdge(TEdge4 *e, TEdge4 *eNext,
+  TEdge4 *ePrev, const IntPoint &pt, PolyType polyType)
 {
-  std::memset( e, 0, sizeof( TEdge ));
+  std::memset( e, 0, sizeof( TEdge4 ));
 
   e->next = eNext;
   e->prev = ePrev;
@@ -267,7 +272,7 @@ void InitEdge(TEdge *e, TEdge *eNext, TEdge *ePrev, const Point &pt, PolyType po
 }
 //------------------------------------------------------------------------------
 
-void SwapX(TEdge &e)
+void SwapX(TEdge4 &e)
 {
   //swap horizontal edges' top and bottom x's so they follow the natural
   //progression of the bounds - ie so their xbots will align with the
@@ -333,7 +338,7 @@ void Clipper4Base::AddPolygon( const Polygon &pg, PolyType polyType)
   if (len < 3) return;
 
   //create a new edge array ...
-  TEdge *edges = new TEdge [len];
+  TEdge4 *edges = new TEdge4 [len];
   m_edges.push_back(edges);
 
   //convert vertices to a double-linked-list of edges and initialize ...
@@ -346,8 +351,8 @@ void Clipper4Base::AddPolygon( const Polygon &pg, PolyType polyType)
 
   //reset xcurr & ycurr and find 'eHighest' (given the Y axis coordinates
   //increase downward so the 'highest' edge will have the smallest ytop) ...
-  TEdge *e = &edges[0];
-  TEdge *eHighest = e;
+  TEdge4 *e = &edges[0];
+  TEdge4 *eHighest = e;
   do
   {
     e->xcurr = e->xbot;
@@ -391,7 +396,7 @@ void Clipper4Base::InsertLocalMinima(LocalMinima *newLm)
 }
 //------------------------------------------------------------------------------
 
-TEdge* Clipper4Base::AddBoundsToLML(TEdge *e)
+TEdge4* Clipper4Base::AddBoundsToLML(TEdge4 *e)
 {
   //Starting at the top of one bound we progress to the bottom where there's
   //a local minima. We then go to the top of the next bound. These two bounds
@@ -472,7 +477,7 @@ bool Clipper4Base::Reset()
   LocalMinima* lm = m_MinimaList;
   while( lm )
   {
-    TEdge* e = lm->leftBound;
+    TEdge4* e = lm->leftBound;
     while( e )
     {
       e->xcurr = e->xbot;
@@ -630,7 +635,7 @@ void Clipper4::InsertScanbeam(const int Y)
 
 int Clipper4::PopScanbeam()
 {
-  double Y = m_Scanbeam->Y;
+  int Y = m_Scanbeam->Y;
   Scanbeam* sb2 = m_Scanbeam;
   m_Scanbeam = m_Scanbeam->next;
   delete sb2;
@@ -649,9 +654,9 @@ void Clipper4::DisposeAllPolyPts(){
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::SetWindingCount(TEdge &edge)
+void Clipper4::SetWindingCount(TEdge4 &edge)
 {
-  TEdge *e = edge.prevInAEL;
+  TEdge4 *e = edge.prevInAEL;
   //find the edge of the same polytype that immediately preceeds 'edge' in AEL
   while ( e  && e->polyType != edge.polyType ) e = e->prevInAEL;
   if ( !e )
@@ -709,7 +714,7 @@ void Clipper4::SetWindingCount(TEdge &edge)
 }
 //------------------------------------------------------------------------------
 
-bool Clipper4::IsNonZeroFillType(const TEdge& edge) const
+bool Clipper4::IsNonZeroFillType(const TEdge4& edge) const
 {
   if (edge.polyType == ptSubject)
     return m_SubjFillType == pftNonZero; else
@@ -717,7 +722,7 @@ bool Clipper4::IsNonZeroFillType(const TEdge& edge) const
 }
 //------------------------------------------------------------------------------
 
-bool Clipper4::IsNonZeroAltFillType(const TEdge& edge) const
+bool Clipper4::IsNonZeroAltFillType(const TEdge4& edge) const
 {
   if (edge.polyType == ptSubject)
     return m_ClipFillType == pftNonZero; else
@@ -725,7 +730,7 @@ bool Clipper4::IsNonZeroAltFillType(const TEdge& edge) const
 }
 //------------------------------------------------------------------------------
 
-bool Clipper4::IsContributing(const TEdge& edge) const
+bool Clipper4::IsContributing(const TEdge4& edge) const
 {
   switch( m_ClipType ){
     case ctIntersection:
@@ -744,7 +749,7 @@ bool Clipper4::IsContributing(const TEdge& edge) const
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::AddLocalMinPoly(TEdge *e1, TEdge *e2, const Point &pt)
+void Clipper4::AddLocalMinPoly(TEdge4 *e1, TEdge4 *e2, const IntPoint &pt)
 {
   AddPolyPt( e1, pt );
   e2->outIdx = e1->outIdx;
@@ -761,7 +766,7 @@ void Clipper4::AddLocalMinPoly(TEdge *e1, TEdge *e2, const Point &pt)
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::AddLocalMaxPoly(TEdge *e1, TEdge *e2, const Point &pt)
+void Clipper4::AddLocalMaxPoly(TEdge4 *e1, TEdge4 *e2, const IntPoint &pt)
 {
   AddPolyPt( e1, pt );
   if( e1->outIdx == e2->outIdx )
@@ -774,7 +779,7 @@ void Clipper4::AddLocalMaxPoly(TEdge *e1, TEdge *e2, const Point &pt)
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::AddEdgeToSEL(TEdge *edge)
+void Clipper4::AddEdgeToSEL(TEdge4 *edge)
 {
   //SEL pointers in PEdge are reused to build a list of horizontal edges.
   //However, we don't need to worry about order with horizontal edge processing.
@@ -796,7 +801,7 @@ void Clipper4::AddEdgeToSEL(TEdge *edge)
 
 void Clipper4::CopyAELToSEL()
 {
-  TEdge* e = m_ActiveEdges;
+  TEdge4* e = m_ActiveEdges;
   m_SortedEdges = e;
   if (!m_ActiveEdges) return;
   m_SortedEdges->prevInSEL = 0;
@@ -815,8 +820,8 @@ void Clipper4::InsertLocalMinimaIntoAEL( const int botY)
 {
   while(  m_CurrentLM  && ( m_CurrentLM->Y == botY ) )
   {
-    TEdge* lb = m_CurrentLM->leftBound;
-    TEdge* rb = m_CurrentLM->rightBound;
+    TEdge4* lb = m_CurrentLM->leftBound;
+    TEdge4* rb = m_CurrentLM->rightBound;
 
     InsertEdgeIntoAEL( lb );
     InsertScanbeam( lb->ytop );
@@ -847,11 +852,11 @@ void Clipper4::InsertLocalMinimaIntoAEL( const int botY)
 
     if( lb->nextInAEL != rb )
     {
-      TEdge* e = lb->nextInAEL;
-      Point pt = MakePoint(lb->xcurr, lb->ycurr);
+      TEdge4* e = lb->nextInAEL;
+      IntPoint pt = MakePoint(lb->xcurr, lb->ycurr);
       while( e != rb )
       {
-        if(!e) throw clipperException("InsertLocalMinimaIntoAEL: missing rightbound!");
+        if(!e) throw clipper4Exception("InsertLocalMinimaIntoAEL: missing rightbound!");
         //nb: For calculating winding counts etc, IntersectEdges() assumes
         //that param1 will be to the right of param2 ABOVE the intersection ...
         IntersectEdges( rb , e , pt , ipNone); //order important here
@@ -863,10 +868,10 @@ void Clipper4::InsertLocalMinimaIntoAEL( const int botY)
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::DeleteFromAEL(TEdge *e)
+void Clipper4::DeleteFromAEL(TEdge4 *e)
 {
-  TEdge* AelPrev = e->prevInAEL;
-  TEdge* AelNext = e->nextInAEL;
+  TEdge4* AelPrev = e->prevInAEL;
+  TEdge4* AelNext = e->nextInAEL;
   if(  !AelPrev &&  !AelNext && (e != m_ActiveEdges) ) return; //already deleted
   if( AelPrev ) AelPrev->nextInAEL = AelNext;
   else m_ActiveEdges = AelNext;
@@ -876,10 +881,10 @@ void Clipper4::DeleteFromAEL(TEdge *e)
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::DeleteFromSEL(TEdge *e)
+void Clipper4::DeleteFromSEL(TEdge4 *e)
 {
-  TEdge* SelPrev = e->prevInSEL;
-  TEdge* SelNext = e->nextInSEL;
+  TEdge4* SelPrev = e->prevInSEL;
+  TEdge4* SelNext = e->nextInSEL;
   if(  !SelPrev &&  !SelNext && (e != m_SortedEdges) ) return; //already deleted
   if( SelPrev ) SelPrev->nextInSEL = SelNext;
   else m_SortedEdges = SelNext;
@@ -889,8 +894,8 @@ void Clipper4::DeleteFromSEL(TEdge *e)
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::IntersectEdges(TEdge *e1, TEdge *e2,
-     const Point &pt, IntersectProtects protects)
+void Clipper4::IntersectEdges(TEdge4 *e1, TEdge4 *e2,
+     const IntPoint &pt, IntersectProtects protects)
 {
   //e1 will be to the left of e2 BELOW the intersection. Therefore e1 is before
   //e2 in AEL except when e1 is being inserted at the intersection point ...
@@ -998,7 +1003,7 @@ void Clipper4::IntersectEdges(TEdge *e1, TEdge *e2,
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::AppendPolygon(TEdge *e1, TEdge *e2)
+void Clipper4::AppendPolygon(TEdge4 *e1, TEdge4 *e2)
 {
   m_HoleInfos[e2->outIdx]->idx = e1->outIdx;
 
@@ -1059,7 +1064,7 @@ void Clipper4::AppendPolygon(TEdge *e1, TEdge *e2)
   e1->outIdx = -1; //nb: safe because we only get here via AddLocalMaxPoly
   e2->outIdx = -1;
 
-  TEdge* e = m_ActiveEdges;
+  TEdge4* e = m_ActiveEdges;
   while( e )
   {
     if( e->
@@ -1074,7 +1079,7 @@ void Clipper4::AppendPolygon(TEdge *e1, TEdge *e2)
 }
 //------------------------------------------------------------------------------
 
-PolyPt* Clipper4::AddPolyPt(TEdge *e, const Point &pt)
+PolyPt* Clipper4::AddPolyPt(TEdge4 *e, const IntPoint &pt)
 {
   bool ToFront = (e->side == esLeft);
   if(  e->outIdx < 0 )
@@ -1116,7 +1121,7 @@ PolyPt* Clipper4::AddPolyPt(TEdge *e, const Point &pt)
 
 void Clipper4::ProcessHorizontals()
 {
-  TEdge* horzEdge = m_SortedEdges;
+  TEdge4* horzEdge = m_SortedEdges;
   while( horzEdge )
   {
     DeleteFromSEL( horzEdge );
@@ -1128,7 +1133,7 @@ void Clipper4::ProcessHorizontals()
 
 bool Clipper4::IsTopHorz(const int XPos)
 {
-  TEdge* e = m_SortedEdges;
+  TEdge4* e = m_SortedEdges;
   while( e )
   {
     if(  ( XPos >= std::min(e->xcurr, e->xtop) ) &&
@@ -1139,25 +1144,25 @@ bool Clipper4::IsTopHorz(const int XPos)
 }
 //------------------------------------------------------------------------------
 
-bool IsMinima(TEdge *e)
+bool IsMinima(TEdge4 *e)
 {
   return e  && (e->prev->nextInLML != e) && (e->next->nextInLML != e);
 }
 //------------------------------------------------------------------------------
 
-bool IsMaxima(TEdge *e, const int Y)
+bool IsMaxima(TEdge4 *e, const int Y)
 {
   return e && e->ytop == Y && !e->nextInLML;
 }
 //------------------------------------------------------------------------------
 
-bool IsIntermediate(TEdge *e, const int Y)
+bool IsIntermediate(TEdge4 *e, const int Y)
 {
   return e->ytop == Y && e->nextInLML;
 }
 //------------------------------------------------------------------------------
 
-TEdge *GetMaximaPair(TEdge *e)
+TEdge4 *GetMaximaPair(TEdge4 *e)
 {
   if( !IsMaxima(e->next, e->ytop) || (e->next->xtop != e->xtop) )
     return e->prev; else
@@ -1165,16 +1170,16 @@ TEdge *GetMaximaPair(TEdge *e)
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::SwapPositionsInAEL(TEdge *edge1, TEdge *edge2)
+void Clipper4::SwapPositionsInAEL(TEdge4 *edge1, TEdge4 *edge2)
 {
   if(  !( edge1->nextInAEL ) &&  !( edge1->prevInAEL ) ) return;
   if(  !( edge2->nextInAEL ) &&  !( edge2->prevInAEL ) ) return;
 
   if(  edge1->nextInAEL == edge2 )
   {
-    TEdge* next = edge2->nextInAEL;
+    TEdge4* next = edge2->nextInAEL;
     if( next ) next->prevInAEL = edge1;
-    TEdge* prev = edge1->prevInAEL;
+    TEdge4* prev = edge1->prevInAEL;
     if( prev ) prev->nextInAEL = edge2;
     edge2->prevInAEL = prev;
     edge2->nextInAEL = edge1;
@@ -1183,9 +1188,9 @@ void Clipper4::SwapPositionsInAEL(TEdge *edge1, TEdge *edge2)
   }
   else if(  edge2->nextInAEL == edge1 )
   {
-    TEdge* next = edge1->nextInAEL;
+    TEdge4* next = edge1->nextInAEL;
     if( next ) next->prevInAEL = edge2;
-    TEdge* prev = edge2->prevInAEL;
+    TEdge4* prev = edge2->prevInAEL;
     if( prev ) prev->nextInAEL = edge1;
     edge1->prevInAEL = prev;
     edge1->nextInAEL = edge2;
@@ -1194,8 +1199,8 @@ void Clipper4::SwapPositionsInAEL(TEdge *edge1, TEdge *edge2)
   }
   else
   {
-    TEdge* next = edge1->nextInAEL;
-    TEdge* prev = edge1->prevInAEL;
+    TEdge4* next = edge1->nextInAEL;
+    TEdge4* prev = edge1->prevInAEL;
     edge1->nextInAEL = edge2->nextInAEL;
     if( edge1->nextInAEL ) edge1->nextInAEL->prevInAEL = edge1;
     edge1->prevInAEL = edge2->prevInAEL;
@@ -1211,16 +1216,16 @@ void Clipper4::SwapPositionsInAEL(TEdge *edge1, TEdge *edge2)
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::SwapPositionsInSEL(TEdge *edge1, TEdge *edge2)
+void Clipper4::SwapPositionsInSEL(TEdge4 *edge1, TEdge4 *edge2)
 {
   if(  !( edge1->nextInSEL ) &&  !( edge1->prevInSEL ) ) return;
   if(  !( edge2->nextInSEL ) &&  !( edge2->prevInSEL ) ) return;
 
   if(  edge1->nextInSEL == edge2 )
   {
-    TEdge* next = edge2->nextInSEL;
+    TEdge4* next = edge2->nextInSEL;
     if( next ) next->prevInSEL = edge1;
-    TEdge* prev = edge1->prevInSEL;
+    TEdge4* prev = edge1->prevInSEL;
     if( prev ) prev->nextInSEL = edge2;
     edge2->prevInSEL = prev;
     edge2->nextInSEL = edge1;
@@ -1229,9 +1234,9 @@ void Clipper4::SwapPositionsInSEL(TEdge *edge1, TEdge *edge2)
   }
   else if(  edge2->nextInSEL == edge1 )
   {
-    TEdge* next = edge1->nextInSEL;
+    TEdge4* next = edge1->nextInSEL;
     if( next ) next->prevInSEL = edge2;
-    TEdge* prev = edge2->prevInSEL;
+    TEdge4* prev = edge2->prevInSEL;
     if( prev ) prev->nextInSEL = edge1;
     edge1->prevInSEL = prev;
     edge1->nextInSEL = edge2;
@@ -1240,8 +1245,8 @@ void Clipper4::SwapPositionsInSEL(TEdge *edge1, TEdge *edge2)
   }
   else
   {
-    TEdge* next = edge1->nextInSEL;
-    TEdge* prev = edge1->prevInSEL;
+    TEdge4* next = edge1->nextInSEL;
+    TEdge4* prev = edge1->prevInSEL;
     edge1->nextInSEL = edge2->nextInSEL;
     if( edge1->nextInSEL ) edge1->nextInSEL->prevInSEL = edge1;
     edge1->prevInSEL = edge2->prevInSEL;
@@ -1257,14 +1262,14 @@ void Clipper4::SwapPositionsInSEL(TEdge *edge1, TEdge *edge2)
 }
 //------------------------------------------------------------------------------
 
-TEdge* GetNextInAEL(TEdge *e, Direction dir)
+TEdge4* GetNextInAEL(TEdge4 *e, Direction dir)
 {
   if( dir == dLeftToRight ) return e->nextInAEL;
   else return e->prevInAEL;
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::ProcessHorizontal(TEdge *horzEdge)
+void Clipper4::ProcessHorizontal(TEdge4 *horzEdge)
 {
   Direction dir;
   int horzLeft, horzRight;
@@ -1281,14 +1286,14 @@ void Clipper4::ProcessHorizontal(TEdge *horzEdge)
     dir = dRightToLeft;
   }
 
-  TEdge* eMaxPair;
+  TEdge4* eMaxPair;
   if( horzEdge->nextInLML ) eMaxPair = 0;
   else eMaxPair = GetMaximaPair(horzEdge);
 
-  TEdge* e = GetNextInAEL( horzEdge , dir );
+  TEdge4* e = GetNextInAEL( horzEdge , dir );
   while( e )
   {
-    TEdge* eNext = GetNextInAEL( e, dir );
+    TEdge4* eNext = GetNextInAEL( e, dir );
     if( e->xcurr >= horzLeft && e->xcurr <= horzRight )
     {
       //ok, so far it looks like we're still in range of the horizontal edge
@@ -1347,19 +1352,19 @@ void Clipper4::ProcessHorizontal(TEdge *horzEdge)
     if ( horzEdge->outIdx >= 0 )
       IntersectEdges( horzEdge, eMaxPair,
       MakePoint(horzEdge->xtop, horzEdge->ycurr), ipBoth);
-    if (eMaxPair->outIdx >= 0) throw clipperException("ProcessHorizontal error");
+    if (eMaxPair->outIdx >= 0) throw clipper4Exception("ProcessHorizontal error");
     DeleteFromAEL(eMaxPair);
     DeleteFromAEL(horzEdge);
   }
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::UpdateEdgeIntoAEL(TEdge *&e)
+void Clipper4::UpdateEdgeIntoAEL(TEdge4 *&e)
 {
   if( !e->nextInLML ) throw
-    clipperException("UpdateEdgeIntoAEL: invalid call");
-  TEdge* AelPrev = e->prevInAEL;
-  TEdge* AelNext = e->nextInAEL;
+    clipper4Exception("UpdateEdgeIntoAEL: invalid call");
+  TEdge4* AelPrev = e->prevInAEL;
+  TEdge4* AelNext = e->nextInAEL;
   e->nextInLML->outIdx = e->outIdx;
   if( AelPrev ) AelPrev->nextInAEL = e->nextInLML;
   else m_ActiveEdges = e->nextInLML;
@@ -1387,7 +1392,7 @@ bool Clipper4::ProcessIntersections( const int topY)
   catch(...) {
     m_SortedEdges = 0;
     DisposeIntersectNodes();
-    throw clipperException("ProcessIntersections error");
+    throw clipper4Exception("ProcessIntersections error");
   }
   return true;
 }
@@ -1406,8 +1411,10 @@ void Clipper4::DisposeIntersectNodes()
 
 void Clipper4::BuildIntersectList(const int topY)
 {
+  if ( !m_ActiveEdges ) return;
+
   //prepare for sorting ...
-  TEdge* e = m_ActiveEdges;
+  TEdge4* e = m_ActiveEdges;
   e->tmpX = TopX( *e, topY );
   m_SortedEdges = e;
   m_SortedEdges->prevInSEL = 0;
@@ -1429,8 +1436,8 @@ void Clipper4::BuildIntersectList(const int topY)
     e = m_SortedEdges;
     while( e->nextInSEL )
     {
-      TEdge *eNext = e->nextInSEL;
-      Point pt;
+      TEdge4 *eNext = e->nextInSEL;
+      IntPoint pt;
       if(e->tmpX > eNext->tmpX && IntersectPoint(*e, *eNext, pt))
       {
         AddIntersectNode( e, eNext, pt );
@@ -1468,7 +1475,7 @@ bool Process1Before2(IntersectNode &node1, IntersectNode &node2)
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::AddIntersectNode(TEdge *e1, TEdge *e2, const Point &pt)
+void Clipper4::AddIntersectNode(TEdge4 *e1, TEdge4 *e2, const IntPoint &pt)
 {
   IntersectNode* newNode = new IntersectNode;
   newNode->edge1 = e1;
@@ -1508,14 +1515,14 @@ void Clipper4::ProcessIntersectList()
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::DoMaxima(TEdge *e, int topY)
+void Clipper4::DoMaxima(TEdge4 *e, int topY)
 {
-  TEdge* eMaxPair = GetMaximaPair(e);
+  TEdge4* eMaxPair = GetMaximaPair(e);
   int X = e->xtop;
-  TEdge* eNext = e->nextInAEL;
+  TEdge4* eNext = e->nextInAEL;
   while( eNext != eMaxPair )
   {
-    if (!eNext) throw clipperException("DoMaxima error");
+    if (!eNext) throw clipper4Exception("DoMaxima error");
     IntersectEdges( e, eNext, MakePoint(X, topY), ipBoth );
     eNext = eNext->nextInAEL;
   }
@@ -1528,13 +1535,13 @@ void Clipper4::DoMaxima(TEdge *e, int topY)
   {
     IntersectEdges( e, eMaxPair, MakePoint(X, topY), ipNone );
   }
-  else throw clipperException("DoMaxima error");
+  else throw clipper4Exception("DoMaxima error");
 }
 //------------------------------------------------------------------------------
 
 void Clipper4::ProcessEdgesAtTopOfScanbeam(const int topY)
 {
-  TEdge* e = m_ActiveEdges;
+  TEdge4* e = m_ActiveEdges;
   while( e )
   {
     //1. process maxima, treating them as if they're 'bent' horizontal edges,
@@ -1542,7 +1549,7 @@ void Clipper4::ProcessEdgesAtTopOfScanbeam(const int topY)
     if( IsMaxima(e, topY) && GetMaximaPair(e)->dx != horizontal )
     {
       //'e' might be removed from AEL, as may any following edges so ...
-      TEdge* ePrior = e->prevInAEL;
+      TEdge4* ePrior = e->prevInAEL;
       DoMaxima(e, topY);
       if( !ePrior ) e = m_ActiveEdges;
       else e = ePrior->nextInAEL;
@@ -1652,10 +1659,10 @@ void Clipper4::BuildResult(Polygons &polypoly)
 
 void SwapIntersectNodes(IntersectNode &int1, IntersectNode &int2)
 {
-  TEdge *e1, *e2;
+  TEdge4 *e1, *e2;
   e1 = int1.edge1;
   e2 = int1.edge2;
-  Point p = int1.pt;
+  IntPoint p = int1.pt;
 
   int1.edge1 = int2.edge1;
   int1.edge2 = int2.edge2;
@@ -1676,8 +1683,8 @@ bool Clipper4::FixupIntersections()
   IntersectNode *int2 = m_IntersectNodes->next;
   while (int2)
   {
-    TEdge *e1 = int1->edge1;
-    TEdge *e2;
+    TEdge4 *e1 = int1->edge1;
+    TEdge4 *e2;
     if (e1->prevInSEL == int1->edge2) e2 = e1->prevInSEL;
     else if (e1->nextInSEL == int1->edge2) e2 = e1->nextInSEL;
     else
@@ -1710,14 +1717,14 @@ bool Clipper4::FixupIntersections()
 }
 //------------------------------------------------------------------------------
 
-bool E2InsertsBeforeE1(TEdge &e1, TEdge &e2)
+bool E2InsertsBeforeE1(TEdge4 &e1, TEdge4 &e2)
 {
   if (e2.xcurr == e1.xcurr) return e2.dx > e1.dx;
   else return e2.xcurr < e1.xcurr;
 }
 //------------------------------------------------------------------------------
 
-void Clipper4::InsertEdgeIntoAEL(TEdge *edge)
+void Clipper4::InsertEdgeIntoAEL(TEdge4 *edge)
 {
   edge->prevInAEL = 0;
   edge->nextInAEL = 0;
@@ -1732,7 +1739,7 @@ void Clipper4::InsertEdgeIntoAEL(TEdge *edge)
     m_ActiveEdges = edge;
   } else
   {
-    TEdge* e = m_ActiveEdges;
+    TEdge4* e = m_ActiveEdges;
     while( e->nextInAEL  && !E2InsertsBeforeE1(*e->nextInAEL , *edge) )
       e = e->nextInAEL;
     edge->nextInAEL = e->nextInAEL;
@@ -1743,7 +1750,7 @@ void Clipper4::InsertEdgeIntoAEL(TEdge *edge)
 }
 //----------------------------------------------------------------------
 
-void Clipper4::DoEdge1(TEdge *edge1, TEdge *edge2, const Point &pt)
+void Clipper4::DoEdge1(TEdge4 *edge1, TEdge4 *edge2, const IntPoint &pt)
 {
   AddPolyPt(edge1, pt);
   SwapSides(*edge1, *edge2);
@@ -1751,7 +1758,7 @@ void Clipper4::DoEdge1(TEdge *edge1, TEdge *edge2, const Point &pt)
 }
 //----------------------------------------------------------------------
 
-void Clipper4::DoEdge2(TEdge *edge1, TEdge *edge2, const Point &pt)
+void Clipper4::DoEdge2(TEdge4 *edge1, TEdge4 *edge2, const IntPoint &pt)
 {
   AddPolyPt(edge2, pt);
   SwapSides(*edge1, *edge2);
@@ -1759,7 +1766,7 @@ void Clipper4::DoEdge2(TEdge *edge1, TEdge *edge2, const Point &pt)
 }
 //----------------------------------------------------------------------
 
-void Clipper4::DoBothEdges(TEdge *edge1, TEdge *edge2, const Point &pt)
+void Clipper4::DoBothEdges(TEdge4 *edge1, TEdge4 *edge2, const IntPoint &pt)
 {
   AddPolyPt(edge1, pt);
   AddPolyPt(edge2, pt);
@@ -1818,7 +1825,7 @@ void Clipper4::UpdateTracer(Tracer *t, int currY)
 }
 //----------------------------------------------------------------------
 
-bool IsClose(const Point pt1, const Point pt2, int epsilon = 2)
+bool IsClose(const IntPoint pt1, const IntPoint pt2, int epsilon = 2)
 {
   return std::abs(pt1.X - pt2.X) + std::abs(pt1.Y - pt2.Y) <= epsilon;
 }

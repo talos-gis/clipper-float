@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.0.5 (beta)                                                    *
-* Date      :  17 March 2011                                                   *
+* Version   :  4.0.6 (beta)                                                    *
+* Date      :  18 March 2011                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -38,8 +38,8 @@ enum PolyType { ptSubject, ptClip };
 enum PolyFillType { pftEvenOdd, pftNonZero };
 
 
-struct Point {int X; int Y;};
-typedef std::vector< Point > Polygon;
+struct IntPoint {int X; int Y;};
+typedef std::vector< IntPoint > Polygon;
 typedef std::vector< Polygon > Polygons;
 
 typedef signed long long long64;
@@ -51,7 +51,7 @@ double Area(const Polygon &poly);
 enum EdgeSide { esLeft, esRight };
 enum IntersectProtects { ipNone = 0, ipLeft = 1, ipRight = 2, ipBoth = 3 };
 
-struct TEdge {
+struct TEdge4 {
   int xbot;
   int ybot;
   int xcurr;
@@ -66,26 +66,26 @@ struct TEdge {
   int windCnt;
   int windCnt2; //winding count of the opposite polytype
   int outIdx;
-  TEdge *next;
-  TEdge *prev;
-  TEdge *nextInLML;
-  TEdge *nextInAEL;
-  TEdge *prevInAEL;
-  TEdge *nextInSEL;
-  TEdge *prevInSEL;
+  TEdge4 *next;
+  TEdge4 *prev;
+  TEdge4 *nextInLML;
+  TEdge4 *nextInAEL;
+  TEdge4 *prevInAEL;
+  TEdge4 *nextInSEL;
+  TEdge4 *prevInSEL;
 };
 
 struct IntersectNode {
-  TEdge          *edge1;
-  TEdge          *edge2;
-  Point           pt;
+  TEdge4          *edge1;
+  TEdge4          *edge2;
+  IntPoint        pt;
   IntersectNode  *next;
 };
 
 struct LocalMinima {
   int           Y;
-  TEdge        *leftBound;
-  TEdge        *rightBound;
+  TEdge4        *leftBound;
+  TEdge4        *rightBound;
   LocalMinima  *next;
 };
 
@@ -95,10 +95,10 @@ struct Scanbeam {
 };
 
 struct PolyPt {
-  Point   pt;
-  PolyPt *next;
-  PolyPt *prev;
-  bool    isDone;
+  IntPoint pt;
+  PolyPt  *next;
+  PolyPt  *prev;
+  bool     isDone;
 };
 
 struct Tracer {
@@ -117,7 +117,7 @@ struct HoleInfo {
 
 typedef std::vector < PolyPt* > PolyPtList;
 typedef std::vector < HoleInfo* > HoleInfoList;
-typedef std::vector < TEdge* > EdgeList;
+typedef std::vector < TEdge4* > EdgeList;
 
 //ClipperBase is the ancestor to the Clipper class. It should not be
 //instantiated directly. This class simply abstracts the conversion of sets of
@@ -132,11 +132,10 @@ public:
   virtual void Clear();
 protected:
   void DisposeLocalMinimaList();
-  TEdge* AddBoundsToLML(TEdge *e);
+  TEdge4* AddBoundsToLML(TEdge4 *e);
   void PopLocalMinima();
   virtual bool Reset();
   void InsertLocalMinima(LocalMinima *newLm);
-
   LocalMinima           *m_CurrentLM;
   LocalMinima           *m_MinimaList;
 private:
@@ -147,7 +146,7 @@ class Clipper4 : public virtual Clipper4Base
 {
 public:
   Clipper4();
-  ~Clipper4();
+  virtual ~Clipper4();
   bool Execute(ClipType clipType,
     Polygons &solution,
     PolyFillType subjFillType = pftEvenOdd,
@@ -159,8 +158,8 @@ private:
   HoleInfoList      m_HoleInfos;
   ClipType          m_ClipType;
   Scanbeam         *m_Scanbeam;
-  TEdge            *m_ActiveEdges;
-  TEdge            *m_SortedEdges;
+  TEdge4            *m_ActiveEdges;
+  TEdge4            *m_SortedEdges;
   IntersectNode    *m_IntersectNodes;
   bool              m_ExecuteLocked;
   PolyFillType      m_ClipFillType;
@@ -168,37 +167,37 @@ private:
   Tracer           *m_Tracers;
   Tracer           *m_TracersEnd;
   void DisposeScanbeamList();
-  void SetWindingCount(TEdge& edge);
-  bool IsNonZeroFillType(const TEdge& edge) const;
-  bool IsNonZeroAltFillType(const TEdge& edge) const;
+  void SetWindingCount(TEdge4& edge);
+  bool IsNonZeroFillType(const TEdge4& edge) const;
+  bool IsNonZeroAltFillType(const TEdge4& edge) const;
   void InsertScanbeam(const int Y);
   int PopScanbeam();
   void InsertLocalMinimaIntoAEL(const int botY);
-  void InsertEdgeIntoAEL(TEdge *edge);
-  void AddEdgeToSEL(TEdge *edge);
+  void InsertEdgeIntoAEL(TEdge4 *edge);
+  void AddEdgeToSEL(TEdge4 *edge);
   void CopyAELToSEL();
-  void DeleteFromSEL(TEdge *e);
-  void DeleteFromAEL(TEdge *e);
-  void UpdateEdgeIntoAEL(TEdge *&e);
-  void SwapPositionsInSEL(TEdge *edge1, TEdge *edge2);
-  bool IsContributing(const TEdge& edge) const;
+  void DeleteFromSEL(TEdge4 *e);
+  void DeleteFromAEL(TEdge4 *e);
+  void UpdateEdgeIntoAEL(TEdge4 *&e);
+  void SwapPositionsInSEL(TEdge4 *edge1, TEdge4 *edge2);
+  bool IsContributing(const TEdge4& edge) const;
   bool IsTopHorz(const int XPos);
-  void SwapPositionsInAEL(TEdge *edge1, TEdge *edge2);
-  void DoMaxima(TEdge *e, int topY);
+  void SwapPositionsInAEL(TEdge4 *edge1, TEdge4 *edge2);
+  void DoMaxima(TEdge4 *e, int topY);
   void ProcessHorizontals();
-  void ProcessHorizontal(TEdge *horzEdge);
-  void AddLocalMaxPoly(TEdge *e1, TEdge *e2, const Point &pt);
-  void AddLocalMinPoly(TEdge *e1, TEdge *e2, const Point &pt);
-  void AppendPolygon(TEdge *e1, TEdge *e2);
-  void DoEdge1(TEdge *edge1, TEdge *edge2, const Point &pt);
-  void DoEdge2(TEdge *edge1, TEdge *edge2, const Point &pt);
-  void DoBothEdges(TEdge *edge1, TEdge *edge2, const Point &pt);
-  void IntersectEdges(TEdge *e1, TEdge *e2,
-    const Point &pt, IntersectProtects protects);
-  PolyPt* AddPolyPt(TEdge *e, const Point &pt);
+  void ProcessHorizontal(TEdge4 *horzEdge);
+  void AddLocalMaxPoly(TEdge4 *e1, TEdge4 *e2, const IntPoint &pt);
+  void AddLocalMinPoly(TEdge4 *e1, TEdge4 *e2, const IntPoint &pt);
+  void AppendPolygon(TEdge4 *e1, TEdge4 *e2);
+  void DoEdge1(TEdge4 *edge1, TEdge4 *edge2, const IntPoint &pt);
+  void DoEdge2(TEdge4 *edge1, TEdge4 *edge2, const IntPoint &pt);
+  void DoBothEdges(TEdge4 *edge1, TEdge4 *edge2, const IntPoint &pt);
+  void IntersectEdges(TEdge4 *e1, TEdge4 *e2,
+    const IntPoint &pt, IntersectProtects protects);
+  PolyPt* AddPolyPt(TEdge4 *e, const IntPoint &pt);
   void DisposeAllPolyPts();
   bool ProcessIntersections( const int topY);
-  void AddIntersectNode(TEdge *e1, TEdge *e2, const Point &pt);
+  void AddIntersectNode(TEdge4 *e1, TEdge4 *e2, const IntPoint &pt);
   void BuildIntersectList(const int topY);
   void ProcessIntersectList();
   void ProcessEdgesAtTopOfScanbeam(const int topY);
@@ -214,12 +213,12 @@ private:
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
 
-class clipperException : public std::exception
+class clipper4Exception : public std::exception
 {
   public:
-    clipperException(const char* description)
+    clipper4Exception(const char* description)
       throw(): std::exception(), m_description (description) {}
-    virtual ~clipperException() throw() {}
+    virtual ~clipper4Exception() throw() {}
     virtual const char* what() const throw() {return m_description.c_str();}
   private:
     std::string m_description;

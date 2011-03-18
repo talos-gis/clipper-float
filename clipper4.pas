@@ -238,9 +238,9 @@ begin
   result := 0;
   highI := high(pts);
   if highI < 2 then exit;
-  result := pts[highI].x * pts[0].y - pts[0].x * pts[highI].y;
+  result := int64(pts[highI].x) * pts[0].y - int64(pts[0].x) * pts[highI].y;
   for i := 0 to highI-1 do
-    result := result + pts[i].x * pts[i+1].y - pts[i+1].x * pts[i].y;
+    result := result + int64(pts[i].x) * pts[i+1].y - int64(pts[i+1].x) * pts[i].y;
 end;
 //------------------------------------------------------------------------------
 
@@ -1731,6 +1731,8 @@ var
   pt: TPoint;
   isModified: boolean;
 begin
+  if not assigned(fActiveEdges) then exit;
+
   //prepare for sorting ...
   e := fActiveEdges;
   e.tmpX := TopX(e, topY);
