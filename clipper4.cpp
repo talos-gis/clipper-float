@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.0.6 (beta)                                                    *
-* Date      :  18 March 2011                                                   *
+* Version   :  4.0.7 (beta)                                                    *
+* Date      :  19 March 2011                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -128,10 +128,16 @@ void SwapPolyIndexes(TEdge4 &edge1, TEdge4 &edge2)
 }
 //------------------------------------------------------------------------------
 
+inline int Round(double val)
+{
+  if ((val < 0)) return (int)(val - 0.5); else return (int)(val + 0.5);
+}
+//------------------------------------------------------------------------------
+
 int TopX(TEdge4 &edge, const int currentY)
 {
   if( currentY == edge.ytop ) return edge.xtop;
-  return edge.xbot + (int)(edge.dx *(currentY - edge.ybot) +0.5);
+  return edge.xbot + Round(edge.dx *(currentY - edge.ybot));
 }
 //------------------------------------------------------------------------------
 
@@ -144,7 +150,7 @@ int TopX(const IntPoint pt1, const IntPoint pt2, const int currentY)
   else
   {
     double q = (pt1.X-pt2.X)/(pt1.Y-pt2.Y);
-    return (int)(pt1.X + (currentY - pt1.Y) *q + 0.5);
+    return (int)(pt1.X + (currentY - pt1.Y) *q);
   }
 }
 //------------------------------------------------------------------------------
@@ -162,7 +168,7 @@ bool IntersectPoint(TEdge4 &edge1, TEdge4 &edge2, IntPoint &ip)
     } else
     {
       b2 = edge2.ybot - (edge2.xbot/edge2.dx);
-      ip.Y = (int)(ip.X/edge2.dx + b2 +0.5);
+      ip.Y = Round(ip.X/edge2.dx + b2);
     }
   }
   else if (edge2.dx == 0)
@@ -174,15 +180,15 @@ bool IntersectPoint(TEdge4 &edge1, TEdge4 &edge2, IntPoint &ip)
     } else
     {
       b1 = edge1.ybot - (edge1.xbot/edge1.dx);
-      ip.Y = (int)(ip.X/edge1.dx + b1 +0.5);
+      ip.Y = Round(ip.X/edge1.dx + b1);
     }
   } else
   {
     b1 = edge1.xbot - edge1.ybot * edge1.dx;
     b2 = edge2.xbot - edge2.ybot * edge2.dx;
     b2 = (b2-b1)/(edge1.dx - edge2.dx);
-    ip.Y = (int)(b2 + 0.5);
-    ip.X = (int)(edge1.dx * b2 + b1 + 0.5);
+    ip.Y = Round(b2);
+    ip.X = Round(edge1.dx * b2 + b1);
   }
 
   return
@@ -236,7 +242,7 @@ bool IsClockwise(PolyPt *pt)
 }
 //------------------------------------------------------------------------------
 
-bool PointsEqual( const IntPoint &pt1, const IntPoint &pt2)
+inline bool PointsEqual( const IntPoint &pt1, const IntPoint &pt2)
 {
   return ( pt1.X == pt2.X && pt1.Y == pt2.Y );
 }
@@ -272,7 +278,7 @@ void InitEdge(TEdge4 *e, TEdge4 *eNext,
 }
 //------------------------------------------------------------------------------
 
-void SwapX(TEdge4 &e)
+inline void SwapX(TEdge4 &e)
 {
   //swap horizontal edges' top and bottom x's so they follow the natural
   //progression of the bounds - ie so their xbots will align with the
