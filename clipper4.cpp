@@ -651,12 +651,8 @@ int Clipper4::PopScanbeam()
 
 void Clipper4::DisposeAllPolyPts(){
   for (PolyPtList::size_type i = 0; i < m_PolyPts.size(); ++i)
-  {
-    delete m_HoleInfos[i];
     DisposePolyPts(m_PolyPts[i]);
-  }
   m_PolyPts.clear();
-  m_HoleInfos.clear();
 }
 //------------------------------------------------------------------------------
 
@@ -957,14 +953,14 @@ void Clipper4::IntersectEdges(TEdge4 *e1, TEdge4 *e2,
   }
   else if ( e2contributing )
   {
-    switch( m_ClipType ) {
-      case ctIntersection:
+    if ( m_ClipType == ctIntersection )
+    {
         if ( (e1->polyType == ptSubject || e1->windCnt2 != 0) &&
           std::abs(e1->windCnt) < 2 ) DoEdge2( e1, e2, pt );
-        break;
-      default:
-        if (std::abs(e1->windCnt) < 2) DoEdge2( e1, e2, pt );
     }
+    else
+      if (std::abs(e1->windCnt) < 2) DoEdge2( e1, e2, pt );
+
   } else
   {
     //neither edge is currently contributing ...
@@ -1009,17 +1005,44 @@ void Clipper4::IntersectEdges(TEdge4 *e1, TEdge4 *e2,
 }
 //------------------------------------------------------------------------------
 
+int PolygonBottom(PolyPt *pp)
+{
+  int result = pp->pt.Y;
+  PolyPt *p = pp->next;
+  while (p != pp)
+  {
+    if (p->pt.Y > result) result = p->pt.Y;
+    p = p->next;
+  }
+  return result;
+}
+//------------------------------------------------------------------------------
+
 void Clipper4::AppendPolygon(TEdge4 *e1, TEdge4 *e2)
 {
-  m_HoleInfos[e2->outIdx]->idx = e1->outIdx;
-
   //get the start and ends of both output polygons ...
   PolyPt* p1_lft = m_PolyPts[e1->outIdx];
   PolyPt* p1_rt = p1_lft->prev;
   PolyPt* p2_lft = m_PolyPts[e2->outIdx];
   PolyPt* p2_rt = p2_lft->prev;
-  EdgeSide side;
 
+  //fixup orientation (hole) flag if necessary ...
+  if (p1_lft->isHole != p2_lft->isHole)
+  {
+    PolyPt *p, *pp;
+    if (PolygonBottom(p1_lft) < PolygonBottom(p2_lft))
+      p = p1_lft; else p = p2_lft;
+    bool hole = !p->isHole;
+    pp = p;
+    do
+    {
+      pp->isHole = hole;
+      pp = pp->next;
+    }
+    while (pp != p);
+  }
+
+  EdgeSide side;
   //join e2 poly onto e1 poly and delete pointers to e2 ...
   if(  e1->side == esLeft )
   {
@@ -1073,8 +1096,7 @@ void Clipper4::AppendPolygon(TEdge4 *e1, TEdge4 *e2)
   TEdge4* e = m_ActiveEdges;
   while( e )
   {
-    if( e->
-    outIdx == ObsoleteIdx )
+    if( e->outIdx == ObsoleteIdx )
     {
       e->outIdx = OKIdx;
       e->side = side;
@@ -1092,19 +1114,11 @@ PolyPt* Clipper4::AddPolyPt(TEdge4 *e, const IntPoint &pt)
   {
     PolyPt* newPolyPt = new PolyPt;
     newPolyPt->pt = pt;
-    newPolyPt->isDone = false;
+    newPolyPt->isHole = IsHole(e);
     m_PolyPts.push_back(newPolyPt);
     newPolyPt->next = newPolyPt;
     newPolyPt->prev = newPolyPt;
     e->outIdx = m_PolyPts.size()-1;
-
-    HoleInfo *hi = new HoleInfo;
-    hi->pp = newPolyPt;
-    hi->isHole = false;
-    hi->idx = e->outIdx;
-    hi->isDone = false;
-    m_HoleInfos.push_back(hi);
-
     return newPolyPt;
   } else
   {
@@ -1114,7 +1128,7 @@ PolyPt* Clipper4::AddPolyPt(TEdge4 *e, const IntPoint &pt)
 
     PolyPt* newPolyPt = new PolyPt;
     newPolyPt->pt = pt;
-    newPolyPt->isDone = false;
+    newPolyPt->isHole = pp->isHole;
     newPolyPt->next = pp;
     newPolyPt->prev = pp->prev;
     newPolyPt->prev->next = newPolyPt;
@@ -1635,11 +1649,15 @@ PolyPt* FixupOutPolygon(PolyPt *p)
 
 void Clipper4::BuildResult(Polygons &polypoly)
 {
-  GetHoleStates();
-
   for (PolyPtList::size_type i = 0; i < m_PolyPts.size(); ++i)
     if (m_PolyPts[i])
+    {
       m_PolyPts[i] = FixupOutPolygon(m_PolyPts[i]);
+      //fix orientation ...
+      PolyPt *p = m_PolyPts[i];
+      if (p && p->isHole == IsClockwise(p))
+        ReversePolyPtLinks(*p);
+    }
 
   int k = 0;
   polypoly.resize(m_PolyPts.size());
@@ -1648,10 +1666,6 @@ void Clipper4::BuildResult(Polygons &polypoly)
       Polygon* pg = &polypoly[k];
       pg->clear();
       PolyPt* p = m_PolyPts[i];
-
-      //fix orientation ...
-      if ( IsClockwise(p) == m_HoleInfos[i]->isHole )
-        ReversePolyPtLinks(*p);
 
       do {
         pg->push_back(p->pt);
@@ -1665,9 +1679,8 @@ void Clipper4::BuildResult(Polygons &polypoly)
 
 void SwapIntersectNodes(IntersectNode &int1, IntersectNode &int2)
 {
-  TEdge4 *e1, *e2;
-  e1 = int1.edge1;
-  e2 = int1.edge2;
+  TEdge4 *e1 = int1.edge1;
+  TEdge4 *e2 = int1.edge2;
   IntPoint p = int1.pt;
 
   int1.edge1 = int2.edge1;
@@ -1781,176 +1794,16 @@ void Clipper4::DoBothEdges(TEdge4 *edge1, TEdge4 *edge2, const IntPoint &pt)
 }
 //----------------------------------------------------------------------
 
-PolyPt *NextPolyPt(Tracer &t)
+bool Clipper4::IsHole(TEdge4 *e)
 {
-  if (t.dirF) return t.pp->next; else return t.pp->prev;
-}
-//----------------------------------------------------------------------
-
-void Clipper4::AddTracer(PolyPt &p, bool isForward)
-{
-  p.isDone = true;
-  Tracer *t = new Tracer;
-  t->dirF = isForward;
-  t->pp = &p;
-  if ( !m_Tracers )
+  bool hole = false;
+  TEdge4 *e2 = m_ActiveEdges;
+  while (e2 && e2 != e)
   {
-    m_Tracers = t;
-    m_TracersEnd = t;
-    t->next = 0;
-    t->prev = 0;
-  } else
-  {
-    m_TracersEnd->next = t;
-    t->prev = m_TracersEnd;
-    t->next = 0;
-    m_TracersEnd = t;
+    if (e2->outIdx >= 0) hole = !hole;
+    e2 = e2->nextInAEL;
   }
-}
-//----------------------------------------------------------------------
-
-void Clipper4::DeleteTracer(Tracer *t)
-{
-  if (t->prev) t->prev->next = t->next; else m_Tracers = t->next;
-  if (t->next) t->next->prev = t->prev; else m_TracersEnd = t->prev;
-  delete t;
-}
-//----------------------------------------------------------------------
-
-void Clipper4::UpdateTracer(Tracer *t, int currY)
-{
-  for (;;)
-  {
-    t->pp->isDone = true;
-    PolyPt *nextPP = NextPolyPt(*t);
-    if (nextPP->pt.Y < currY -2) return;
-    t->pp = nextPP;
-    if (t->pp->isDone) break;
-  }
-  DeleteTracer(t);
-}
-//----------------------------------------------------------------------
-
-bool IsClose(const IntPoint pt1, const IntPoint pt2, int epsilon = 2)
-{
-  return std::abs(pt1.X - pt2.X) + std::abs(pt1.Y - pt2.Y) <= epsilon;
-}
-//----------------------------------------------------------------------
-
-bool SortFunc (HoleInfo *hi1, HoleInfo *hi2)
-{
-  return hi1->pp->pt.Y > hi2->pp->pt.Y;
-}
-//----------------------------------------------------------------------
-
-void Clipper4::GetHoleStates()
-{
-  if ( m_HoleInfos.size() == 0 ) return;
-  HoleInfoList sortedHoleInfo = HoleInfoList(m_HoleInfos);
-  sort( sortedHoleInfo.begin(), sortedHoleInfo.end(), SortFunc);
-
-  m_Tracers = 0;
-  m_TracersEnd = 0;
-
-  HoleInfo *hi = sortedHoleInfo[0];
-  //add the lowermost minima vertex into the tracer list ...
-  while ( !m_PolyPts[hi->idx] ) hi->idx = m_HoleInfos[hi->idx]->idx;
-  m_HoleInfos[hi->idx]->isDone = true;
-  m_HoleInfos[hi->idx]->isHole = false;
-  AddTracer(*hi->pp, true);
-  AddTracer(*hi->pp, false);
-
-  //now add each subsequent minima vertex into the tracer list, and
-  //in the process determine its proper orientation ...
-  for (HoleInfoList::size_type i = 1; i < sortedHoleInfo.size(); ++i)
-  {
-    hi = sortedHoleInfo[i];
-    PolyPt *minPP = hi->pp;
-
-    int currY = minPP->pt.Y;
-
-    //update existing tracers so they are current with currY ...
-    Tracer *t = m_Tracers;
-    while (t)
-    {
-      Tracer *t2 = t->next; //save t->next because t might be disposed
-      UpdateTracer(t, currY);
-      t = t2;
-    }
-
-    //check we haven't already passed through this 'minima' ...
-    if (minPP->isDone) continue;
-
-    //get the 'final' idx of the output polygon ...
-    while ( !m_PolyPts[hi->idx] )
-      hi->idx = m_HoleInfos[hi->idx]->idx;
-
-    //if the hole state hasn't already been calculated, do it now ...
-    if ( !m_HoleInfos[hi->idx]->isDone )
-    {
-      bool hole = false;
-      t = m_Tracers;
-      while (t)
-      {
-        PolyPt *currPP = t->pp;
-        PolyPt *nextPP = NextPolyPt(*t);
-        if (currPP->pt.X > minPP->pt.X +1 && nextPP->pt.X > minPP->pt.X +1)
-        {} //do nothing
-        else if (currPP->pt.X < minPP->pt.X -1 && nextPP->pt.X < minPP->pt.X -1)
-          hole = !hole;
-        else
-        {
-          int ppX = TopX(currPP->pt, nextPP->pt, minPP->pt.Y);
-          if (ppX +2 < minPP->pt.X) hole = !hole;
-          else if (ppX -2 > minPP->pt.X) {} //do nothing
-          else
-          {
-            //compare slopes of current edge with slope that bisects minima
-            //being careful when other vertices are closely adjacent.
-            //nb: while very close, this still isn't 100% ...
-            if ( IsClose(nextPP->pt, minPP->pt) )currPP = nextPP;
-            PolyPt *tmpPP = minPP->next;
-            while ( tmpPP->next != minPP && IsClose(minPP->pt, tmpPP->pt) )
-              tmpPP = tmpPP->next;
-            double dxF = GetDx(minPP->pt, tmpPP->pt);
-            tmpPP = minPP->prev;
-            while ( tmpPP->prev != minPP && IsClose(minPP->pt, tmpPP->pt) )
-              tmpPP = tmpPP->prev;
-            double dxP = GetDx(minPP->pt, tmpPP->pt);
-            if (dxF == horizontal)
-            {
-              if (minPP->next->pt.X > minPP->pt.X) hole = !hole;
-            }
-            else if (dxP == horizontal)
-            {
-              if (minPP->prev->pt.X > minPP->pt.X) hole = !hole;
-            }
-            else
-            {
-              dxF = (dxF + dxP)/2; //dx that bisects the minima vertex
-              if (t->dirF)
-                dxP = GetDx(currPP->pt, currPP->next->pt); else
-                dxP = GetDx(currPP->pt, currPP->prev->pt);
-              if (dxP > dxF) hole = !hole;
-            }
-          }
-        }
-        t = t->next;
-      }
-      m_HoleInfos[hi->idx]->isDone = true;
-      m_HoleInfos[hi->idx]->isHole = hole;
-    }
-    AddTracer(*minPP, true);
-    AddTracer(*minPP, false);
-  }
-  //clean up ...
-  Tracer *t = m_Tracers;
-  while (t)
-  {
-    Tracer *t2 = t->next;
-    delete t;
-    t = t2;
-  }
+  return hole;
 }
 //----------------------------------------------------------------------
 

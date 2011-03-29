@@ -98,25 +98,10 @@ struct PolyPt {
   IntPoint pt;
   PolyPt  *next;
   PolyPt  *prev;
-  bool     isDone;
-};
-
-struct Tracer {
-  bool    dirF; //direction (forward = true)
-  PolyPt *pp;
-  Tracer *next;
-  Tracer *prev;
-};
-
-struct HoleInfo {
-  PolyPt *pp;
-  bool    isHole;
-  int     idx;
-  bool    isDone;
+  bool     isHole;
 };
 
 typedef std::vector < PolyPt* > PolyPtList;
-typedef std::vector < HoleInfo* > HoleInfoList;
 typedef std::vector < TEdge4* > EdgeList;
 
 //ClipperBase is the ancestor to the Clipper class. It should not be
@@ -146,7 +131,7 @@ class Clipper4 : public virtual Clipper4Base
 {
 public:
   Clipper4();
-  virtual ~Clipper4();
+  ~Clipper4();
   bool Execute(ClipType clipType,
     Polygons &solution,
     PolyFillType subjFillType = pftEvenOdd,
@@ -155,7 +140,6 @@ protected:
   bool Reset();
 private:
   PolyPtList        m_PolyPts;
-  HoleInfoList      m_HoleInfos;
   ClipType          m_ClipType;
   Scanbeam         *m_Scanbeam;
   TEdge4            *m_ActiveEdges;
@@ -164,8 +148,6 @@ private:
   bool              m_ExecuteLocked;
   PolyFillType      m_ClipFillType;
   PolyFillType      m_SubjFillType;
-  Tracer           *m_Tracers;
-  Tracer           *m_TracersEnd;
   void DisposeScanbeamList();
   void SetWindingCount(TEdge4& edge);
   bool IsNonZeroFillType(const TEdge4& edge) const;
@@ -204,10 +186,7 @@ private:
   void BuildResult(Polygons& polypoly);
   void DisposeIntersectNodes();
   bool FixupIntersections();
-  void AddTracer(PolyPt &p, bool isForward);
-  void DeleteTracer(Tracer *t);
-  void UpdateTracer(Tracer *t, int currY);
-  void GetHoleStates();
+  bool IsHole(TEdge4 *e);
 };
 
 //------------------------------------------------------------------------------

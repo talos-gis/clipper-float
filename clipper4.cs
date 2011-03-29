@@ -1,8 +1,8 @@
 ﻿/*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.0.7 (beta)                                                    *
-* Date      :  19 March 2011                                                   *
+* Version   :  4.0.8 (beta)                                                    *
+* Date      :  30 March 2011                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -109,27 +109,7 @@ namespace Clipper4
         public IntPoint pt;
         public PolyPt next;
         public PolyPt prev;
-        public bool isDone;
-    };
-
-    internal class Tracer
-    {
-        public bool dirF; //direction (forward = true)
-        public PolyPt pp;
-        public Tracer next;
-        public Tracer prev;
-    };
-
-    internal class HoleInfo : IComparable<HoleInfo>
-    {
-        public PolyPt pp;
         public bool isHole;
-        public int idx;
-        public bool isDone;
-        public int CompareTo(HoleInfo obj)
-        {
-            return -pp.pt.Y.CompareTo(obj.pp.pt.Y);
-        }
     };
 
     public class ClipperBase
@@ -460,7 +440,6 @@ namespace Clipper4
     {
     
         private List<PolyPt> m_PolyPts;
-        private List<HoleInfo> m_HoleInfos;
         private ClipType m_ClipType;
         private Scanbeam m_Scanbeam;
         private TEdge4 m_ActiveEdges;
@@ -469,8 +448,6 @@ namespace Clipper4
         private bool m_ExecuteLocked;
         private PolyFillType m_ClipFillType;
         private PolyFillType m_SubjFillType;
-        private Tracer m_Tracers;
-        private Tracer m_TracersEnd;
 
         public Clipper()
         {
@@ -480,7 +457,6 @@ namespace Clipper4
             m_IntersectNodes = null;
             m_ExecuteLocked = false;
             m_PolyPts = new List<PolyPt>();
-            m_HoleInfos = new List<HoleInfo>();
         }
         //------------------------------------------------------------------------------
 
@@ -595,19 +571,14 @@ namespace Clipper4
 
         private void DisposeAllPolyPts(){
           for (int i = 0; i < m_PolyPts.Count; ++i)
-          {
-            m_HoleInfos[i] = null;
             DisposePolyPts(m_PolyPts[i]);
-          }
           m_PolyPts.Clear();
-          m_HoleInfos.Clear();
         }
         //------------------------------------------------------------------------------
 
         private void DisposePolyPts(PolyPt pp)
         {
-            if (pp == null)
-                return;
+            if (pp == null) return;
             PolyPt tmpPp = null;
             pp.prev.next = null;
             while (pp != null)
@@ -1004,19 +975,11 @@ namespace Clipper4
           {
             PolyPt newPolyPt = new PolyPt();
             newPolyPt.pt = pt;
-            newPolyPt.isDone = false;
+            newPolyPt.isHole = IsHole(e);
             m_PolyPts.Add(newPolyPt);
             newPolyPt.next = newPolyPt;
             newPolyPt.prev = newPolyPt;
             e.outIdx = m_PolyPts.Count-1;
-
-            HoleInfo hi = new HoleInfo();
-            hi.pp = newPolyPt;
-            hi.isHole = false;
-            hi.idx = e.outIdx;
-            hi.isDone = false;
-            m_HoleInfos.Add(hi);
-
             return newPolyPt;
           } else
           {
@@ -1026,7 +989,7 @@ namespace Clipper4
 
             PolyPt newPolyPt = new PolyPt();
             newPolyPt.pt = pt;
-            newPolyPt.isDone = false;
+            newPolyPt.isHole = pp.isHole;
             newPolyPt.next = pp;
             newPolyPt.prev = pp.prev;
             newPolyPt.prev.next = newPolyPt;
@@ -1037,17 +1000,44 @@ namespace Clipper4
         }
         //------------------------------------------------------------------------------
 
+        private int PolygonBottom(PolyPt pp)
+        {
+            int result = pp.pt.Y;
+            PolyPt p = pp.next;
+            while (p != pp)
+            {
+                if (p.pt.Y > result) result = p.pt.Y;
+                p = p.next;
+            }
+            return result;
+        }
+        //------------------------------------------------------------------------------
+
         private void AppendPolygon(TEdge4 e1, TEdge4 e2)
         {
-          m_HoleInfos[e2.outIdx].idx = e1.outIdx;
-
           //get the start and ends of both output polygons ...
           PolyPt p1_lft = m_PolyPts[e1.outIdx];
           PolyPt p1_rt = p1_lft.prev;
           PolyPt p2_lft = m_PolyPts[e2.outIdx];
           PolyPt p2_rt = p2_lft.prev;
-          EdgeSide side;
 
+          //fixup orientation (hole) flag if necessary ...
+          if (p1_lft.isHole != p2_lft.isHole)
+          {
+            PolyPt p, pp;
+            if (PolygonBottom(p1_lft) < PolygonBottom(p2_lft))
+              p = p1_lft; else p = p2_lft;
+            bool hole = !p.isHole;
+            pp = p;
+            do
+            {
+              pp.isHole = hole;
+              pp = pp.next;
+            }
+            while (pp != p);
+          }
+
+            EdgeSide side;
           //join e2 poly onto e1 poly and delete pointers to e2 ...
           if(  e1.side == EdgeSide.esLeft )
           {
@@ -1837,12 +1827,15 @@ namespace Clipper4
 
         private void BuildResult(Polygons polyg)
         {
-          GetHoleStates();
-
           for (int i = 0; i < m_PolyPts.Count; ++i)
-            if ( m_PolyPts[i] != null )
-              m_PolyPts[i] = FixupOutPolygon(m_PolyPts[i]);
-
+              if (m_PolyPts[i] != null)
+              {
+                  m_PolyPts[i] = FixupOutPolygon(m_PolyPts[i]);
+                  //fix orientation ...
+                  PolyPt p = m_PolyPts[i];
+                  if (p != null && p.isHole == IsClockwise(p))
+                      ReversePolyPtLinks(p);
+              }
           polyg.Clear();
           polyg.Capacity = m_PolyPts.Count;
           for (int i = 0; i < m_PolyPts.Count; ++i)
@@ -1850,10 +1843,6 @@ namespace Clipper4
             if (m_PolyPts[i] != null) {
                 Polygon pg = new Polygon();
                 PolyPt p = m_PolyPts[i];
-
-              //fix orientation ...
-              if ( IsClockwise(p) == m_HoleInfos[i].isHole )
-                ReversePolyPtLinks(p);
 
               do {
                 pg.Add(new IntPoint(p.pt.X, p.pt.Y));
@@ -1917,182 +1906,18 @@ namespace Clipper4
         }
         //------------------------------------------------------------------------------
 
-        private void GetHoleStates()
+        private bool IsHole(TEdge4 e)
         {
-          
-            if ( m_HoleInfos.Count == 0 ) return;
-            List<HoleInfo> sortedHoleInfo = new List<HoleInfo>(m_HoleInfos);
-            sortedHoleInfo.Sort(); //should already be sorted, but just in case 
-
-            m_Tracers = null;
-            m_TracersEnd = null;
-
-            HoleInfo hi = sortedHoleInfo[0];
-            //add the lowermost minima vertex into the tracer list ...
-            while ( m_PolyPts[hi.idx] == null) hi.idx = m_HoleInfos[hi.idx].idx;
-            m_HoleInfos[hi.idx].isDone = true;
-            m_HoleInfos[hi.idx].isHole = false;
-            AddTracer(hi.pp, true);
-            AddTracer(hi.pp, false);
-
-          //now add each subsequent minima vertex into the tracer list, and
-          //in the process determine its proper orientation ...
-          for (int i = 1; i < sortedHoleInfo.Count; ++i)
-          {
-            hi = sortedHoleInfo[i];
-            PolyPt minPP = hi.pp;
-
-            int currY = minPP.pt.Y;
-
-            //update existing tracers so they are current with currY ...
-            Tracer t = m_Tracers;
-            while (t != null)
+            bool hole = false;
+            TEdge4 e2 = m_ActiveEdges;
+            while (e2 != null && e2 != e)
             {
-              Tracer t2 = t.next; //save t.next because t might be disposed
-              UpdateTracer(t, currY);
-              t = t2;
+                if (e2.outIdx >= 0) hole = !hole;
+                e2 = e2.nextInAEL;
             }
-
-            //check we haven't already passed through this 'minima' ...
-            if (minPP.isDone) continue;
-
-            //get the 'final' idx of the output polygon ...
-            while ( m_PolyPts[hi.idx] == null )
-              hi.idx = m_HoleInfos[hi.idx].idx;
-
-            //if the hole state hasn't already been calculated, do it now ...
-            if ( !m_HoleInfos[hi.idx].isDone )
-            {
-              bool hole = false;
-              t = m_Tracers;
-              while (t != null)
-              {
-                PolyPt currPP = t.pp;
-                PolyPt nextPP = NextPolyPt(t);
-                if (currPP.pt.X > minPP.pt.X +1 && nextPP.pt.X > minPP.pt.X +1)
-                {} //do nothing
-                else if (currPP.pt.X < minPP.pt.X -1 && nextPP.pt.X < minPP.pt.X -1)
-                  hole = !hole;
-                else
-                {
-                  int ppX = TopX(currPP.pt, nextPP.pt, minPP.pt.Y);
-                  if (ppX +2 < minPP.pt.X) hole = !hole;
-                  else if (ppX -2 > minPP.pt.X) {} //do nothing
-                  else
-                  {
-                    //compare slopes of current edge with slope that bisects minima
-                    //being careful when other vertices are closely adjacent.
-                    //nb: while very close, this still isn't 100% ...
-                    if ( IsClose(nextPP.pt, minPP.pt) )currPP = nextPP;
-                    PolyPt tmpPP = minPP.next;
-                    while ( tmpPP.next != minPP && IsClose(minPP.pt, tmpPP.pt) )
-                      tmpPP = tmpPP.next;
-                    double dxF = GetDx(minPP.pt, tmpPP.pt);
-                    tmpPP = minPP.prev;
-                    while ( tmpPP.prev != minPP && IsClose(minPP.pt, tmpPP.pt) )
-                      tmpPP = tmpPP.prev;
-                    double dxP = GetDx(minPP.pt, tmpPP.pt);
-                    if (dxF == horizontal)
-                    {
-                      if (minPP.next.pt.X > minPP.pt.X) hole = !hole;
-                    }
-                    else if (dxP == horizontal)
-                    {
-                      if (minPP.prev.pt.X > minPP.pt.X) hole = !hole;
-                    }
-                    else
-                    {
-                      dxF = (dxF + dxP)/2; //dx that bisects the minima vertex
-                      if (t.dirF)
-                        dxP = GetDx(currPP.pt, currPP.next.pt); else
-                        dxP = GetDx(currPP.pt, currPP.prev.pt);
-                      if (dxP > dxF) hole = !hole;
-                    }
-                  }
-                }
-                t = t.next;
-              }
-              m_HoleInfos[hi.idx].isDone = true;
-              m_HoleInfos[hi.idx].isHole = hole;
-            }
-            AddTracer(minPP, true);
-            AddTracer(minPP, false);
-          }
-          //clean up ...
-          Tracer tr = m_Tracers;
-          while (tr != null)
-          {
-            Tracer t2 = tr.next;
-            tr = null;
-            tr = t2;
-          }
-          m_Tracers = null;
+            return hole;
         }
         //----------------------------------------------------------------------
-
-        PolyPt NextPolyPt(Tracer t)
-        {
-          if (t.dirF) return t.pp.next; else return t.pp.prev;
-        }
-        //----------------------------------------------------------------------
-
-        double GetDx(IntPoint pt1, IntPoint pt2)
-        {
-          if (pt1.Y == pt2.Y) return horizontal;
-          else return (double)(pt2.X - pt1.X)/(pt2.Y - pt1.Y);
-        }
-        //---------------------------------------------------------------------------
-
-        private void AddTracer(PolyPt p, bool isForward)
-        {
-          p.isDone = true;
-          Tracer t = new Tracer();
-          t.dirF = isForward;
-          t.pp = p;
-          if ( m_Tracers == null )
-          {
-            m_Tracers = t;
-            m_TracersEnd = t;
-            t.next = null;
-            t.prev = null;
-          } else
-          {
-            m_TracersEnd.next = t;
-            t.prev = m_TracersEnd;
-            t.next = null;
-            m_TracersEnd = t;
-          }
-        }
-        //----------------------------------------------------------------------
-
-        private void DeleteTracer(Tracer t)
-        {
-          if (t.prev != null) t.prev.next = t.next; else m_Tracers = t.next;
-          if (t.next != null) t.next.prev = t.prev; else m_TracersEnd = t.prev;
-          t = null;
-        }
-        //----------------------------------------------------------------------
-
-        private void UpdateTracer(Tracer t, int currY)
-        {
-          for (;;)
-          {
-            t.pp.isDone = true;
-            PolyPt nextPP = NextPolyPt(t);
-            if (nextPP.pt.Y < currY -2) return;
-            t.pp = nextPP;
-            if (t.pp.isDone) break;
-          }
-          DeleteTracer(t);
-        }
-        //----------------------------------------------------------------------
-
-        bool IsClose(IntPoint pt1, IntPoint pt2, int epsilon = 2)
-        {
-            return Math.Abs(pt1.X - pt2.X) + Math.Abs(pt1.Y - pt2.Y) <= epsilon;
-        }
-        //----------------------------------------------------------------------
-
 
 
     } //Clipper4
