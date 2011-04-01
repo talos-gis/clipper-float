@@ -37,15 +37,20 @@ enum ClipType { ctIntersection, ctUnion, ctDifference, ctXor };
 enum PolyType { ptSubject, ptClip };
 enum PolyFillType { pftEvenOdd, pftNonZero };
 
+struct IntPoint {
+  int X;
+  int Y;
+  IntPoint(int x = 0, int y = 0): X(x), Y(y) {};
+};
 
-struct IntPoint {int X; int Y;};
 typedef std::vector< IntPoint > Polygon;
 typedef std::vector< Polygon > Polygons;
 
 typedef signed long long long64;
 
 bool IsClockwise(const Polygon &poly);
-double Area(const Polygon &poly);
+float Area(const Polygon &poly);
+Polygons OffsetPolygons(const Polygons &pts, const float &delta);
 
 //used internally ...
 enum EdgeSide { esLeft, esRight };
@@ -115,6 +120,8 @@ struct HorzJoinRec {
   int       savedIdx;
 };
 
+struct IntRect { int left; int top; int right; int bottom; };
+
 typedef std::vector < PolyPt* > PolyPtList;
 typedef std::vector < TEdge4* > EdgeList;
 typedef std::vector < JoinRec* > JoinList;
@@ -131,6 +138,7 @@ public:
   void AddPolygon(const Polygon &pg, PolyType polyType);
   void AddPolygons( const Polygons &ppg, PolyType polyType);
   virtual void Clear();
+  IntRect GetBounds();
 protected:
   void DisposeLocalMinimaList();
   TEdge4* AddBoundsToLML(TEdge4 *e);

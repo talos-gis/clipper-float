@@ -2640,23 +2640,21 @@ var
 const
   nullRect: TRect = (left:0;top:0;right:0;bottom:0);
 begin
-  result := nullRect;
-  //find first non-empty polygon ...
   len := length(a);
-  j := len;
-  for i := 0 to len-1 do
-    if length(a[i]) > 0 then
-    begin
-      j := i;
-      break;
-    end;
-  if j = len then exit;
+  i := 0;
 
-  result.Left := a[j][0].X;
-  result.Top := a[j][0].Y;
-  result.Right := result.Left;
-  result.Bottom := result.Top;
-  for i := j to len-1 do
+  while (i < len) and (length(a[i]) = 0) do inc(i);
+  if i = len then
+  begin
+    result := nullRect;
+    exit;
+  end;
+
+  with result, a[i][0] do
+  begin
+    Left := X; Top := Y; Right := X; Bottom := X;
+  end;
+  for i := i to len-1 do
     for j := 0 to high(a[i]) do
     begin
       if a[i][j].X < result.Left then result.Left := a[i][j].X

@@ -42,6 +42,7 @@
 namespace clipper4 {
 
 static double const horizontal = -3.4E+38;
+static double const pi = 3.14159265359;
 enum Direction { dRightToLeft, dLeftToRight };
 enum Position  { pFirst, pMiddle, pSecond };
 
@@ -60,24 +61,15 @@ bool IsClockwise(const Polygon &poly)
 }
 //------------------------------------------------------------------------------
 
-double Area(const Polygon &poly)
+float Area(const Polygon &poly)
 {
   int highI = poly.size() -1;
-  if (highI < 2) return false;
-  double area =
+  if (highI < 2) return 0;
+  float area =
     (long64)poly[highI].X * poly[0].Y - (long64)poly[0].X * poly[highI].Y;
   for (int i = 0; i < highI; ++i)
     area += (long64)poly[i].X * poly[i+1].Y - (long64)poly[i+1].X * poly[i].Y;
   return area/2;
-}
-//------------------------------------------------------------------------------
-
-IntPoint MakePoint(const int X, const int Y)
-{
-  IntPoint p;
-  p.X = X;
-  p.Y = Y;
-  return p;
 }
 //------------------------------------------------------------------------------
 
@@ -623,6 +615,47 @@ void Clipper4Base::PopLocalMinima()
   if( ! m_CurrentLM ) return;
   m_CurrentLM = m_CurrentLM->next;
 }
+//------------------------------------------------------------------------------
+
+IntRect Clipper4Base::GetBounds()
+{
+  IntRect result;
+  LocalMinima* lm = m_MinimaList;
+  if (!lm)
+  {
+    result.left = result.top = result.right = result.bottom = 0;
+    return result;
+  }
+  result.left = lm->leftBound->xbot;
+  result.top = lm->leftBound->ybot;
+  result.right = lm->leftBound->xbot;
+  result.bottom = lm->leftBound->ybot;
+  while (lm)
+  {
+    if (lm->leftBound->ybot > result.bottom)
+      result.bottom = lm->leftBound->ybot;
+    TEdge4* e = lm->leftBound;
+    for (;;) {
+      while (e->nextInLML)
+      {
+        if (e->xbot < result.left) result.left = e->xbot;
+        if (e->xbot > result.right) result.right = e->xbot;
+        e = e->nextInLML;
+      }
+      if (e->xbot < result.left) result.left = e->xbot;
+      if (e->xbot > result.right) result.right = e->xbot;
+      if (e->xtop < result.left) result.left = e->xtop;
+      if (e->xtop > result.right) result.right = e->xtop;
+      if (e->ytop < result.top) result.top = e->ytop;
+
+      if (e == lm->leftBound) e = lm->rightBound;
+      else break;
+    }
+    lm = lm->next;
+  }
+  return result;
+}
+
 
 //------------------------------------------------------------------------------
 // TClipper4 methods ...
@@ -929,11 +962,11 @@ void Clipper4::AddJoin(TEdge4 *e1, TEdge4 *e2, int e1OutIdx)
   if (e1OutIdx >= 0)
     jr->poly1Idx = e1OutIdx; else
     jr->poly1Idx = e1->outIdx;
-  jr->pt1a = MakePoint(e1->xbot, e1->ybot);
-  jr->pt1b = MakePoint(e1->xtop, e1->ytop);
+  jr->pt1a = IntPoint(e1->xbot, e1->ybot);
+  jr->pt1b = IntPoint(e1->xtop, e1->ytop);
   jr->poly2Idx = e2->outIdx;
-  jr->pt2a = MakePoint(e2->xbot, e2->ybot);
-  jr->pt2b = MakePoint(e2->xtop, e2->ytop);
+  jr->pt2a = IntPoint(e2->xbot, e2->ybot);
+  jr->pt2b = IntPoint(e2->xtop, e2->ytop);
   m_Joins.push_back(jr);
 }
 //------------------------------------------------------------------------------
@@ -995,7 +1028,7 @@ void Clipper4::InsertLocalMinimaIntoAEL( const int botY)
       InsertScanbeam( rb->ytop );
 
     if( IsContributing(*lb) )
-      AddLocalMinPoly( lb, rb, MakePoint(lb->xcurr, m_CurrentLM->Y) );
+      AddLocalMinPoly( lb, rb, IntPoint(lb->xcurr, m_CurrentLM->Y) );
 
     //if output polygons share an edge, they'll need joining later ...
     if (lb->outIdx >= 0 && lb->prevInAEL &&
@@ -1013,10 +1046,10 @@ void Clipper4::InsertLocalMinimaIntoAEL( const int botY)
           IntPoint pt, pt2; //returned by GetOverlapSegment() but unused here.
           HorzJoinRec* hj = m_HorizJoins[i];
           //if horizontals rb and hj.edge overlap, flag for joining later ...
-          if (GetOverlapSegment(MakePoint(hj->edge->xbot, hj->edge->ybot),
-            MakePoint(hj->edge->xtop, hj->edge->ytop),
-            MakePoint(rb->xbot, rb->ybot),
-            MakePoint(rb->xtop, rb->ytop), pt, pt2))
+          if (GetOverlapSegment(IntPoint(hj->edge->xbot, hj->edge->ybot),
+            IntPoint(hj->edge->xtop, hj->edge->ytop),
+            IntPoint(rb->xbot, rb->ybot),
+            IntPoint(rb->xtop, rb->ytop), pt, pt2))
               AddJoin(hj->edge, rb, hj->savedIdx);
         }
       }
@@ -1025,7 +1058,7 @@ void Clipper4::InsertLocalMinimaIntoAEL( const int botY)
     if( lb->nextInAEL != rb )
     {
       TEdge4* e = lb->nextInAEL;
-      IntPoint pt = MakePoint(lb->xcurr, lb->ycurr);
+      IntPoint pt = IntPoint(lb->xcurr, lb->ycurr);
       while( e != rb )
       {
         if(!e) throw clipper4Exception("InsertLocalMinimaIntoAEL: missing rightbound!");
@@ -1500,9 +1533,9 @@ void Clipper4::ProcessHorizontal(TEdge4 *horzEdge)
       {
         //horzEdge is evidently a maxima horizontal and we've arrived at its end.
         if (dir == dLeftToRight)
-          IntersectEdges(horzEdge, e, MakePoint(e->xcurr, horzEdge->ycurr), ipNone);
+          IntersectEdges(horzEdge, e, IntPoint(e->xcurr, horzEdge->ycurr), ipNone);
         else
-          IntersectEdges(e, horzEdge, MakePoint(e->xcurr, horzEdge->ycurr), ipNone);
+          IntersectEdges(e, horzEdge, IntPoint(e->xcurr, horzEdge->ycurr), ipNone);
         return;
       }
       else if( e->dx == horizontal &&  !IsMinima(e) && !(e->xcurr > e->xtop) )
@@ -1512,20 +1545,20 @@ void Clipper4::ProcessHorizontal(TEdge4 *horzEdge)
         //being infinitesimally lower that the next (e). Therfore, we
         //intersect with e only if e.xcurr is within the bounds of horzEdge ...
         if( dir == dLeftToRight )
-          IntersectEdges( horzEdge , e, MakePoint(e->xcurr, horzEdge->ycurr),
+          IntersectEdges( horzEdge , e, IntPoint(e->xcurr, horzEdge->ycurr),
             (IsTopHorz( e->xcurr ))? ipLeft : ipBoth );
         else
-          IntersectEdges( e, horzEdge, MakePoint(e->xcurr, horzEdge->ycurr),
+          IntersectEdges( e, horzEdge, IntPoint(e->xcurr, horzEdge->ycurr),
             (IsTopHorz( e->xcurr ))? ipRight : ipBoth );
       }
       else if( dir == dLeftToRight )
       {
-        IntersectEdges( horzEdge, e, MakePoint(e->xcurr, horzEdge->ycurr),
+        IntersectEdges( horzEdge, e, IntPoint(e->xcurr, horzEdge->ycurr),
           (IsTopHorz( e->xcurr ))? ipLeft : ipBoth );
       }
       else
       {
-        IntersectEdges( e, horzEdge, MakePoint(e->xcurr, horzEdge->ycurr),
+        IntersectEdges( e, horzEdge, IntPoint(e->xcurr, horzEdge->ycurr),
           (IsTopHorz( e->xcurr ))? ipRight : ipBoth );
       }
       SwapPositionsInAEL( horzEdge, e );
@@ -1540,14 +1573,14 @@ void Clipper4::ProcessHorizontal(TEdge4 *horzEdge)
   if( horzEdge->nextInLML )
   {
     if( horzEdge->outIdx >= 0 )
-      AddPolyPt( horzEdge, MakePoint(horzEdge->xtop, horzEdge->ytop));
+      AddPolyPt( horzEdge, IntPoint(horzEdge->xtop, horzEdge->ytop));
     UpdateEdgeIntoAEL( horzEdge );
   }
   else
   {
     if ( horzEdge->outIdx >= 0 )
       IntersectEdges( horzEdge, eMaxPair,
-      MakePoint(horzEdge->xtop, horzEdge->ycurr), ipBoth);
+      IntPoint(horzEdge->xtop, horzEdge->ycurr), ipBoth);
     if (eMaxPair->outIdx >= 0) throw clipper4Exception("ProcessHorizontal error");
     DeleteFromAEL(eMaxPair);
     DeleteFromAEL(horzEdge);
@@ -1726,7 +1759,7 @@ void Clipper4::DoMaxima(TEdge4 *e, int topY)
   while( eNext != eMaxPair )
   {
     if (!eNext) throw clipper4Exception("DoMaxima error");
-    IntersectEdges( e, eNext, MakePoint(X, topY), ipBoth );
+    IntersectEdges( e, eNext, IntPoint(X, topY), ipBoth );
     eNext = eNext->nextInAEL;
   }
   if( e->outIdx < 0 && eMaxPair->outIdx < 0 )
@@ -1736,7 +1769,7 @@ void Clipper4::DoMaxima(TEdge4 *e, int topY)
   }
   else if( e->outIdx >= 0 && eMaxPair->outIdx >= 0 )
   {
-    IntersectEdges( e, eMaxPair, MakePoint(X, topY), ipNone );
+    IntersectEdges( e, eMaxPair, IntPoint(X, topY), ipNone );
   }
   else throw clipper4Exception("DoMaxima error");
 }
@@ -1764,7 +1797,7 @@ void Clipper4::ProcessEdgesAtTopOfScanbeam(const int topY)
       {
         if (e->outIdx >= 0)
         {
-          AddPolyPt(e, MakePoint(e->xtop, e->ytop));
+          AddPolyPt(e, IntPoint(e->xtop, e->ytop));
           AddHorzJoin(e->nextInLML, e->outIdx);
         }
         UpdateEdgeIntoAEL(e);
@@ -1790,7 +1823,7 @@ void Clipper4::ProcessEdgesAtTopOfScanbeam(const int topY)
   {
     if( IsIntermediate( e, topY ) )
     {
-      if( e->outIdx >= 0 ) AddPolyPt(e, MakePoint(e->xtop,e->ytop));
+      if( e->outIdx >= 0 ) AddPolyPt(e, IntPoint(e->xtop,e->ytop));
       UpdateEdgeIntoAEL(e);
     }
     e = e->nextInAEL;
@@ -2069,6 +2102,143 @@ void Clipper4::JoinCommonEdges()
       }
     }
   }
+}
+
+//------------------------------------------------------------------------------
+// OffsetPolygon functions ...
+//------------------------------------------------------------------------------
+
+struct DoublePoint
+{
+  double X;
+  double Y;
+  DoublePoint(double x = 0, double y = 0) : X(x), Y(y) {}
+};
+
+Polygon BuildArc(const IntPoint &pt,
+  const float a1, const float a2, const float r)
+{
+  int steps = std::max(6, int(std::sqrt(std::abs(r)) * std::abs(a2 - a1)));
+  Polygon result(steps);
+  int n = steps - 1;
+  float da = (a2 - a1) / n;
+  float a = a1;
+  for (int i = 0; i <= n; ++i)
+  {
+    result[i].X = pt.X + std::cos(a)*r;
+    result[i].Y = pt.Y + std::sin(a)*r;
+    a = a + da;
+  }
+  return result;
+}
+//------------------------------------------------------------------------------
+
+DoublePoint GetUnitNormal( const IntPoint &pt1, const IntPoint &pt2)
+{
+  double dx = ( pt2.X - pt1.X );
+  double dy = ( pt2.Y - pt1.Y );
+  if(  ( dx == 0 ) && ( dy == 0 ) ) return DoublePoint( 0, 0 );
+
+  double f = 1 *1.0/ std::sqrt( dx*dx + dy*dy );
+  dx = dx * f;
+  dy = dy * f;
+  return DoublePoint(dy, -dx);
+}
+//------------------------------------------------------------------------------
+
+Polygons OffsetPolygons(const Polygons &pts, const float &delta)
+{
+  float deltaSq = delta*delta;
+  Polygons result(pts.size());
+
+  for (int j = 0; j < (int)pts.size(); ++j)
+  {
+    int highI = (int)pts[j].size() -1;
+    //to minimize artefacts, strip out those polygons where
+    //it's shrinking and where its area < Sqr(delta) ...
+    float a1 = Area(pts[j]);
+    if (delta < 0) { if (a1 > 0 && a1 < deltaSq) highI = 0;}
+    else if (a1 < 0 && -a1 < deltaSq) highI = 0; //nb: a hole if area < 0
+
+    Polygon pg;
+    pg.reserve(highI*2+2);
+
+    if (highI < 2)
+    {
+      result.push_back(pg);
+      continue;
+    }
+
+    std::vector < DoublePoint > normals(highI+1);
+    normals[0] = GetUnitNormal(pts[j][highI], pts[j][0]);
+    for (int i = 1; i <= highI; ++i)
+      normals[i] = GetUnitNormal(pts[j][i-1], pts[j][i]);
+
+    for (int i = 0; i < highI; ++i)
+    {
+      pg.push_back(IntPoint(pts[j][i].X + delta *normals[i].X,
+        pts[j][i].Y + delta *normals[i].Y));
+      pg.push_back(IntPoint(pts[j][i].X + delta *normals[i+1].X,
+        pts[j][i].Y + delta *normals[i+1].Y));
+    }
+    pg.push_back(IntPoint(pts[j][highI].X + delta *normals[highI].X,
+      pts[j][highI].Y + delta *normals[highI].Y));
+    pg.push_back(IntPoint(pts[j][highI].X + delta *normals[0].X,
+      pts[j][highI].Y + delta *normals[0].Y));
+
+    //round off reflex angles (ie > 180 deg) unless it's almost flat (ie < 10deg angle) ...
+    //cross product normals < 0 -> reflex angle; dot product normals == 1 -> no angle
+    if ((normals[highI].X *normals[0].Y - normals[0].X *normals[highI].Y) *delta > 0 &&
+    (normals[0].X *normals[highI].X + normals[0].Y *normals[highI].Y) < 0.985)
+    {
+      double a1 = std::atan2(normals[highI].Y, normals[highI].X);
+      double a2 = std::atan2(normals[0].Y, normals[0].X);
+      if (delta > 0 && a2 < a1) a2 = a2 + pi*2;
+      else if (delta < 0 && a2 > a1) a2 = a2 - pi*2;
+      Polygon arc = BuildArc(pts[j][highI], a1, a2, delta);
+      Polygon::iterator it = pg.begin() +highI*2+1;
+      pg.insert(it, arc.begin(), arc.end());
+    }
+    for (int i = highI; i > 0; --i)
+      if ((normals[i-1].X*normals[i].Y - normals[i].X*normals[i-1].Y) *delta > 0 &&
+      (normals[i].X*normals[i-1].X + normals[i].Y*normals[i-1].Y) < 0.985)
+      {
+        double a1 = std::atan2(normals[i-1].Y, normals[i-1].X);
+        double a2 = std::atan2(normals[i].Y, normals[i].X);
+        if (delta > 0 && a2 < a1) a2 = a2 + pi*2;
+        else if (delta < 0 && a2 > a1) a2 = a2 - pi*2;
+        Polygon arc = BuildArc(pts[j][i-1], a1, a2, delta);
+        Polygon::iterator it = pg.begin() +(i-1)*2+1;
+        pg.insert(it, arc.begin(), arc.end());
+      }
+    result.push_back(pg);
+  }
+
+  //finally, clean up untidy corners ...
+  Clipper4 c4;
+  c4.AddPolygons(result, ptSubject);
+  if (delta > 0){
+    if(!c4.Execute(ctUnion, result, pftNonZero, pftNonZero))
+      result.clear();
+  }
+  else
+  {
+    IntRect r = c4.GetBounds();
+    Polygon outer(4);
+    outer[0] = IntPoint(r.left-10, r.bottom+10);
+    outer[1] = IntPoint(r.right+10, r.bottom+10);
+    outer[2] = IntPoint(r.right+10, r.top-10);
+    outer[3] = IntPoint(r.left-10, r.top-10);
+    c4.AddPolygon(outer, ptSubject);
+    if (c4.Execute(ctUnion, result, pftNonZero, pftNonZero))
+    {
+      Polygons::iterator it = result.begin();
+      result.erase(it);
+    }
+    else
+      result.clear();
+  }
+  return result;
 }
 //------------------------------------------------------------------------------
 
