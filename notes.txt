@@ -1,11 +1,9 @@
 Notes on the Clipper Library (ver 4).
 
-This is currently a beta release and is a major rewrite of earlier versions.
+Clipper4 is still a beta release and is a major rewrite of earlier versions.
 
-Potential issues of robustness have been addressed. Floating point values are no longer used except for storing edge slope values. Lack of robustness with slope comparisons can affect edge sort orders within 'scanbeams', but this still should not affect the robustness of the library. 
+Potential issues of robustness have been addressed. Floating point values are no longer used except for storing edge slope values. Lack of robustness with edge slope comparisons may affect edge sorting within 'scanbeams' but this should not affect the robustness of the library. 
 
-The change to integer coordinates from floating point coordinates also signficantly improves execution times.
+Clipper ver 4 is approx 40% faster than Clipper ver 3. This is due to code improvements and the change to integer coordinates.
 
 Since floating point coordinates are no longer used, it's now up to the user to 'scale up' values with fractional coordinates into integer values, keeping in mind that on most platforms integers are still confined to 32bits.
-
-The code that merges output polygons sharing common edges is still to come.

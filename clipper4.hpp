@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.0.7 (beta)                                                    *
-* Date      :  19 March 2011                                                   *
+* Version   :  4.1.0 (beta)                                                    *
+* Date      :  1 April 2011                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -101,8 +101,24 @@ struct PolyPt {
   bool     isHole;
 };
 
+struct JoinRec {
+  IntPoint  pt1a;
+  IntPoint  pt1b;
+  int       poly1Idx;
+  IntPoint  pt2a;
+  IntPoint  pt2b;
+  int       poly2Idx;
+};
+
+struct HorzJoinRec {
+  TEdge4   *edge;
+  int       savedIdx;
+};
+
 typedef std::vector < PolyPt* > PolyPtList;
 typedef std::vector < TEdge4* > EdgeList;
+typedef std::vector < JoinRec* > JoinList;
+typedef std::vector < HorzJoinRec* > HorzJoinList;
 
 //ClipperBase is the ancestor to the Clipper class. It should not be
 //instantiated directly. This class simply abstracts the conversion of sets of
@@ -140,10 +156,12 @@ protected:
   bool Reset();
 private:
   PolyPtList        m_PolyPts;
+  JoinList          m_Joins;
+  HorzJoinList      m_HorizJoins;
   ClipType          m_ClipType;
   Scanbeam         *m_Scanbeam;
-  TEdge4            *m_ActiveEdges;
-  TEdge4            *m_SortedEdges;
+  TEdge4           *m_ActiveEdges;
+  TEdge4           *m_SortedEdges;
   IntersectNode    *m_IntersectNodes;
   bool              m_ExecuteLocked;
   PolyFillType      m_ClipFillType;
@@ -187,6 +205,12 @@ private:
   void DisposeIntersectNodes();
   bool FixupIntersections();
   bool IsHole(TEdge4 *e);
+  void AddJoin(TEdge4 *e1, TEdge4 *e2, int e1OutIdx = -1);
+  void ClearJoins();
+  void AddHorzJoin(TEdge4 *e, int idx);
+  void ClearHorzJoins();
+  void JoinCommonEdges();
+
 };
 
 //------------------------------------------------------------------------------

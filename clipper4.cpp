@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.0.7 (beta)                                                    *
-* Date      :  19 March 2011                                                   *
+* Version   :  4.1.0 (beta)                                                    *
+* Date      :  1 April 2011                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -43,6 +43,7 @@ namespace clipper4 {
 
 static double const horizontal = -3.4E+38;
 enum Direction { dRightToLeft, dLeftToRight };
+enum Position  { pFirst, pMiddle, pSecond };
 
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
@@ -288,6 +289,104 @@ inline void SwapX(TEdge4 &e)
   e.xbot = e.xcurr;
 }
 //------------------------------------------------------------------------------
+
+void SwapPoints(IntPoint &pt1, IntPoint &pt2)
+{
+  IntPoint tmp = pt1;
+  pt1 = pt2;
+  pt2 = tmp;
+}
+//------------------------------------------------------------------------------
+
+bool GetOverlapSegment(IntPoint pt1a, IntPoint pt1b, IntPoint pt2a,
+  IntPoint pt2b, IntPoint &pt1, IntPoint &pt2)
+{
+  //precondition: segments are colinear.
+  if ( pt1a.Y == pt1b.Y || std::abs((pt1a.X - pt1b.X)/(pt1a.Y - pt1b.Y)) > 1 )
+  {
+    if (pt1a.X > pt1b.X) SwapPoints(pt1a, pt1b);
+    if (pt2a.X > pt2b.X) SwapPoints(pt2a, pt2b);
+    if (pt1a.X > pt2a.X) pt1 = pt1a; else pt1 = pt2a;
+    if (pt1b.X < pt2b.X) pt2 = pt1b; else pt2 = pt2b;
+    return pt1.X < pt2.X;
+  } else
+  {
+    if (pt1a.Y < pt1b.Y) SwapPoints(pt1a, pt1b);
+    if (pt2a.Y < pt2b.Y) SwapPoints(pt2a, pt2b);
+    if (pt1a.Y < pt2a.Y) pt1 = pt1a; else pt1 = pt2a;
+    if (pt1b.Y > pt2b.Y) pt2 = pt1b; else pt2 = pt2b;
+    return pt1.Y > pt2.Y;
+  }
+}
+//------------------------------------------------------------------------------
+
+PolyPt* PolygonBottom(PolyPt* pp)
+{
+  PolyPt* p = pp->next;
+  PolyPt* result = pp;
+  while (p != pp)
+  {
+    if (p->pt.Y > result->pt.Y) result = p;
+    else if (p->pt.Y == result->pt.Y && p->pt.X < result->pt.X) result = p;
+    p = p->next;
+  }
+  return result;
+}
+//------------------------------------------------------------------------------
+
+bool FindSegment(PolyPt* &pp, const IntPoint pt1, const IntPoint pt2)
+{
+  if (!pp) return false;
+  PolyPt* pp2 = pp;
+  do
+  {
+    if (PointsEqual(pp->pt, pt1) &&
+      (PointsEqual(pp->next->pt, pt2) || PointsEqual(pp->prev->pt, pt2)))
+        return true;
+    pp = pp->next;
+  }
+  while (pp != pp2);
+  return false;
+}
+//------------------------------------------------------------------------------
+
+Position GetPosition(const IntPoint pt1, const IntPoint pt2, const IntPoint pt)
+{
+  if (PointsEqual(pt1, pt)) return pFirst;
+  else if (PointsEqual(pt2, pt)) return pSecond;
+  else return pMiddle;
+}
+//------------------------------------------------------------------------------
+
+bool Pt3IsBetweenPt1AndPt2(const IntPoint pt1,
+  const IntPoint pt2, const IntPoint pt3)
+{
+  if (PointsEqual(pt1, pt3) || PointsEqual(pt2, pt3)) return true;
+  else if (pt1.X != pt2.X) return (pt1.X < pt3.X) == (pt3.X < pt2.X);
+  else return (pt1.Y < pt3.Y) == (pt3.Y < pt2.Y);
+}
+//------------------------------------------------------------------------------
+
+PolyPt* InsertPolyPtBetween(PolyPt* p1, PolyPt* p2, const IntPoint pt)
+{
+  PolyPt* result = new PolyPt;
+  result->pt = pt;
+  result->isHole = p1->isHole;
+  if (p2 == p1->next)
+  {
+    p1->next = result;
+    p2->prev = result;
+    result->next = p2;
+    result->prev = p1;
+  } else
+  {
+    p2->next = result;
+    p1->prev = result;
+    result->next = p1;
+    result->prev = p2;
+  }
+  return result;
+}
 
 //------------------------------------------------------------------------------
 // Clipper4Base class methods ...
@@ -592,6 +691,7 @@ bool Clipper4::Execute(ClipType clipType, Polygons &solution,
     int botY = PopScanbeam();
     do {
       InsertLocalMinimaIntoAEL(botY);
+      ClearHorzJoins();
       ProcessHorizontals();
       int topY = PopScanbeam();
       succeeded = ProcessIntersections(topY);
@@ -603,9 +703,13 @@ bool Clipper4::Execute(ClipType clipType, Polygons &solution,
     if (succeeded) BuildResult(solution);
   }
   catch(...) {
+    ClearJoins();
+    ClearHorzJoins();
     solution.resize(0);
     succeeded = false;
   }
+  ClearJoins();
+  ClearHorzJoins();
   DisposeAllPolyPts();
   m_ExecuteLocked = false;
   return succeeded;
@@ -753,15 +857,16 @@ bool Clipper4::IsContributing(const TEdge4& edge) const
 
 void Clipper4::AddLocalMinPoly(TEdge4 *e1, TEdge4 *e2, const IntPoint &pt)
 {
-  AddPolyPt( e1, pt );
-  e2->outIdx = e1->outIdx;
-
   if( e2->dx == horizontal || ( e1->dx > e2->dx ) )
   {
+    AddPolyPt( e1, pt );
+    e2->outIdx = e1->outIdx;
     e1->side = esLeft;
     e2->side = esRight;
   } else
   {
+    AddPolyPt( e2, pt );
+    e1->outIdx = e2->outIdx;
     e1->side = esRight;
     e2->side = esLeft;
   }
@@ -818,6 +923,46 @@ void Clipper4::CopyAELToSEL()
 }
 //------------------------------------------------------------------------------
 
+void Clipper4::AddJoin(TEdge4 *e1, TEdge4 *e2, int e1OutIdx)
+{
+  JoinRec* jr = new JoinRec;
+  if (e1OutIdx >= 0)
+    jr->poly1Idx = e1OutIdx; else
+    jr->poly1Idx = e1->outIdx;
+  jr->pt1a = MakePoint(e1->xbot, e1->ybot);
+  jr->pt1b = MakePoint(e1->xtop, e1->ytop);
+  jr->poly2Idx = e2->outIdx;
+  jr->pt2a = MakePoint(e2->xbot, e2->ybot);
+  jr->pt2b = MakePoint(e2->xtop, e2->ytop);
+  m_Joins.push_back(jr);
+}
+//------------------------------------------------------------------------------
+
+void Clipper4::ClearJoins()
+{
+  for (JoinList::size_type i = 0; i < m_Joins.size(); i++)
+    delete m_Joins[i];
+  m_Joins.resize(0);
+}
+//------------------------------------------------------------------------------
+
+void Clipper4::AddHorzJoin(TEdge4 *e, int idx)
+{
+  HorzJoinRec* hj = new HorzJoinRec;
+  hj->edge = e;
+  hj->savedIdx = idx;
+  m_HorizJoins.push_back(hj);
+}
+//------------------------------------------------------------------------------
+
+void Clipper4::ClearHorzJoins()
+{
+  for (HorzJoinList::size_type i = 0; i < m_HorizJoins.size(); i++)
+    delete m_HorizJoins[i];
+  m_HorizJoins.resize(0);
+}
+//------------------------------------------------------------------------------
+
 void Clipper4::InsertLocalMinimaIntoAEL( const int botY)
 {
   while(  m_CurrentLM  && ( m_CurrentLM->Y == botY ) )
@@ -851,6 +996,31 @@ void Clipper4::InsertLocalMinimaIntoAEL( const int botY)
 
     if( IsContributing(*lb) )
       AddLocalMinPoly( lb, rb, MakePoint(lb->xcurr, m_CurrentLM->Y) );
+
+    //if output polygons share an edge, they'll need joining later ...
+    if (lb->outIdx >= 0 && lb->prevInAEL &&
+      lb->prevInAEL->outIdx >= 0 && lb->prevInAEL->xcurr == lb->xbot &&
+       SlopesEqual(*lb, *lb->prevInAEL))
+         AddJoin(lb, lb->prevInAEL);
+
+    //if any output polygons share an edge, they'll need joining later ...
+    if (rb->outIdx >= 0)
+    {
+      if (rb->dx == horizontal)
+      {
+        for (HorzJoinList::size_type i = 0; i < m_HorizJoins.size(); ++i)
+        {
+          IntPoint pt, pt2; //returned by GetOverlapSegment() but unused here.
+          HorzJoinRec* hj = m_HorizJoins[i];
+          //if horizontals rb and hj.edge overlap, flag for joining later ...
+          if (GetOverlapSegment(MakePoint(hj->edge->xbot, hj->edge->ybot),
+            MakePoint(hj->edge->xtop, hj->edge->ytop),
+            MakePoint(rb->xbot, rb->ybot),
+            MakePoint(rb->xtop, rb->ytop), pt, pt2))
+              AddJoin(hj->edge, rb, hj->savedIdx);
+        }
+      }
+    }
 
     if( lb->nextInAEL != rb )
     {
@@ -1005,19 +1175,6 @@ void Clipper4::IntersectEdges(TEdge4 *e1, TEdge4 *e2,
 }
 //------------------------------------------------------------------------------
 
-int PolygonBottom(PolyPt *pp)
-{
-  int result = pp->pt.Y;
-  PolyPt *p = pp->next;
-  while (p != pp)
-  {
-    if (p->pt.Y > result) result = p->pt.Y;
-    p = p->next;
-  }
-  return result;
-}
-//------------------------------------------------------------------------------
-
 void Clipper4::AppendPolygon(TEdge4 *e1, TEdge4 *e2)
 {
   //get the start and ends of both output polygons ...
@@ -1030,8 +1187,15 @@ void Clipper4::AppendPolygon(TEdge4 *e1, TEdge4 *e2)
   if (p1_lft->isHole != p2_lft->isHole)
   {
     PolyPt *p, *pp;
-    if (PolygonBottom(p1_lft) < PolygonBottom(p2_lft))
-      p = p1_lft; else p = p2_lft;
+    PolyPt *bottom1 = PolygonBottom(p1_lft);
+    PolyPt *bottom2 = PolygonBottom(p2_lft);
+    if (bottom1->pt.Y > bottom2->pt.Y) p = p2_lft;
+    else if (bottom1->pt.Y < bottom2->pt.Y) p = p1_lft;
+    else if (bottom1->pt.X < bottom2->pt.X) p = p2_lft;
+    else if (bottom1->pt.X > bottom2->pt.X) p = p1_lft;
+    //todo - the following line still isn't 100% ...
+    else if (bottom1->isHole) p = p1_lft; else p = p2_lft;
+
     bool hole = !p->isHole;
     pp = p;
     do
@@ -1317,8 +1481,20 @@ void Clipper4::ProcessHorizontal(TEdge4 *horzEdge)
     if( e->xcurr >= horzLeft && e->xcurr <= horzRight )
     {
       //ok, so far it looks like we're still in range of the horizontal edge
-      if ( e->xcurr == horzEdge->xtop && horzEdge->nextInLML &&
-        e->dx <= horzEdge->nextInLML->dx) break;
+      if ( e->xcurr == horzEdge->xtop && horzEdge->nextInLML)
+      {
+        if (SlopesEqual(*e, *horzEdge->nextInLML))
+        {
+          //if output polygons share an edge, they'll need joining later ...
+          if (horzEdge->outIdx >= 0 && e->outIdx >= 0)
+            AddJoin(horzEdge->nextInLML, e, horzEdge->outIdx);
+          break; //we've reached the end of the horizontal line
+        }
+        else if (e->dx < horzEdge->nextInLML->dx)
+        //we really have got to the end of the intermediate horz edge so quit.
+        //nb: More -ve slopes follow more +ve slopes ABOVE the horizontal.
+          break;
+      }
 
       if( e == eMaxPair )
       {
@@ -1396,7 +1572,14 @@ void Clipper4::UpdateEdgeIntoAEL(TEdge4 *&e)
   e = e->nextInLML;
   e->prevInAEL = AelPrev;
   e->nextInAEL = AelNext;
-  if( e->dx != horizontal ) InsertScanbeam( e->ytop );
+  if( e->dx != horizontal )
+  {
+    InsertScanbeam( e->ytop );
+    //if output polygons share an edge, they'll need joining later ...
+    if (e->outIdx >= 0 && AelPrev && AelPrev->outIdx >= 0 &&
+      AelPrev->xbot == e->xcurr && SlopesEqual(*e, *AelPrev))
+        AddJoin(e, AelPrev);
+  }
 }
 //------------------------------------------------------------------------------
 
@@ -1579,7 +1762,11 @@ void Clipper4::ProcessEdgesAtTopOfScanbeam(const int topY)
       //2. promote horizontal edges, otherwise update xcurr and ycurr ...
       if(  IsIntermediate(e, topY) && e->nextInLML->dx == horizontal )
       {
-        if (e->outIdx >= 0) AddPolyPt(e, MakePoint(e->xtop, e->ytop));
+        if (e->outIdx >= 0)
+        {
+          AddPolyPt(e, MakePoint(e->xtop, e->ytop));
+          AddHorzJoin(e->nextInLML, e->outIdx);
+        }
         UpdateEdgeIntoAEL(e);
         AddEdgeToSEL(e);
       } else
@@ -1658,6 +1845,7 @@ void Clipper4::BuildResult(Polygons &polypoly)
       if (p && p->isHole == IsClockwise(p))
         ReversePolyPtLinks(*p);
     }
+  JoinCommonEdges();
 
   int k = 0;
   polypoly.resize(m_PolyPts.size());
@@ -1806,6 +1994,83 @@ bool Clipper4::IsHole(TEdge4 *e)
   return hole;
 }
 //----------------------------------------------------------------------
+
+void Clipper4::JoinCommonEdges()
+{
+  for (JoinList::size_type i = 0; i < m_Joins.size(); i++)
+  {
+    JoinRec* j = m_Joins[i];
+
+    PolyPt *pp1a, *pp1b, *pp2a, *pp2b;
+    IntPoint pt1, pt2;
+
+    if (j->poly1Idx < 0 || j->poly2Idx < 0)
+      throw clipper4Exception("oops");
+
+    pp1a = m_PolyPts[j->poly1Idx];
+    pp2a = m_PolyPts[j->poly2Idx];
+    if (FindSegment(pp1a, j->pt1a, j->pt1b) &&
+      FindSegment(pp2a, j->pt2a, j->pt2b))
+    {
+      if (PointsEqual(pp1a->next->pt, j->pt1b))
+        pp1b = pp1a->next; else pp1b = pp1a->prev;
+      if (PointsEqual(pp2a->next->pt, j->pt2b))
+        pp2b = pp2a->next; else pp2b = pp2a->prev;
+      if (j->poly1Idx != j->poly2Idx &&
+        GetOverlapSegment(pp1a->pt, pp1b->pt, pp2a->pt, pp2b->pt, pt1, pt2))
+      {
+        PolyPt *p1, *p2, *p3, *p4;
+        //get p1 & p2 polypts - the overlap start & endpoints on poly1
+        Position pos1 = GetPosition(pp1a->pt, pp1b->pt, pt1);
+        if (pos1 == pFirst) p1 = pp1a;
+        else if (pos1 == pSecond) p1 = pp1b;
+        else p1 = InsertPolyPtBetween(pp1a, pp1b, pt1);
+        Position pos2 = GetPosition(pp1a->pt, pp1b->pt, pt2);
+        if (pos2 == pMiddle)
+        {
+          if (pos1 == pMiddle)
+          {
+            if (Pt3IsBetweenPt1AndPt2(pp1a->pt, p1->pt, pt2))
+              p2 = InsertPolyPtBetween(pp1a, p1, pt2); else
+              p2 = InsertPolyPtBetween(p1, pp1b, pt2);
+          }
+          else if (pos2 == pFirst) p2 = pp1a;
+          else p2 = pp1b;
+        }
+        else if (pos2 == pFirst) p2 = pp1a;
+        else p2 = pp1b;
+        //get p3 & p4 polypts - the overlap start & endpoints on poly2
+        pos1 = GetPosition(pp2a->pt, pp2b->pt, pt1);
+        if (pos1 == pFirst) p3 = pp2a;
+        else if (pos1 == pSecond) p3 = pp2b;
+        else p3 = InsertPolyPtBetween(pp2a, pp2b, pt1);
+        pos2 = GetPosition(pp2a->pt, pp2b->pt, pt2);
+        if (pos2 == pMiddle)
+        {
+          if (pos1 == pMiddle)
+          {
+            if (Pt3IsBetweenPt1AndPt2(pp2a->pt, p3->pt, pt2))
+              p4 = InsertPolyPtBetween(pp2a, p3, pt2); else
+              p4 = InsertPolyPtBetween(p3, pp2b, pt2);
+          }
+          else if (pos2 == pFirst) p4 = pp2a;
+          else p4 = pp2b;
+        }
+        else if (pos2 == pFirst) p4 = pp2a;
+        else p4 = pp2b;
+
+        if (p1->next == p2) p1->next = p3; else p1->prev = p3;
+        if (p3->next == p4) p3->next = p1; else p3->prev = p1;
+
+        if (p2->next == p1) p2->next = p4; else p2->prev = p4;
+        if (p4->next == p3) p4->next = p2; else p4->prev = p2;
+
+        m_PolyPts[j->poly2Idx] = 0;
+      }
+    }
+  }
+}
+//------------------------------------------------------------------------------
 
 } //namespace clipper4
 

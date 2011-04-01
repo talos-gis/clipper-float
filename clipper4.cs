@@ -1,8 +1,8 @@
 ﻿/*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.0.8 (beta)                                                    *
-* Date      :  30 March 2011                                                   *
+* Version   :  4.1.0 (beta)                                                    *
+* Date      :  1 April 2011                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -54,6 +54,7 @@ namespace Clipper4
 
 
     internal enum EdgeSide { esLeft, esRight };
+    internal enum Position { pFirst, pMiddle, pSecond };
     internal enum Direction { dRightToLeft, dLeftToRight };
     [Flags]
     internal enum Protects { ipNone = 0, ipLeft = 1, ipRight = 2, ipBoth = 3 };
@@ -112,11 +113,25 @@ namespace Clipper4
         public bool isHole;
     };
 
+    internal class JoinRec
+    {
+        public IntPoint pt1a;
+        public IntPoint pt1b;
+        public int poly1Idx;
+        public IntPoint pt2a;
+        public IntPoint pt2b;
+        public int poly2Idx;
+    };
+
+    internal class HorzJoinRec
+    {
+        public TEdge4 edge;
+        public int savedIdx;
+    };
+
     public class ClipperBase
     {
-
         protected const double horizontal = -3.4E+38;
-
         internal LocalMinima m_MinimaList;
         internal LocalMinima m_CurrentLM;
         private List<List<TEdge4>> m_edges = new List<List<TEdge4>>();
@@ -448,6 +463,8 @@ namespace Clipper4
         private bool m_ExecuteLocked;
         private PolyFillType m_ClipFillType;
         private PolyFillType m_SubjFillType;
+        private List<JoinRec> m_Joins;
+        private List<HorzJoinRec> m_HorizJoins;
 
         public Clipper()
         {
@@ -457,6 +474,8 @@ namespace Clipper4
             m_IntersectNodes = null;
             m_ExecuteLocked = false;
             m_PolyPts = new List<PolyPt>();
+            m_Joins = new List<JoinRec>();
+            m_HorizJoins = new List<HorzJoinRec>();
         }
         //------------------------------------------------------------------------------
 
@@ -539,6 +558,7 @@ namespace Clipper4
             int botY = PopScanbeam();
             do {
               InsertLocalMinimaIntoAEL(botY);
+              m_HorizJoins.Clear();
               ProcessHorizontals();
               int topY = PopScanbeam();
               succeeded = ProcessIntersections(topY);
@@ -550,9 +570,13 @@ namespace Clipper4
             if (succeeded) BuildResult(solution);
           }
           catch {
-            solution.Clear();
-            succeeded = false;
+              m_Joins.Clear();
+              m_HorizJoins.Clear();
+              solution.Clear();
+              succeeded = false;
           }
+          m_Joins.Clear();
+          m_HorizJoins.Clear();
           DisposeAllPolyPts();
           m_ExecuteLocked = false;
           return succeeded;
@@ -590,6 +614,30 @@ namespace Clipper4
         }
         //------------------------------------------------------------------------------
 
+        private void AddJoin(TEdge4 e1, TEdge4 e2, int e1OutIdx = -1)
+        {
+            JoinRec jr = new JoinRec();
+            if (e1OutIdx >= 0)
+                jr.poly1Idx = e1OutIdx; else
+            jr.poly1Idx = e1.outIdx;
+            jr.pt1a = new IntPoint(e1.xbot, e1.ybot);
+            jr.pt1b = new IntPoint(e1.xtop, e1.ytop);
+            jr.poly2Idx = e2.outIdx;
+            jr.pt2a = new IntPoint(e2.xbot, e2.ybot);
+            jr.pt2b = new IntPoint(e2.xtop, e2.ytop);
+            m_Joins.Add(jr);
+        }
+        //------------------------------------------------------------------------------
+
+        private void AddHorzJoin(TEdge4 e, int idx)
+        {
+            HorzJoinRec hj = new HorzJoinRec();
+            hj.edge = e;
+            hj.savedIdx = idx;
+            m_HorizJoins.Add(hj);
+        }
+        //------------------------------------------------------------------------------
+
         private void InsertLocalMinimaIntoAEL(int botY)
         {
           while(  m_CurrentLM != null  && ( m_CurrentLM.Y == botY ) )
@@ -623,6 +671,33 @@ namespace Clipper4
 
             if( IsContributing(lb) )
                 AddLocalMinPoly(lb, rb, new IntPoint(lb.xcurr, m_CurrentLM.Y));
+
+
+            //if output polygons share an edge, they'll need joining later ...
+            if (lb.outIdx >= 0 && lb.prevInAEL != null &&
+              lb.prevInAEL.outIdx >= 0 && lb.prevInAEL.xcurr == lb.xbot &&
+               SlopesEqual(lb, lb.prevInAEL))
+                AddJoin(lb, lb.prevInAEL);
+
+            //if any output polygons share an edge, they'll need joining later ...
+            if (rb.outIdx >= 0)
+            {
+                if (rb.dx == horizontal)
+                {
+                    for (int i = 0; i < m_HorizJoins.Count; i++)
+                    {
+                        IntPoint pt = new IntPoint(), pt2 = new IntPoint(); //used as dummy parameters.
+                        HorzJoinRec hj = m_HorizJoins[i];
+                        //if horizontals rb and hj.edge overlap, flag for joining later ...
+                        if (GetOverlapSegment(new IntPoint(hj.edge.xbot, hj.edge.ybot),
+                            new IntPoint(hj.edge.xtop, hj.edge.ytop),
+                            new IntPoint(rb.xbot, rb.ybot),
+                            new IntPoint(rb.xtop, rb.ytop), ref pt, ref pt2))
+                                AddJoin(hj.edge, rb, hj.savedIdx);
+                    }
+                }
+            }
+
 
             if( lb.nextInAEL != rb )
             {
@@ -952,16 +1027,17 @@ namespace Clipper4
 
         private void AddLocalMinPoly(TEdge4 e1, TEdge4 e2, IntPoint pt)
         {
-            AddPolyPt(e1, pt);
-            e2.outIdx = e1.outIdx;
-
             if (e2.dx == horizontal || (e1.dx > e2.dx))
             {
+                AddPolyPt(e1, pt);
+                e2.outIdx = e1.outIdx;
                 e1.side = EdgeSide.esLeft;
                 e2.side = EdgeSide.esRight;
             }
             else
             {
+                AddPolyPt(e2, pt);
+                e1.outIdx = e2.outIdx;
                 e1.side = EdgeSide.esRight;
                 e2.side = EdgeSide.esLeft;
             }
@@ -1000,14 +1076,100 @@ namespace Clipper4
         }
         //------------------------------------------------------------------------------
 
-        private int PolygonBottom(PolyPt pp)
+
+        internal void SwapPoints(ref IntPoint pt1, ref IntPoint pt2)
         {
-            int result = pp.pt.Y;
+            IntPoint tmp = pt1;
+            pt1 = pt2;
+            pt2 = tmp;
+        }
+        //------------------------------------------------------------------------------
+
+        private bool GetOverlapSegment(IntPoint pt1a, IntPoint pt1b, IntPoint pt2a,
+            IntPoint pt2b, ref IntPoint pt1, ref IntPoint pt2)
+        {
+            //precondition: segments are colinear.
+            if ( pt1a.Y == pt1b.Y || Math.Abs((pt1a.X - pt1b.X)/(pt1a.Y - pt1b.Y)) > 1 )
+            {
+            if (pt1a.X > pt1b.X) SwapPoints(ref pt1a, ref pt1b);
+            if (pt2a.X > pt2b.X) SwapPoints(ref pt2a, ref pt2b);
+            if (pt1a.X > pt2a.X) pt1 = pt1a; else pt1 = pt2a;
+            if (pt1b.X < pt2b.X) pt2 = pt1b; else pt2 = pt2b;
+            return pt1.X < pt2.X;
+            } else
+            {
+            if (pt1a.Y < pt1b.Y) SwapPoints(ref pt1a, ref pt1b);
+            if (pt2a.Y < pt2b.Y) SwapPoints(ref pt2a, ref pt2b);
+            if (pt1a.Y < pt2a.Y) pt1 = pt1a; else pt1 = pt2a;
+            if (pt1b.Y > pt2b.Y) pt2 = pt1b; else pt2 = pt2b;
+            return pt1.Y > pt2.Y;
+            }
+        }
+        //------------------------------------------------------------------------------
+
+        private PolyPt PolygonBottom(PolyPt pp)
+        {
             PolyPt p = pp.next;
+            PolyPt result = pp;
             while (p != pp)
             {
-                if (p.pt.Y > result) result = p.pt.Y;
-                p = p.next;
+            if (p.pt.Y > result.pt.Y) result = p;
+            else if (p.pt.Y == result.pt.Y && p.pt.X < result.pt.X) result = p;
+            p = p.next;
+            }
+            return result;
+        }
+        //------------------------------------------------------------------------------
+
+        private bool FindSegment(ref PolyPt pp, IntPoint pt1, IntPoint pt2)
+        {
+            if (pp == null) return false;
+            PolyPt pp2 = pp;
+            do
+            {
+            if (PointsEqual(pp.pt, pt1) &&
+                (PointsEqual(pp.next.pt, pt2) || PointsEqual(pp.prev.pt, pt2)))
+                return true;
+            pp = pp.next;
+            }
+            while (pp != pp2);
+            return false;
+        }
+        //------------------------------------------------------------------------------
+
+        internal Position GetPosition(IntPoint pt1, IntPoint pt2, IntPoint pt)
+        {
+            if (PointsEqual(pt1, pt)) return Position.pFirst;
+            else if (PointsEqual(pt2, pt)) return Position.pSecond;
+            else return Position.pMiddle;
+        }
+        //------------------------------------------------------------------------------
+
+        internal bool Pt3IsBetweenPt1AndPt2(IntPoint pt1, IntPoint pt2, IntPoint pt3)
+        {
+            if (PointsEqual(pt1, pt3) || PointsEqual(pt2, pt3)) return true;
+            else if (pt1.X != pt2.X) return (pt1.X < pt3.X) == (pt3.X < pt2.X);
+            else return (pt1.Y < pt3.Y) == (pt3.Y < pt2.Y);
+        }
+        //------------------------------------------------------------------------------
+
+        private PolyPt InsertPolyPtBetween(PolyPt p1, PolyPt p2, IntPoint pt)
+        {
+            PolyPt result = new PolyPt();
+            result.pt = pt;
+            result.isHole = p1.isHole;
+            if (p2 == p1.next)
+            {
+            p1.next = result;
+            p2.prev = result;
+            result.next = p2;
+            result.prev = p1;
+            } else
+            {
+            p2.next = result;
+            p1.prev = result;
+            result.next = p1;
+            result.prev = p2;
             }
             return result;
         }
@@ -1025,8 +1187,15 @@ namespace Clipper4
           if (p1_lft.isHole != p2_lft.isHole)
           {
             PolyPt p, pp;
-            if (PolygonBottom(p1_lft) < PolygonBottom(p2_lft))
-              p = p1_lft; else p = p2_lft;
+            PolyPt bottom1 = PolygonBottom(p1_lft);
+            PolyPt bottom2 = PolygonBottom(p2_lft);
+            if (bottom1.pt.Y > bottom2.pt.Y) p = p2_lft;
+            else if (bottom1.pt.Y < bottom2.pt.Y) p = p1_lft;
+            else if (bottom1.pt.X < bottom2.pt.X) p = p2_lft;
+            else if (bottom1.pt.X > bottom2.pt.X) p = p1_lft;
+            //todo - the following line still isn't 100% ...
+            else if (bottom1.isHole) p = p1_lft; else p = p2_lft;
+
             bool hole = !p.isHole;
             pp = p;
             do
@@ -1133,7 +1302,7 @@ namespace Clipper4
         }
         //------------------------------------------------------------------------------
 
-        void DoEdge1(TEdge4 edge1, TEdge4 edge2, IntPoint pt)
+        private void DoEdge1(TEdge4 edge1, TEdge4 edge2, IntPoint pt)
         {
             AddPolyPt(edge1, pt);
             SwapSides(edge1, edge2);
@@ -1141,7 +1310,7 @@ namespace Clipper4
         }
         //------------------------------------------------------------------------------
 
-        void DoEdge2(TEdge4 edge1, TEdge4 edge2, IntPoint pt)
+        private void DoEdge2(TEdge4 edge1, TEdge4 edge2, IntPoint pt)
         {
             AddPolyPt(edge2, pt);
             SwapSides(edge1, edge2);
@@ -1336,7 +1505,14 @@ namespace Clipper4
             e = e.nextInLML;
             e.prevInAEL = AelPrev;
             e.nextInAEL = AelNext;
-            if (e.dx != horizontal) InsertScanbeam(e.ytop);
+            if (e.dx != horizontal)
+            {
+                InsertScanbeam(e.ytop);
+                //if output polygons share an edge, they'll need joining later ...
+                if (e.outIdx >= 0 && AelPrev != null && AelPrev.outIdx >= 0 &&
+                  AelPrev.xbot == e.xcurr && SlopesEqual(e, AelPrev))
+                    AddJoin(e, AelPrev);
+            }
         }
         //------------------------------------------------------------------------------
 
@@ -1383,8 +1559,20 @@ namespace Clipper4
                 if (e.xcurr >= horzLeft && e.xcurr <= horzRight)
                 {
                     //ok, so far it looks like we're still in range of the horizontal edge
-                    if (e.xcurr == horzEdge.xtop && horzEdge.nextInLML != null &&
-                        e.dx <= horzEdge.nextInLML.dx) break;
+                    if (e.xcurr == horzEdge.xtop && horzEdge.nextInLML != null)
+                    {
+                        if (SlopesEqual(e, horzEdge.nextInLML))
+                        {
+                            //if output polygons share an edge, they'll need joining later ...
+                            if (horzEdge.outIdx >= 0 && e.outIdx >= 0)
+                                AddJoin(horzEdge.nextInLML, e, horzEdge.outIdx);
+                            break; //we've reached the end of the horizontal line
+                        }
+                        else if (e.dx < horzEdge.nextInLML.dx)
+                            //we really have got to the end of the intermediate horz edge so quit.
+                            //nb: More -ve slopes follow more +ve slopes ABOVE the horizontal.
+                            break;
+                    }
 
                     if (e == eMaxPair)
                     {
@@ -1769,10 +1957,15 @@ namespace Clipper4
               //2. promote horizontal edges, otherwise update xcurr and ycurr ...
               if(  IsIntermediate(e, topY) && e.nextInLML.dx == horizontal )
               {
-                if (e.outIdx >= 0) AddPolyPt(e, new IntPoint(e.xtop, e.ytop));
+                if (e.outIdx >= 0)
+                {
+                    AddPolyPt(e, new IntPoint(e.xtop, e.ytop));
+                    AddHorzJoin(e.nextInLML, e.outIdx);
+                }
                 UpdateEdgeIntoAEL(ref e);
                 AddEdgeToSEL(e);
-              } else
+              } 
+              else
               {
                 //this just simplifies horizontal processing ...
                 e.xcurr = TopX( e, topY );
@@ -1836,6 +2029,8 @@ namespace Clipper4
                   if (p != null && p.isHole == IsClockwise(p))
                       ReversePolyPtLinks(p);
               }
+          JoinCommonEdges();
+
           polyg.Clear();
           polyg.Capacity = m_PolyPts.Count;
           for (int i = 0; i < m_PolyPts.Count; ++i)
@@ -1919,6 +2114,81 @@ namespace Clipper4
         }
         //----------------------------------------------------------------------
 
+        private void JoinCommonEdges()
+        {
+          for (int i = 0; i < m_Joins.Count; i++)
+          {
+            PolyPt pp1a, pp1b, pp2a, pp2b;
+            IntPoint pt1 = new IntPoint(), pt2 = new IntPoint();
+
+            JoinRec j = m_Joins[i];
+            if (j.poly1Idx < 0 || j.poly2Idx < 0) 
+                throw new ClipperException("JoinCommonEdges error");
+            
+            pp1a = m_PolyPts[j.poly1Idx];
+            pp2a = m_PolyPts[j.poly2Idx];
+            if (FindSegment(ref pp1a, j.pt1a, j.pt1b) &&
+              FindSegment(ref pp2a, j.pt2a, j.pt2b))
+            {
+              if (PointsEqual(pp1a.next.pt, j.pt1b))
+                pp1b = pp1a.next; else pp1b = pp1a.prev;
+              if (PointsEqual(pp2a.next.pt, j.pt2b))
+                pp2b = pp2a.next; else pp2b = pp2a.prev;
+              if (j.poly1Idx != j.poly2Idx &&
+                GetOverlapSegment(pp1a.pt, pp1b.pt, pp2a.pt, pp2b.pt, ref pt1, ref pt2))
+              {
+                PolyPt p1, p2, p3, p4;
+                //get p1 & p2 polypts - the overlap start & endpoints on poly1
+                Position pos1 = GetPosition(pp1a.pt, pp1b.pt, pt1);
+                if (pos1 == Position.pFirst) p1 = pp1a;
+                else if (pos1 == Position.pSecond) p1 = pp1b;
+                else p1 = InsertPolyPtBetween(pp1a, pp1b, pt1);
+                Position pos2 = GetPosition(pp1a.pt, pp1b.pt, pt2);
+                if (pos2 == Position.pMiddle)
+                {
+                    if (pos1 == Position.pMiddle)
+                  {
+                    if (Pt3IsBetweenPt1AndPt2(pp1a.pt, p1.pt, pt2))
+                      p2 = InsertPolyPtBetween(pp1a, p1, pt2); else
+                      p2 = InsertPolyPtBetween(p1, pp1b, pt2);
+                  }
+                    else if (pos2 == Position.pFirst) p2 = pp1a;
+                  else p2 = pp1b;
+                }
+                else if (pos2 == Position.pFirst) p2 = pp1a;
+                else p2 = pp1b;
+                //get p3 & p4 polypts - the overlap start & endpoints on poly2
+                pos1 = GetPosition(pp2a.pt, pp2b.pt, pt1);
+                if (pos1 == Position.pFirst) p3 = pp2a;
+                else if (pos1 == Position.pSecond) p3 = pp2b;
+                else p3 = InsertPolyPtBetween(pp2a, pp2b, pt1);
+                pos2 = GetPosition(pp2a.pt, pp2b.pt, pt2);
+                if (pos2 == Position.pMiddle)
+                {
+                    if (pos1 == Position.pMiddle)
+                  {
+                    if (Pt3IsBetweenPt1AndPt2(pp2a.pt, p3.pt, pt2))
+                      p4 = InsertPolyPtBetween(pp2a, p3, pt2); else
+                      p4 = InsertPolyPtBetween(p3, pp2b, pt2);
+                  }
+                    else if (pos2 == Position.pFirst) p4 = pp2a;
+                  else p4 = pp2b;
+                }
+                else if (pos2 == Position.pFirst) p4 = pp2a;
+                else p4 = pp2b;
+
+                if (p1.next == p2) p1.next = p3; else p1.prev = p3;
+                if (p3.next == p4) p3.next = p1; else p3.prev = p1;
+
+                if (p2.next == p1) p2.next = p4; else p2.prev = p4;
+                if (p4.next == p3) p4.next = p2; else p4.prev = p2;
+
+                m_PolyPts[j.poly2Idx] = null;
+              }
+            }
+          }
+        }
+        //------------------------------------------------------------------------------
 
     } //Clipper4
   

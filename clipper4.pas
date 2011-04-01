@@ -3,8 +3,8 @@ unit clipper4;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.0.8 (beta)                                                    *
-* Date      :  30 March 2011                                                   *
+* Version   :  4.1.0 (beta)                                                    *
+* Date      :  1 April 2011                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -25,9 +25,17 @@ unit clipper4;
 *                                                                              *
 *******************************************************************************)
 
+//Several type definitions used in the code below are defined in the Delphi
+//Graphics32 library ( see http://www.graphics32.org/wiki/ ). These type
+//definitions are redefined here in case you don't wish to use Graphics32.
+{$DEFINE USING_GRAPHICS32}
+
 interface
 
 uses
+{$IFDEF USING_GRAPHICS32}
+  GR32,                        
+{$ENDIF}
   SysUtils, Types, Classes, Math;
 
 type
@@ -35,6 +43,14 @@ type
   TClipType = (ctIntersection, ctUnion, ctDifference, ctXor);
   TPolyType = (ptSubject, ptClip);
   TPolyFillType = (pftEvenOdd, pftNonZero);
+
+{$IFNDEF USING_GRAPHICS32}
+  TFloat = Single;
+  TFloatPoint = record X, Y: TFloat; end;
+  TArrayOfFloatPoint = array of TFloatPoint;
+  TArrayOfArrayOfFloatPoint = array of TArrayOfFloatPoint;
+  TFloatRect = record left, top, right, bottom: TFloat; end;
+{$ENDIF}
 
   //used internally ...
   TEdgeSide = (esLeft, esRight);
@@ -102,10 +118,27 @@ type
     isHole : boolean;
   end;
 
+  PJoinRec = ^TJoinRec;
+  TJoinRec = record
+    pt1a     : TPoint;
+    pt1b     : TPoint;
+    poly1Idx : integer;
+    pt2a     : TPoint;
+    pt2b     : TPoint;
+    poly2Idx : integer;
+    next     : PJoinRec;
+    prev     : PJoinRec;
+  end;
+
+  PHorzRec = ^THorzRec;
+  THorzRec = record
+    edge     : PEdge;
+    savedIdx : integer;
+    next     : PHorzRec;
+    prev     : PHorzRec;
+  end;
+
 type
-  PDoublePoint = ^TDoublePoint;
-  TDoublePoint = record X, Y: double; end;
-  TArrayOfDoublePoint = array of TDoublePoint;
 
   TClipperBase4 = class
   private
@@ -136,6 +169,8 @@ type
     fClipFillType  : TPolyFillType;
     fSubjFillType  : TPolyFillType;
     fExecuteLocked : boolean;
+    fJoins         : PJoinRec;
+    fHorizJoin     : PHorzRec;
     procedure DisposeScanbeamList;
     procedure InsertScanbeam(const y: integer);
     function PopScanbeam: integer;
@@ -174,6 +209,11 @@ type
     function GetResult: TArrayOfArrayOfPoint;
     function FixupOutPolygon(outPoly: PPolyPt): PPolyPt;
     function IsHole(e: PEdge): boolean;
+    procedure AddJoin(e1, e2: PEdge; e1OutIdx: integer = -1);
+    procedure ClearJoins;
+    procedure AddHorzJoin(e: PEdge; idx: integer);
+    procedure ClearHorzJoins;
+    procedure JoinCommonEdges;
   protected
     function Reset: boolean; override;
   public
@@ -191,7 +231,23 @@ function OffsetPolygons(const pts: TArrayOfArrayOfPoint;
   const delta: single): TArrayOfArrayOfPoint;
 function PointInPolygon(const pt: TPoint; const pts: TArrayOfPoint): Boolean;
 
+function FloatPointsToPoint(const a: TArrayOfFloatPoint;
+  decimals: integer = 2): TArrayOfPoint; overload;
+function FloatPointsToPoint(const a: TArrayOfArrayOfFloatPoint;
+  decimals: integer = 2): TArrayOfArrayOfPoint; overload;
+function PointsToFloatPoints(const a: TArrayOfPoint;
+  decimals: integer = 2): TArrayOfFloatPoint; overload;
+function PointsToFloatPoints(const a: TArrayOfArrayOfPoint;
+  decimals: integer = 2): TArrayOfArrayOfFloatPoint; overload;
+
 implementation
+
+type
+  PDoublePoint = ^TDoublePoint;
+  TDoublePoint = record X, Y: double; end;
+  TArrayOfDoublePoint = array of TDoublePoint;
+
+  TPosition = (pFirst, pMiddle, pSecond);
 
 const
   horizontal: double = -3.4e+38;
@@ -205,6 +261,88 @@ resourcestring
 //------------------------------------------------------------------------------
 // Miscellaneous Functions ...
 //------------------------------------------------------------------------------
+
+{$IFDEF USING_GRAPHICS32}
+function FloatPointsToPoint(const a: TArrayOfFloatPoint;
+  decimals: integer = 2): TArrayOfPoint; overload;
+var
+  i,decScale: integer;
+begin
+  decScale := round(power(10,decimals));
+  setlength(result, length(a));
+  for i := 0 to high(a) do
+  begin
+    result[i].X := round(a[i].X *decScale);
+    result[i].Y := round(a[i].Y *decScale);
+  end;
+end;
+//------------------------------------------------------------------------------
+
+function FloatPointsToPoint(const a: TArrayOfArrayOfFloatPoint;
+  decimals: integer = 2): TArrayOfArrayOfPoint; overload;
+var
+  i,j,decScale: integer;
+begin
+  decScale := round(power(10,decimals));
+  setlength(result, length(a));
+  for i := 0 to high(a) do
+  begin
+    setlength(result[i], length(a[i]));
+    for j := 0 to high(a[i]) do
+    begin
+      result[i][j].X := round(a[i][j].X *decScale);
+      result[i][j].Y := round(a[i][j].Y *decScale);
+    end;
+  end;
+end;
+//------------------------------------------------------------------------------
+
+function PointsToFloatPoints(const a: TArrayOfPoint;
+  decimals: integer = 2): TArrayOfFloatPoint; overload;
+var
+  i,decScale: integer;
+begin
+  decScale := round(power(10,decimals));
+  setlength(result, length(a));
+  for i := 0 to high(a) do
+  begin
+    result[i].X := a[i].X /decScale;
+    result[i].Y := a[i].Y /decScale;
+  end;
+end;
+//------------------------------------------------------------------------------
+
+function PointsToFloatPoints(const a: TArrayOfArrayOfPoint;
+  decimals: integer = 2): TArrayOfArrayOfFloatPoint; overload;
+var
+  i,j,decScale: integer;
+begin
+  decScale := round(power(10,decimals));
+  setlength(result, length(a));
+  for i := 0 to high(a) do
+  begin
+    setlength(result[i], length(a[i]));
+    for j := 0 to high(a[i]) do
+    begin
+      result[i][j].X := a[i][j].X /decScale;
+      result[i][j].Y := a[i][j].Y /decScale;
+    end;
+  end;
+end;
+//------------------------------------------------------------------------------
+{$ENDIF}
+
+function GetAngle(const pt1, pt2: TPoint): double;
+begin
+  if (pt1.Y = pt2.Y) then
+  begin
+    if pt1.X > pt2.X then result := pi/2
+    else result := -pi/2;
+  end
+  else
+    result := ArcTan2(pt1.X-pt2.X, pt1.Y-pt2.Y);
+end;
+//---------------------------------------------------------------------------
 
 function IsClockwise(const pts: TArrayOfPoint): boolean; overload;
 var
@@ -750,6 +888,7 @@ begin
     botY := PopScanbeam;
     repeat
       InsertLocalMinimaIntoAEL(botY);
+      ClearHorzJoins;
       ProcessHorizontals;
       topY := PopScanbeam;
       if not ProcessIntersections(topY) then exit;
@@ -762,6 +901,8 @@ begin
     //result := false;
   end;
   finally
+    ClearJoins;
+    ClearHorzJoins;
     DisposeAllPolyPts;
     fExecuteLocked := false;
   end;
@@ -939,14 +1080,16 @@ end;
 
 procedure TClipper4.AddLocalMinPoly(e1, e2: PEdge; const pt: TPoint);
 begin
-  AddPolyPt(e1, pt);
-  e2.outIdx := e1.outIdx;
   if (e2.dx = horizontal) or (e1.dx > e2.dx) then
   begin
+    AddPolyPt(e1, pt);
+    e2.outIdx := e1.outIdx;
     e1.side := esLeft;
     e2.side := esRight;
   end else
   begin
+    AddPolyPt(e2, pt);
+    e1.outIdx := e2.outIdx;
     e1.side := esRight;
     e2.side := esLeft;
   end;
@@ -1004,6 +1147,129 @@ begin
 end;
 //------------------------------------------------------------------------------
 
+procedure TClipper4.AddJoin(e1, e2: PEdge; e1OutIdx: integer = -1);
+var
+  jr: PJoinRec;
+begin
+  new(jr);
+  if e1OutIdx >= 0 then
+    jr.poly1Idx := e1OutIdx else
+    jr.poly1Idx := e1.outIdx;
+  with e1^ do
+  begin
+    jr.pt1a := Point(xbot, ybot);
+    jr.pt1b := Point(xtop, ytop);
+  end;
+  jr.poly2Idx := e2.outIdx;
+  with e2^ do
+  begin
+    jr.pt2a := Point(xbot, ybot);
+    jr.pt2b := Point(xtop, ytop);
+  end;
+
+  if fJoins = nil then
+  begin
+    fJoins := jr;
+    jr.next := jr;
+    jr.prev := jr;
+  end else
+  begin
+    jr.next := fJoins;
+    jr.prev := fJoins.prev;
+    fJoins.prev.next := jr;
+    fJoins.prev := jr;
+  end;
+end;
+//------------------------------------------------------------------------------
+
+procedure TClipper4.ClearJoins;
+var
+  m, m2: PJoinRec;
+begin
+  if not assigned(fJoins) then exit;
+  m := fJoins;
+  m.prev.next := nil;
+  while assigned(m) do
+  begin
+    m2 :=m.next;
+    dispose(m);
+    m := m2;
+  end;
+  fJoins := nil;
+end;
+//------------------------------------------------------------------------------
+
+procedure TClipper4.AddHorzJoin(e: PEdge; idx: integer);
+var
+  hr: PHorzRec;
+begin
+  new(hr);
+  hr.edge := e;
+  hr.savedIdx := idx;
+  if fHorizJoin = nil then
+  begin
+    fHorizJoin := hr;
+    hr.next := hr;
+    hr.prev := hr;
+  end else
+  begin
+    hr.next := fHorizJoin;
+    hr.prev := fHorizJoin.prev;
+    fHorizJoin.prev.next := hr;
+    fHorizJoin.prev := hr;
+  end;
+end;
+//------------------------------------------------------------------------------
+
+procedure TClipper4.ClearHorzJoins;
+var
+  m, m2: PHorzRec;
+begin
+  if not assigned(fHorizJoin) then exit;
+  m := fHorizJoin;
+  m.prev.next := nil;
+  while assigned(m) do
+  begin
+    m2 := m.next;
+    dispose(m);
+    m := m2;
+  end;
+  fHorizJoin := nil;
+end;
+//------------------------------------------------------------------------------
+
+procedure SwapPoints(var pt1, pt2: TPoint);
+var
+  tmp: TPoint;
+begin
+  tmp := pt1;
+  pt1 := pt2;
+  pt2 := tmp;
+end;
+//------------------------------------------------------------------------------
+
+function GetOverlapSegment(pt1a, pt1b, pt2a, pt2b: TPoint;
+  out pt1, pt2: TPoint): boolean;
+begin
+  //precondition: segments are colinear.
+  if (pt1a.Y = pt1b.Y) or (abs((pt1a.X - pt1b.X)/(pt1a.Y - pt1b.Y)) > 1) then
+  begin
+    if pt1a.X > pt1b.X then SwapPoints(pt1a, pt1b);
+    if pt2a.X > pt2b.X then SwapPoints(pt2a, pt2b);
+    if (pt1a.X > pt2a.X) then pt1 := pt1a else pt1 := pt2a;
+    if (pt1b.X < pt2b.X) then pt2 := pt1b else pt2 := pt2b;
+    result := pt1.X < pt2.X;
+  end else
+  begin
+    if pt1a.Y < pt1b.Y then SwapPoints(pt1a, pt1b);
+    if pt2a.Y < pt2b.Y then SwapPoints(pt2a, pt2b);
+    if (pt1a.Y < pt2a.Y) then pt1 := pt1a else pt1 := pt2a;
+    if (pt1b.Y > pt2b.Y) then pt2 := pt1b else pt2 := pt2b;
+    result := pt1.Y > pt2.Y;
+  end;
+end;
+//------------------------------------------------------------------------------
+
 procedure TClipper4.InsertLocalMinimaIntoAEL(const botY: integer);
 
   function E2InsertsBeforeE1(e1,e2: PEdge): boolean;
@@ -1042,8 +1308,9 @@ procedure TClipper4.InsertLocalMinimaIntoAEL(const botY: integer);
 
 var
   e: PEdge;
-  pt: TPoint;
+  pt, pt2: TPoint;
   lb, rb: PEdge;
+  hj: PHorzRec;
 begin
   while assigned(CurrentLm) and (CurrentLm.Y = botY) do
   begin
@@ -1076,6 +1343,32 @@ begin
 
     if IsContributing(lb) then
       AddLocalMinPoly(lb, rb, Point(lb.xcurr, CurrentLm.y));
+
+    //if output polygons share an edge, they'll need joining later ...
+    if (lb.outIdx >= 0) and assigned(lb.prevInAEL) and
+       (lb.prevInAEL.outIdx >= 0) and (lb.prevInAEL.xcurr = lb.xbot) and
+       SlopesEqual(lb, lb.prevInAEL) then
+         AddJoin(lb, lb.prevInAEL);
+
+    //if any output polygons share an edge, they'll need joining later ...
+    if (rb.outIdx >= 0) then
+    begin
+      if (rb.dx = horizontal) then
+      begin
+        if assigned(fHorizJoin) then
+        begin
+          hj := fHorizJoin;
+          repeat
+            //if horizontals rb & hj.edge overlap, flag for joining later ...
+            if GetOverlapSegment(Point(hj.edge.xbot, hj.edge.ybot),
+              Point(hj.edge.xtop, hj.edge.ytop), Point(rb.xbot, rb.ybot),
+              Point(rb.xtop, rb.ytop), pt, pt2) then
+                AddJoin(hj.edge, rb, hj.savedIdx);
+            hj := hj.next;
+          until hj = fHorizJoin;
+        end;
+      end;
+    end;
 
     if (lb.nextInAEL <> rb) then
     begin
@@ -1269,29 +1562,16 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function PolygonTop(pp: PPolyPt): integer;
+function PolygonBottom(pp: PPolyPt): PPolyPt;
 var
   p: PPolyPt;
 begin
   p := pp.next;
-  result := pp.pt.Y;
+  result := pp;
   while p <> pp do
   begin
-    if p.pt.Y < result then result := p.pt.Y;
-    p := p.next;
-  end;
-end;
-//------------------------------------------------------------------------------
-
-function PolygonBottom(pp: PPolyPt): integer;
-var
-  p: PPolyPt;
-begin
-  p := pp.next;
-  result := pp.pt.Y;
-  while p <> pp do
-  begin
-    if p.pt.Y > result then result := p.pt.Y;
+    if p.pt.Y > result.pt.Y then result := p
+    else if (p.pt.Y = result.pt.Y) and (p.pt.X < result.pt.X) then result := p;
     p := p.next;
   end;
 end;
@@ -1303,6 +1583,7 @@ var
   newSide: TEdgeSide;
   OKIdx, ObsoleteIdx: integer;
   e: PEdge;
+  bottom1, bottom2: PPolyPt;
   hole: boolean;
 begin
   //get the start and ends of both output polygons ...
@@ -1311,11 +1592,18 @@ begin
   p2_lft := PPolyPt(fPolyPtList[e2.outIdx]);
   p2_rt := p2_lft.prev;
 
-  //fixup orientation (hole) flag if necessary ...
+  //fixup hole status ...
   if (p1_lft.isHole <> p2_lft.isHole) then
   begin
-    if PolygonBottom(p1_lft) < PolygonBottom(p2_lft) then
-      p := p1_lft else p := p2_lft;
+    bottom1 := PolygonBottom(p1_lft);
+    bottom2 := PolygonBottom(p2_lft);
+    if (bottom1.pt.Y > bottom2.pt.Y) then p := p2_lft
+    else if (bottom1.pt.Y < bottom2.pt.Y) then p := p1_lft
+    else if (bottom1.pt.X < bottom2.pt.X) then p := p2_lft
+    else if (bottom1.pt.X > bottom2.pt.X) then p := p1_lft
+    //todo - the following line really only a best guess ...
+    else if bottom1.isHole then p := p1_lft else p := p2_lft;
+
     hole := not p.isHole;
     pp := p;
     repeat
@@ -1323,6 +1611,7 @@ begin
       pp := pp.next;
     until pp = p;
   end;
+
 
   //join e2 poly onto e1 poly and delete pointers to e2 ...
   if e1.side = esLeft then
@@ -1638,11 +1927,14 @@ begin
     begin
       //ok, so far it looks like we're still in range of the horizontal edge
 
-      if (e.xcurr = horzEdge.xtop) and
-        assigned(horzEdge.nextInLML) then
+      if (e.xcurr = horzEdge.xtop) and assigned(horzEdge.nextInLML) then
       begin
         if SlopesEqual(e, horzEdge.nextInLML) then
         begin
+          //if output polygons share an edge, they'll need joining later ...
+          if (horzEdge.outIdx >= 0) and (e.outIdx >= 0) then
+            AddJoin(horzEdge.nextInLML, e, horzEdge.outIdx);
+
           break; //we've reached the end of the horizontal line
         end
         else if (e.dx < horzEdge.nextInLML.dx) then
@@ -1728,7 +2020,14 @@ begin
   e.prevInAEL := AelPrev;
   e.nextInAEL := AelNext;
   if e.dx <> horizontal then
+  begin
     InsertScanbeam(e.ytop);
+
+    //if output polygons share an edge, they'll need joining later ...
+    if (e.outIdx >= 0) and assigned(AelPrev) and (AelPrev.outIdx >= 0) and
+      (AelPrev.xbot = e.xcurr) and SlopesEqual(e, AelPrev) then
+        AddJoin(e, AelPrev);
+  end;
 end;
 //------------------------------------------------------------------------------
 
@@ -1905,7 +2204,6 @@ end;
 procedure TClipper4.ProcessEdgesAtTopOfScanbeam(const topY: integer);
 var
   e, ePrior: PEdge;
-  pp: PPolyPt;
 begin
 (*******************************************************************************
 * Notes: Processing edges at scanline intersections (ie at the top or bottom   *
@@ -1947,7 +2245,10 @@ begin
       if IsIntermediate(e, topY) and (e.nextInLML.dx = horizontal) then
       begin
         if (e.outIdx >= 0) then
-          pp := AddPolyPt(e, Point(e.xtop, e.ytop));
+        begin
+          AddPolyPt(e, Point(e.xtop, e.ytop));
+          AddHorzJoin(e.nextInLML, e.outIdx);
+        end;
         UpdateEdgeIntoAEL(e);
         AddEdgeToSEL(e);
       end else
@@ -1989,10 +2290,12 @@ begin
     if assigned(fPolyPtList[i]) then
     begin
       fPolyPtList[i] := FixupOutPolygon(fPolyPtList[i]);
+      //fix orientation ...
       p := fPolyPtList[i];
       if assigned(p) and (p.isHole = IsClockwise(p)) then
         ReversePolyPtLinks(p);
     end;
+  JoinCommonEdges;
 
   k := 0;
   setLength(result, fPolyPtList.Count);
@@ -2131,6 +2434,138 @@ begin
     edge2 := e2;
     pt := p;
   end;
+end;
+//------------------------------------------------------------------------------
+
+function FindSegment(var pp: PPolyPt; const pt1, pt2: TPoint): boolean;
+var
+  pp2: PPolyPt;
+begin
+  result := false;
+  if not assigned(pp) then exit;
+  pp2 := pp;
+  repeat
+    if PointsEqual(pp.pt, pt1) and
+      (PointsEqual(pp.next.pt, pt2) or PointsEqual(pp.prev.pt, pt2)) then
+    begin
+      result := true;
+      break;
+    end;
+    pp := pp.next;
+  until pp = pp2;
+end;
+//------------------------------------------------------------------------------
+
+function GetPosition(const pt1, pt2, pt: TPoint): TPosition;
+begin
+  if PointsEqual(pt1, pt) then result := pFirst
+  else if PointsEqual(pt2, pt) then result := pSecond
+  else result := pMiddle;
+end;
+//------------------------------------------------------------------------------
+
+function Pt3IsBetweenPt1AndPt2(const pt1, pt2, pt3: TPoint): boolean;
+begin
+  if PointsEqual(pt1, pt3) then result := true
+  else if PointsEqual(pt2, pt3) then result := true
+  else if (pt1.X <> pt2.X) then result := (pt1.X < pt3.X) = (pt3.X < pt2.X)
+  else result := (pt1.Y < pt3.Y) = (pt3.Y < pt2.Y);
+end;
+//------------------------------------------------------------------------------
+
+function InsertPolyPtBetween(p1, p2: PPolyPt; const pt: TPoint): PPolyPt;
+begin
+  new(result);
+  result.pt := pt;
+  result.isHole := p1.isHole;
+  if p2 = p1.next then
+  begin
+    p1.next := result;
+    p2.prev := result;
+    result.next := p2;
+    result.prev := p1;
+  end else
+  begin
+    p2.next := result;
+    p1.prev := result;
+    result.next := p1;
+    result.prev := p2;
+  end;
+end;
+//------------------------------------------------------------------------------
+
+procedure TClipper4.JoinCommonEdges;
+var
+  j: PJoinRec;
+  p1, p2, p3, p4, pp1a, pp1b, pp2a, pp2b: PPolyPt;
+  pt1, pt2: TPoint;
+  pos1, pos2: TPosition;
+begin
+  if not assigned(fJoins) then exit;
+  j := fJoins;
+  repeat
+    pp1a := PPolyPt(fPolyPtList[j.poly1Idx]);
+    pp2a := PPolyPt(fPolyPtList[j.poly2Idx]);
+    if FindSegment(pp1a, j.pt1a, j.pt1b) and
+      FindSegment(pp2a, j.pt2a, j.pt2b) then
+    begin
+      if PointsEqual(pp1a.next.pt, j.pt1b) then
+        pp1b := pp1a.next else pp1b := pp1a.prev;
+      if PointsEqual(pp2a.next.pt, j.pt2b) then
+        pp2b := pp2a.next else pp2b := pp2a.prev;
+      if (j.poly1Idx <> j.poly2Idx) and
+        GetOverlapSegment(pp1a.pt, pp1b.pt, pp2a.pt, pp2b.pt, pt1, pt2) then
+      begin
+        //get p1 & p2 polypts - the overlap start & endpoints on poly1
+        pos1 := GetPosition(pp1a.pt, pp1b.pt, pt1);
+        if (pos1 = pFirst) then p1 := pp1a
+        else if (pos1 = pSecond) then p1 := pp1b
+        else p1 := InsertPolyPtBetween(pp1a, pp1b, pt1);
+        pos2 := GetPosition(pp1a.pt, pp1b.pt, pt2);
+        if (pos2 = pMiddle) then
+        begin
+          if (pos1 = pMiddle) then
+          begin
+            if Pt3IsBetweenPt1AndPt2(pp1a.pt, p1.pt, pt2) then
+              p2 := InsertPolyPtBetween(pp1a, p1, pt2) else
+              p2 := InsertPolyPtBetween(p1, pp1b, pt2);
+          end
+          else if (pos2 = pFirst) then p2 := pp1a
+          else p2 := pp1b;
+        end
+        else if (pos2 = pFirst) then p2 := pp1a
+        else p2 := pp1b;
+        //get p3 & p4 polypts - the overlap start & endpoints on poly2
+        pos1 := GetPosition(pp2a.pt, pp2b.pt, pt1);
+        if (pos1 = pFirst) then p3 := pp2a
+        else if (pos1 = pSecond) then p3 := pp2b
+        else p3 := InsertPolyPtBetween(pp2a, pp2b, pt1);
+        pos2 := GetPosition(pp2a.pt, pp2b.pt, pt2);
+        if (pos2 = pMiddle) then
+        begin
+          if (pos1 = pMiddle) then
+          begin
+            if Pt3IsBetweenPt1AndPt2(pp2a.pt, p3.pt, pt2) then
+              p4 := InsertPolyPtBetween(pp2a, p3, pt2) else
+              p4 := InsertPolyPtBetween(p3, pp2b, pt2);
+          end
+          else if (pos2 = pFirst) then p4 := pp2a
+          else p4 := pp2b;
+        end
+        else if (pos2 = pFirst) then p4 := pp2a
+        else p4 := pp2b;
+
+        if p1.next = p2 then p1.next := p3 else p1.prev := p3;
+        if p3.next = p4 then p3.next := p1 else p3.prev := p1;
+
+        if p2.next = p1 then p2.next := p4 else p2.prev := p4;
+        if p4.next = p3 then p4.next := p2 else p4.prev := p2;
+
+        fPolyPtList[j.poly2Idx] := nil;
+      end;
+    end;
+    j := j.next;
+  until j = fJoins;
 end;
 
 //------------------------------------------------------------------------------
