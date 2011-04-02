@@ -2067,6 +2067,34 @@ namespace Clipper4
         }
         //------------------------------------------------------------------------------
 
+        public static bool IsClockwise(Polygon poly)
+        {
+          int highI = poly.Count -1;
+          if (highI < 2) return false;
+          double area;
+          area = (double)poly[highI].X * poly[0].Y -(double)poly[0].X * poly[highI].Y;
+          for (int i = 0; i < highI; ++i)
+            area += (double)poly[i].X * poly[i+1].Y -(double)poly[i+1].X * poly[i].Y;
+          //area := area/2;
+          return area > 0; //reverse of normal formula because assuming Y axis inverted
+        }
+        //------------------------------------------------------------------------------
+
+        private bool IsClockwise(PolyPt pt)
+        {
+            Int64 area = 0;
+            PolyPt startPt = pt;
+            do
+            {
+                area += (Int64)pt.pt.X * pt.next.pt.Y - (Int64)pt.next.pt.X * pt.pt.Y;
+                pt = pt.next;
+            }
+            while (pt != startPt);
+            //area = area /2;
+            return area > 0; //reverse of normal formula because assuming Y axis inverted
+        }
+        //------------------------------------------------------------------------------
+
         private void BuildResult(Polygons polyg)
         {
           for (int i = 0; i < m_PolyPts.Count; ++i)
@@ -2095,21 +2123,6 @@ namespace Clipper4
               if (pg.Count > 2) polyg.Add(pg); else pg = null;
             }
           }
-        }
-        //------------------------------------------------------------------------------
-
-        private bool IsClockwise(PolyPt pt)
-        {
-            Int64 area = 0;
-            PolyPt startPt = pt;
-            do
-            {
-                area = area + (Int64)pt.pt.X * pt.next.pt.Y - (Int64)pt.next.pt.X * pt.pt.Y;
-                pt = pt.next;
-            }
-            while (pt != startPt);
-            //area = area /2;
-            return area > 0; //ie reverse of normal formula because Y axis inverted
         }
         //------------------------------------------------------------------------------
 
@@ -2275,7 +2288,7 @@ namespace Clipper4
           for (int i = 0; i < steps; ++i)
           {
             result.Add(new IntPoint(pt.X + (int)(Math.Cos(a)*r), pt.Y + (int)(Math.Sin(a)*r)));
-            a = a + da;
+            a += da;
           }
           return result;
         }
@@ -2288,8 +2301,8 @@ namespace Clipper4
           if(  ( dx == 0 ) && ( dy == 0 ) ) return new DoublePoint();
 
           double f = 1 *1.0/ Math.Sqrt( dx*dx + dy*dy );
-          dx = dx * f;
-          dy = dy * f;
+          dx *= f;
+          dy *= f;
           return new DoublePoint(dy, -dx);
         }
         //------------------------------------------------------------------------------
@@ -2299,9 +2312,9 @@ namespace Clipper4
           double deltaSq = delta*delta;
           Polygons result = new Polygons(pts.Count);
 
-          for (int j = 0; j < (int)pts.Count; ++j)
+          for (int j = 0; j < pts.Count; ++j)
           {
-            int highI = (int)pts[j].Count -1;
+            int highI = pts[j].Count -1;
             //to minimize artefacts, strip out those polygons where
             //it's shrinking and where its area < Sqr(delta) ...
             double a1 = Area(pts[j]);
@@ -2323,14 +2336,14 @@ namespace Clipper4
 
             for (int i = 0; i < highI; ++i)
             {
-              pg.Add(new IntPoint((int)(pts[j][i].X + delta *normals[i].X),
+              pg.Add(new IntPoint(Round(pts[j][i].X + delta *normals[i].X),
                 (int)(pts[j][i].Y + delta *normals[i].Y)));
-              pg.Add(new IntPoint((int)(pts[j][i].X + delta *normals[i+1].X),
+              pg.Add(new IntPoint(Round(pts[j][i].X + delta * normals[i + 1].X),
                 (int)(pts[j][i].Y + delta *normals[i+1].Y)));
             }
-            pg.Add(new IntPoint((int)(pts[j][highI].X + delta *normals[highI].X),
+            pg.Add(new IntPoint(Round(pts[j][highI].X + delta * normals[highI].X),
               (int)(pts[j][highI].Y + delta *normals[highI].Y)));
-            pg.Add(new IntPoint((int)(pts[j][highI].X + delta *normals[0].X),
+            pg.Add(new IntPoint(Round(pts[j][highI].X + delta * normals[0].X),
               (int)(pts[j][highI].Y + delta *normals[0].Y)));
 
             //round off reflex angles (ie > 180 deg) unless it's almost flat (ie < 10deg angle) ...

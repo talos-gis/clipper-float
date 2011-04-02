@@ -53,10 +53,26 @@ bool IsClockwise(const Polygon &poly)
 {
   int highI = poly.size() -1;
   if (highI < 2) return false;
-  double area = (double)poly[highI].X * poly[0].Y -(double)poly[0].X * poly[highI].Y;
+  double area;
+  area = (double)poly[highI].X * poly[0].Y -(double)poly[0].X * poly[highI].Y;
   for (int i = 0; i < highI; ++i)
     area += (double)poly[i].X * poly[i+1].Y -(double)poly[i+1].X * poly[i].Y;
   //area := area/2;
+  return area > 0; //ie reverse of normal formula because assume Y axis inverted
+}
+//------------------------------------------------------------------------------
+
+bool IsClockwise(PolyPt *pt)
+{
+  long64 area = 0;
+  PolyPt* startPt = pt;
+  do
+  {
+    area += (long64)(pt->pt.X*pt->next->pt.Y)-(long64)(pt->next->pt.X*pt->pt.Y);
+    pt = pt->next;
+  }
+  while (pt != startPt);
+  //area = area /2;
   return area > 0; //ie reverse of normal formula because Y axis inverted
 }
 //------------------------------------------------------------------------------
@@ -65,8 +81,7 @@ float Area(const Polygon &poly)
 {
   int highI = poly.size() -1;
   if (highI < 2) return 0;
-  float area =
-    (long64)poly[highI].X * poly[0].Y - (long64)poly[0].X * poly[highI].Y;
+  float area = (long64)poly[highI].X*poly[0].Y-(long64)poly[0].X*poly[highI].Y;
   for (int i = 0; i < highI; ++i)
     area += (long64)poly[i].X * poly[i+1].Y - (long64)poly[i+1].X * poly[i].Y;
   return area/2;
@@ -216,22 +231,6 @@ void DisposePolyPts(PolyPt*& pp)
     pp = pp->next;
     delete tmpPp ;
   }
-}
-//------------------------------------------------------------------------------
-
-bool IsClockwise(PolyPt *pt)
-{
-  long64 area = 0;
-  PolyPt* startPt = pt;
-  do
-  {
-    area = area + (long64)(pt->pt.X * pt->next->pt.Y) -
-      (long64)(pt->next->pt.X * pt->pt.Y);
-    pt = pt->next;
-  }
-  while (pt != startPt);
-  //area = area /2;
-  return area > 0; //ie reverse of normal formula because Y axis inverted
 }
 //------------------------------------------------------------------------------
 
@@ -2127,7 +2126,7 @@ Polygon BuildArc(const IntPoint &pt,
   {
     result[i].X = pt.X + std::cos(a)*r;
     result[i].Y = pt.Y + std::sin(a)*r;
-    a = a + da;
+    a += da;
   }
   return result;
 }
@@ -2140,8 +2139,8 @@ DoublePoint GetUnitNormal( const IntPoint &pt1, const IntPoint &pt2)
   if(  ( dx == 0 ) && ( dy == 0 ) ) return DoublePoint( 0, 0 );
 
   double f = 1 *1.0/ std::sqrt( dx*dx + dy*dy );
-  dx = dx * f;
-  dy = dy * f;
+  dx *= f;
+  dy *= f;
   return DoublePoint(dy, -dx);
 }
 //------------------------------------------------------------------------------
