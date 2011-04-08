@@ -230,8 +230,8 @@ namespace clipper
             int j = 0;
             for (int i = 1; i < len; ++i)
             {
-                const Int64 MaxInt = 1500000000; //~ Sqrt(2^63)/2 . 1.5Billion
-                if (Math.Abs(pg[i].X) > MaxInt || Math.Abs(pg[i].Y) > MaxInt)
+                const Int64 MaxVal = 1500000000; //~ Sqrt(2^63)/2 . 1.5Billion
+                if (Math.Abs(pg[i].X) > MaxVal || Math.Abs(pg[i].Y) > MaxVal)
                     throw new ClipperException("Integer exceeds range bounds");
                 
                 if (PointsEqual(p[j], pg[i])) continue;

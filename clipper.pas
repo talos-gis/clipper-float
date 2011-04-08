@@ -40,6 +40,7 @@ uses
 
 type
 
+  PIntPoint = ^TIntPoint;
   TIntPoint = record X, Y: int64; end;
 
   TClipType = (ctIntersection, ctUnion, ctDifference, ctXor);
@@ -59,8 +60,8 @@ type
   TIntersectProtect = (ipLeft, ipRight);
   TIntersectProtects = set of TIntersectProtect;
   TDirection = (dRightToLeft, dLeftToRight);
-  TArrayOfPoint = array of TIntPoint;
-  TArrayOfArrayOfPoint = array of TArrayOfPoint;
+  TArrayOfIntPoint = array of TIntPoint;
+  TArrayOfArrayOfIntPoint = array of TArrayOfIntPoint;
 
   PEdge = ^TEdge;
   TEdge = record
@@ -155,8 +156,8 @@ type
   public
     constructor Create; virtual;
     destructor Destroy; override;
-    function AddPolygon(const polygon: TArrayOfPoint; polyType: TPolyType): boolean;
-    function AddPolygons(const polygons: TArrayOfArrayOfPoint; polyType: TPolyType): boolean;
+    function AddPolygon(const polygon: TArrayOfIntPoint; polyType: TPolyType): boolean;
+    function AddPolygons(const polygons: TArrayOfArrayOfIntPoint; polyType: TPolyType): boolean;
     procedure Clear; virtual;
   end;
 
@@ -208,7 +209,7 @@ type
     procedure DisposePolyPts(pp: PPolyPt);
     procedure DisposeAllPolyPts;
     procedure DisposeIntersectNodes;
-    function GetResult: TArrayOfArrayOfPoint;
+    function GetResult: TArrayOfArrayOfIntPoint;
     function FixupOutPolygon(outPoly: PPolyPt): PPolyPt;
     function IsHole(e: PEdge): boolean;
     procedure AddJoin(e1, e2: PEdge; e1OutIdx: integer = -1);
@@ -220,27 +221,27 @@ type
     procedure Reset; override;
   public
     function Execute(clipType: TClipType;
-      out solution: TArrayOfArrayOfPoint;
+      out solution: TArrayOfArrayOfIntPoint;
       subjFillType: TPolyFillType = pftEvenOdd;
       clipFillType: TPolyFillType = pftEvenOdd): boolean;
     constructor Create; override;
     destructor Destroy; override;
   end;
 
-function IsClockwise(const pts: TArrayOfPoint): boolean;
-function Area(const pts: TArrayOfPoint): double;
-function OffsetPolygons(const pts: TArrayOfArrayOfPoint;
-  const delta: single): TArrayOfArrayOfPoint;
-function PointInPolygon(const pt: TIntPoint; const pts: TArrayOfPoint): Boolean;
+function IsClockwise(const pts: TArrayOfIntPoint): boolean;
+function Area(const pts: TArrayOfIntPoint): double;
+function OffsetPolygons(const pts: TArrayOfArrayOfIntPoint;
+  const delta: single): TArrayOfArrayOfIntPoint;
+function PointInPolygon(const pt: TIntPoint; const pts: TArrayOfIntPoint): Boolean;
 
 function IntPoint(const X, Y: Int64): TIntPoint;
 function FloatPointsToPoint(const a: TArrayOfFloatPoint;
-  decimals: integer = 2): TArrayOfPoint; overload;
+  decimals: integer = 2): TArrayOfIntPoint; overload;
 function FloatPointsToPoint(const a: TArrayOfArrayOfFloatPoint;
-  decimals: integer = 2): TArrayOfArrayOfPoint; overload;
-function PointsToFloatPoints(const a: TArrayOfPoint;
+  decimals: integer = 2): TArrayOfArrayOfIntPoint; overload;
+function PointsToFloatPoints(const a: TArrayOfIntPoint;
   decimals: integer = 2): TArrayOfFloatPoint; overload;
-function PointsToFloatPoints(const a: TArrayOfArrayOfPoint;
+function PointsToFloatPoints(const a: TArrayOfArrayOfIntPoint;
   decimals: integer = 2): TArrayOfArrayOfFloatPoint; overload;
 
 implementation
@@ -268,7 +269,7 @@ resourcestring
 
 {$IFDEF USING_GRAPHICS32}
 function FloatPointsToPoint(const a: TArrayOfFloatPoint;
-  decimals: integer = 2): TArrayOfPoint; overload;
+  decimals: integer = 2): TArrayOfIntPoint; overload;
 var
   i,decScale: integer;
 begin
@@ -283,7 +284,7 @@ end;
 //------------------------------------------------------------------------------
 
 function FloatPointsToPoint(const a: TArrayOfArrayOfFloatPoint;
-  decimals: integer = 2): TArrayOfArrayOfPoint; overload;
+  decimals: integer = 2): TArrayOfArrayOfIntPoint; overload;
 var
   i,j,decScale: integer;
 begin
@@ -301,7 +302,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function PointsToFloatPoints(const a: TArrayOfPoint;
+function PointsToFloatPoints(const a: TArrayOfIntPoint;
   decimals: integer = 2): TArrayOfFloatPoint; overload;
 var
   i,decScale: integer;
@@ -316,7 +317,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function PointsToFloatPoints(const a: TArrayOfArrayOfPoint;
+function PointsToFloatPoints(const a: TArrayOfArrayOfIntPoint;
   decimals: integer = 2): TArrayOfArrayOfFloatPoint; overload;
 var
   i,j,decScale: integer;
@@ -361,7 +362,7 @@ begin
 end;
 //---------------------------------------------------------------------------
 
-function IsClockwise(const pts: TArrayOfPoint): boolean; overload;
+function IsClockwise(const pts: TArrayOfIntPoint): boolean; overload;
 var
   i, highI: integer;
   area: double;
@@ -378,7 +379,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function Area(const pts: TArrayOfPoint): double;
+function Area(const pts: TArrayOfIntPoint): double;
 var
   i, highI: integer;
 begin
@@ -391,7 +392,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function PointInPolygon(const pt: TIntPoint; const pts: TArrayOfPoint): Boolean;
+function PointInPolygon(const pt: TIntPoint; const pts: TArrayOfIntPoint): Boolean;
 var
   i: integer;
   iPt, jPt: PPoint;
@@ -556,7 +557,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipperBase.AddPolygon(const polygon: TArrayOfPoint;
+function TClipperBase.AddPolygon(const polygon: TArrayOfIntPoint;
   polyType: TPolyType): boolean;
 
   //----------------------------------------------------------------------
@@ -684,7 +685,7 @@ var
   i, j, len: integer;
   edges: PEdgeArray;
   e, eHighest: PEdge;
-  pg: TArrayOfPoint;
+  pg: TArrayOfIntPoint;
 const
   MaxVal = 1.5E9; //~ Sqrt(2^63)/2
 begin
@@ -765,7 +766,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipperBase.AddPolygons(const polygons: TArrayOfArrayOfPoint;
+function TClipperBase.AddPolygons(const polygons: TArrayOfArrayOfIntPoint;
   polyType: TPolyType): boolean;
 var
   i: integer;
@@ -889,7 +890,7 @@ end;
 //------------------------------------------------------------------------------
 
 function TClipper.Execute(clipType: TClipType;
-  out solution: TArrayOfArrayOfPoint;
+  out solution: TArrayOfArrayOfIntPoint;
   subjFillType: TPolyFillType = pftEvenOdd;
   clipFillType: TPolyFillType = pftEvenOdd): boolean;
 var
@@ -2306,7 +2307,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipper.GetResult: TArrayOfArrayOfPoint;
+function TClipper.GetResult: TArrayOfArrayOfIntPoint;
 var
   i,j,k,cnt: integer;
   p: PPolyPt;
@@ -2669,7 +2670,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function BuildArc(const pt: TIntPoint; a1, a2, r: single): TArrayOfPoint;
+function BuildArc(const pt: TIntPoint; a1, a2, r: single): TArrayOfIntPoint;
 var
   i, N: Integer;
   a, da: double;
@@ -2691,8 +2692,8 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function InsertPoints(const existingPts, newPts: TArrayOfPoint;
-  position: integer): TArrayOfPoint; overload;
+function InsertPoints(const existingPts, newPts: TArrayOfIntPoint;
+  position: integer): TArrayOfIntPoint; overload;
 var
   lenE, lenN: integer;
 begin
@@ -2709,7 +2710,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function GetBounds(const a: TArrayOfArrayOfPoint): TRect;
+function GetBounds(const a: TArrayOfArrayOfIntPoint): TRect;
 var
   i,j,len: integer;
 const
@@ -2740,13 +2741,13 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function OffsetPolygons(const pts: TArrayOfArrayOfPoint;
-  const delta: single): TArrayOfArrayOfPoint;
+function OffsetPolygons(const pts: TArrayOfArrayOfIntPoint;
+  const delta: single): TArrayOfArrayOfIntPoint;
 var
   j, i, highI: integer;
   normals: TArrayOfDoublePoint;
   a1, a2, deltaSq: double;
-  arc, outer: TArrayOfPoint;
+  arc, outer: TArrayOfIntPoint;
   bounds: TRect;
   c: TClipper;
 begin
