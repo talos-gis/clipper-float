@@ -4,7 +4,7 @@ unit clipper;
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  4.1.1                                                           *
-* Date      :  5 April 2011                                                    *
+* Date      :  8 April 2011                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -149,14 +149,14 @@ type
     fCurrLm        : PLocalMinima; //current localMinima node
     procedure DisposeLocalMinimaList;
   protected
-    function Reset: boolean; virtual;
+    procedure Reset; virtual;
     procedure PopLocalMinima;
     property CurrentLm: PLocalMinima read fCurrLm;
   public
     constructor Create; virtual;
     destructor Destroy; override;
-    procedure AddPolygon(const polygon: TArrayOfPoint; polyType: TPolyType);
-    procedure AddPolygons(const polygons: TArrayOfArrayOfPoint; polyType: TPolyType);
+    function AddPolygon(const polygon: TArrayOfPoint; polyType: TPolyType): boolean;
+    function AddPolygons(const polygons: TArrayOfArrayOfPoint; polyType: TPolyType): boolean;
     procedure Clear; virtual;
   end;
 
@@ -217,7 +217,7 @@ type
     procedure ClearHorzJoins;
     procedure JoinCommonEdges;
   protected
-    function Reset: boolean; override;
+    procedure Reset; override;
   public
     function Execute(clipType: TClipType;
       out solution: TArrayOfArrayOfPoint;
@@ -233,6 +233,7 @@ function OffsetPolygons(const pts: TArrayOfArrayOfPoint;
   const delta: single): TArrayOfArrayOfPoint;
 function PointInPolygon(const pt: TIntPoint; const pts: TArrayOfPoint): Boolean;
 
+function IntPoint(const X, Y: Int64): TIntPoint;
 function FloatPointsToPoint(const a: TArrayOfFloatPoint;
   decimals: integer = 2): TArrayOfPoint; overload;
 function FloatPointsToPoint(const a: TArrayOfArrayOfFloatPoint;
@@ -555,7 +556,8 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure TClipperBase.AddPolygon(const polygon: TArrayOfPoint; polyType: TPolyType);
+function TClipperBase.AddPolygon(const polygon: TArrayOfPoint;
+  polyType: TPolyType): boolean;
 
   //----------------------------------------------------------------------
 
@@ -684,9 +686,10 @@ var
   e, eHighest: PEdge;
   pg: TArrayOfPoint;
 const
-  MaxInt = 1.5E9; //~ Sqrt(2^63)/2
+  MaxVal = 1.5E9; //~ Sqrt(2^63)/2
 begin
   {AddPolygon}
+  result := false; //ie assume nothing added
   len := length(polygon);
   if len < 3 then exit;
   setlength(pg, len);
@@ -694,7 +697,7 @@ begin
   j := 0;
   for i := 1 to len-1 do
   begin
-    if (abs(polygon[i].X) > MaxInt) or (abs(polygon[i].Y) > MaxInt) then
+    if (abs(polygon[i].X) > MaxVal) or (abs(polygon[i].Y) > MaxVal) then
       raise exception.Create(rsInvalidInt)
     else if PointsEqual(pg[j], polygon[i]) then continue
     else if (j > 0) and SlopesEqual(pg[j-1], pg[j], polygon[i]) then
@@ -726,6 +729,7 @@ begin
     len := j +1;
   end;
   if len < 3 then exit;
+  result := true;
 
   GetMem(edges, sizeof(TEdge)*len);
   fEdgeList.Add(edges);
@@ -761,12 +765,14 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure TClipperBase.AddPolygons(const polygons: TArrayOfArrayOfPoint;
-  polyType: TPolyType);
+function TClipperBase.AddPolygons(const polygons: TArrayOfArrayOfPoint;
+  polyType: TPolyType): boolean;
 var
   i: integer;
 begin
-  for i := 0 to high(polygons) do AddPolygon(polygons[i], polyType);
+  result := false;
+  for i := 0 to high(polygons) do
+    if AddPolygon(polygons[i], polyType) then result := true;
 end;
 //------------------------------------------------------------------------------
 
@@ -780,7 +786,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipperBase.Reset: boolean;
+procedure TClipperBase.Reset;
 var
   e: PEdge;
   lm: PLocalMinima;
@@ -789,9 +795,6 @@ begin
   //multiple times on the same polygon sets.
 
   fCurrLm := fLmList;
-  result := assigned(fCurrLm);
-  if not result then exit; //ie nothing to process
-
   //reset all edges ...
   lm := fCurrLm;
   while assigned(lm) do
@@ -869,13 +872,11 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipper.Reset: boolean;
+procedure TClipper.Reset;
 var
   lm: PLocalMinima;
 begin
-  result := inherited Reset;
-  if not result then exit;
-
+  inherited Reset;
   fScanbeam := nil;
   lm := fLmList;
   while assigned(lm) do
@@ -896,15 +897,20 @@ var
 begin
   result := false;
   solution := nil;
-  if fExecuteLocked then
-   exit;
+  if fExecuteLocked then exit;
   try try
     fExecuteLocked := true;
     fSubjFillType := subjFillType;
     fClipFillType := clipFillType;
     fClipType := clipType;
 
-    if not Reset then exit;
+    Reset;
+    if not assigned(fScanbeam) then
+    begin
+      result := true;
+      exit; //just return true if operating on an empty polygon set
+    end;
+
     botY := PopScanbeam;
     repeat
       InsertLocalMinimaIntoAEL(botY);
@@ -2514,6 +2520,22 @@ begin
 end;
 //------------------------------------------------------------------------------
 
+function DeletePolyPt(pp: PPolyPt): PPolyPt;
+begin
+  if pp.next = pp then
+  begin
+    dispose(pp);
+    result := nil;
+  end else
+  begin
+    result := pp.prev;
+    pp.next.prev := result;
+    result.next := pp.next;
+    dispose(pp);
+  end;
+end;
+//------------------------------------------------------------------------------
+
 procedure TClipper.JoinCommonEdges;
 var
   j: PJoinRec;
@@ -2575,13 +2597,46 @@ begin
         else if (pos2 = pFirst) then p4 := pp2a
         else p4 := pp2b;
 
-        if p1.next = p2 then p1.next := p3 else p1.prev := p3;
-        if p3.next = p4 then p3.next := p1 else p3.prev := p1;
+        //p1.pt should equal p3.pt and p2.pt should equal p4.pt here, so ...
+        //join p1 to p3 and p2 to p4 ...
+        if (p1.next = p2) and (p3.prev = p4) then
+        begin
+          p1.next := p3;
+          p3.prev := p1;
+          p2.prev := p4;
+          p4.next := p2;
+        end
+        else if (p1.prev = p2) and (p3.next = p4) then
+        begin
+          p1.prev := p3;
+          p3.next := p1;
+          p2.next := p4;
+          p4.prev := p2;
+        end
+        else
+          continue; //an orientation is probably wrong
 
-        if p2.next = p1 then p2.next := p4 else p2.prev := p4;
-        if p4.next = p3 then p4.next := p2 else p4.prev := p2;
-
+        //delete duplicate points and obsolete polygon pointer ...
+        DeletePolyPt(p3);
+        DeletePolyPt(p4);
         fPolyPtList[j.poly2Idx] := nil;
+
+        //cleanup redundant edges too ...
+        if SlopesEqual(p1.prev.pt, p1.pt, p1.next.pt) then
+        begin
+          if p1 = fPolyPtList[j.poly1Idx] then
+            fPolyPtList[j.poly1Idx] := p1.prev;
+          DeletePolyPt(p1);
+        end;
+
+        if SlopesEqual(p2.prev.pt, p2.pt, p2.next.pt) then
+        begin
+          if p2 = fPolyPtList[j.poly1Idx] then
+            fPolyPtList[j.poly1Idx] := p2.prev;
+          DeletePolyPt(p2);
+        end;
+
+
       end;
     end;
     j := j.next;
@@ -2629,8 +2684,8 @@ begin
   for i := 0 to N do
   begin
     SinCos(a, S, C);
-    Result[i].X := pt.X + round(C * r);
-    Result[i].Y := pt.Y + round(S * r);
+    Result[i].X := pt.X + Round(C * r);
+    Result[i].Y := pt.Y + Round(S * r);
     a := a + da;
   end;
 end;
