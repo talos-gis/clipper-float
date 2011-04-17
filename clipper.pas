@@ -924,9 +924,10 @@ begin
   j := 0;
   for i := 1 to len-1 do
   begin
-    if (abs(polygon[i].X) > MaxVal) or (abs(polygon[i].Y) > MaxVal) then
-      raise exception.Create(rsInvalidInt)
-    else if PointsEqual(pg[j], polygon[i]) then continue
+    if not fUseFullRange and
+      ((abs(polygon[i].X) > MaxVal) or (abs(polygon[i].Y) > MaxVal)) then
+        raise exception.Create(rsInvalidInt);
+    if PointsEqual(pg[j], polygon[i]) then continue
     else if (j > 0) and SlopesEqual(pg[j-1], pg[j], polygon[i], fUseFullRange) then
     begin
       if PointsEqual(pg[j-1], polygon[i]) then dec(j);
