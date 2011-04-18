@@ -677,6 +677,7 @@ ClipperBase::ClipperBase() //constructor
 {
   m_MinimaList = 0;
   m_CurrentLM = 0;
+  m_UseFullRange = true;
 }
 //------------------------------------------------------------------------------
 
