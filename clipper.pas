@@ -3,8 +3,8 @@ unit clipper;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.2.1                                                           *
-* Date      :  17 April 2011                                                   *
+* Version   :  4.2.2                                                           *
+* Date      :  19 April 2011                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -145,12 +145,12 @@ type
     function AddPolygon(const polygon: TArrayOfIntPoint; polyType: TPolyType): boolean;
     function AddPolygons(const polygons: TArrayOfArrayOfIntPoint; polyType: TPolyType): boolean;
     procedure Clear; virtual;
-    //UseFullCoordinateRange: If false, input polygon coordinates must be in the
-    //range +/- 1.5E9, otherwise an error will be thrown when the polygon is
-    //passed to the Clipper object (via the AddPolygon or AddPolygons methods).
-    //When this property is true, polygon coordinates can have values anywhere
-    //between +/- 2^63. The benefit of setting this property to false is a small
-    //(~15%) speed up in performance.
+    //UseFullCoordinateRange: When this property is true, polygon coordinates
+    //can have any signed 64bit integer values (ie +/- 2^63). When false,
+    //coordinates must be in the range +/- 1.5E9 otherwise an error will be
+    //thrown on calling the AddPolygon() or AddPolygons() methods. The benefit
+    //of setting this property false is a small (~15%) increase in performance.
+    //(Default value = true.)
     property UseFullCoordinateRange: boolean read fUseFullRange write fUseFullRange;
   end;
 
@@ -223,9 +223,9 @@ type
   end;
 
 function IsClockwise(const pts: TArrayOfIntPoint;
-  UseExtendedIntRange: boolean = true): boolean;
+  UseFullInt64Range: boolean = true): boolean;
 function Area(const pts: TArrayOfIntPoint;
-  UseExtendedIntRange: boolean = true): double;
+  UseFullInt64Range: boolean = true): double;
 function OffsetPolygons(const pts: TArrayOfArrayOfIntPoint;
   const delta: single): TArrayOfArrayOfIntPoint;
 function IntPoint(const X, Y: Int64): TIntPoint;
@@ -266,11 +266,11 @@ begin
   if val.lo = 0 then
   begin
     if val.hi = 0 then exit;
-    val.hi := val.hi xor $FFFFFFFFFFFFFFFF +1;
+    val.hi := not val.hi +1;
   end else
   begin
-    val.lo := val.lo xor $FFFFFFFFFFFFFFFF +1;
-    val.hi := val.hi xor $FFFFFFFFFFFFFFFF;
+    val.lo := not val.lo  +1;
+    val.hi := not val.hi;
   end;
 end;
 //------------------------------------------------------------------------------
@@ -300,12 +300,6 @@ end;
 function Int128LessThan(const int1, int2: TInt128): boolean;
 begin
   result := (int1.hi < int2.hi) or ((int1.hi = int2.hi) and (int1.lo < int2.lo));
-end;
-//------------------------------------------------------------------------------
-
-function Int128GreaterThan(const int1, int2: TInt128): boolean;
-begin
-  result := (int1.hi > int2.hi) or ((int1.hi = int2.hi) and (int1.lo > int2.lo));
 end;
 //------------------------------------------------------------------------------
 
@@ -397,25 +391,10 @@ begin
 end;
 //---------------------------------------------------------------------------
 
-function int64ToBin(val: Int64): string; //used for debugging only
+procedure int128Div10(val: TInt128; out result: TInt128; out remainder: integer);
 var
   i: integer;
 begin
-  setlength(result,64);
-  for i := 1 to sizeof(val)*8 do
-  begin
-    if odd(val) then result[65-i] := '1' else result[65-i] := '0';
-    val := val shr 1;
-  end;
-end;
-//------------------------------------------------------------------------------
-
-procedure int128Div10(val: TInt128;
-  out result: TInt128; out remainder: integer); //used for debugging only
-var
-  i: integer;
-begin
-  //precondition: a positive val parameter
   remainder := 0;
   result.lo := 0;
   result.hi := 0;
@@ -444,26 +423,35 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function int128ToDecimalStr(val: TInt128): string; //used for debugging only
+function Int128AsDouble(val: TInt128): double;
+const
+  shift64: double = 18446744073709551616.0;
+begin
+  if (val.hi < 0) then Int128Negate(val);
+  result := -(val.lo + val.hi * shift64);
+end;
+//------------------------------------------------------------------------------
+
+function int128AsString(val: TInt128): string;
 var
   valDiv10: TInt128;
   r: integer;
-  negate: boolean;
+  isNeg: boolean;
 begin
   result := '';
   if val.hi < 0 then
   begin
     Int128Negate(val);
-    negate := true;
+    isNeg := true;
   end else
-    negate := false;
+    isNeg := false;
   while (val.hi <> 0) or (val.lo <> 0) do
   begin
     int128Div10(val, valDiv10, r);
     result := inttostr(r) + result;
     val := valDiv10;
   end;
-  if negate then result := '-' + result;
+  if isNeg then result := '-' + result;
 end;
 //------------------------------------------------------------------------------
 
@@ -495,7 +483,7 @@ end;
 //---------------------------------------------------------------------------
 
 function IsClockwise(const pts: TArrayOfIntPoint;
-  UseExtendedIntRange: boolean = true): boolean; overload;
+  UseFullInt64Range: boolean = true): boolean; overload;
 var
   i, highI: integer;
   a: double;
@@ -504,12 +492,12 @@ begin
   result := true;
   highI := high(pts);
   if highI < 2 then exit;
-  if UseExtendedIntRange then
+  if UseFullInt64Range then
   begin
-    area := int128Sub(Int128Mul(pts[highI].x, pts[0].y),
+    area := Int128Sub(Int128Mul(pts[highI].x, pts[0].y),
       Int128Mul(pts[0].x, pts[highI].y));
     for i := 0 to highI-1 do
-      area := int128Add(area, int128Sub(Int128Mul(pts[i].x, pts[i+1].y),
+      area := Int128Add(area, Int128Sub(Int128Mul(pts[i].x, pts[i+1].y),
          Int128Mul(pts[i+1].x, pts[i].y)));
     result := area.hi >= 0; //assumes Y axis is inverted
   end else
@@ -522,14 +510,14 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function IsClockwise(pt: PPolyPt; UseExtendedIntRange: boolean): boolean; overload;
+function IsClockwise(pt: PPolyPt; UseFullInt64Range: boolean): boolean; overload;
 var
   a: double;
   area: TInt128;
   startPt: PPolyPt;
 begin
   startPt := pt;
-  if UseExtendedIntRange then
+  if UseFullInt64Range then
   begin
     area := int128(0);
     repeat
@@ -551,17 +539,17 @@ end;
 //------------------------------------------------------------------------------
 
 function Area(const pts: TArrayOfIntPoint;
-  UseExtendedIntRange: boolean = true): double;
+  UseFullInt64Range: boolean = true): double;
 var
   i, highI: integer;
   a: TInt128;
 const
-  leftShift32: double = $FFFFFFFF;
+  leftShift64: double = 18446744073709551616.0;
 begin
   result := 0;
   highI := high(pts);
   if highI < 2 then exit;
-  if UseExtendedIntRange then
+  if UseFullInt64Range then
   begin
     a := int128(0);
     a := Int128Add(a, Int128Sub(Int128Mul(pts[highI].x, pts[0].y),
@@ -569,7 +557,7 @@ begin
     for i := 0 to highI-1 do
       a := Int128Add(a, Int128Sub(Int128Mul(pts[i].x, pts[i+1].y),
         Int128Mul(pts[i+1].x, pts[i].y)));
-    result := (a.lo + a.hi* leftShift32 * leftShift32) / 2;
+    result := Int128AsDouble(a) / 2;
   end else
   begin
     result := pts[highI].x * pts[0].y - pts[0].x * pts[highI].y;
@@ -595,14 +583,14 @@ end;
 //------------------------------------------------------------------------------
 
 function PointInPolygon(const pt: TIntPoint;
-  pp: PPolyPt; UseExtendedIntRange: boolean): Boolean;
+  pp: PPolyPt; UseFullInt64Range: boolean): Boolean;
 var
   pp2: PPolyPt;
   a, b: TInt128;
 begin
   Result := False;
   pp2 := pp;
-  if UseExtendedIntRange then
+  if UseFullInt64Range then
   begin
     repeat
       if (((pp2.pt.Y <= pt.Y) and (pt.Y < pp2.prev.pt.Y)) or
@@ -628,11 +616,11 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function SlopesEqual(e1, e2: PEdge; UseExtendedIntRange: boolean): boolean; overload;
+function SlopesEqual(e1, e2: PEdge; UseFullInt64Range: boolean): boolean; overload;
 begin
   if (e1.ybot = e1.ytop) then result := (e2.ybot = e2.ytop)
   else if (e2.ybot = e2.ytop) then result := false
-  else if UseExtendedIntRange then
+  else if UseFullInt64Range then
     result := Int128Equal(Int128Mul(e1.ytop-e1.ybot, e2.xtop-e2.xbot),
       Int128Mul(e1.xtop-e1.xbot, e2.ytop-e2.ybot))
   else
@@ -642,11 +630,11 @@ end;
 //---------------------------------------------------------------------------
 
 function SlopesEqual(const pt1, pt2, pt3: TIntPoint;
-  UseExtendedIntRange: boolean): boolean; overload;
+  UseFullInt64Range: boolean): boolean; overload;
 begin
   if (pt1.Y = pt2.Y) then result := (pt2.Y = pt3.Y)
   else if (pt2.Y = pt3.Y) then result := false
-  else if UseExtendedIntRange then
+  else if UseFullInt64Range then
     result := Int128Equal( Int128Mul(pt1.Y-pt2.Y, pt2.X-pt3.X),
       Int128Mul(pt1.X-pt2.X, pt2.Y-pt3.Y))
   else
@@ -655,11 +643,11 @@ end;
 //---------------------------------------------------------------------------
 
 function SlopesEqual(const pt1, pt2, pt3, pt4: TIntPoint;
-  UseExtendedIntRange: boolean): boolean; overload;
+  UseFullInt64Range: boolean): boolean; overload;
 begin
   if (pt1.Y = pt2.Y) then result := (pt3.Y = pt4.Y)
   else if (pt3.Y = pt4.Y) then result := false
-  else if UseExtendedIntRange then
+  else if UseFullInt64Range then
     result := Int128Equal( Int128Mul(pt1.Y-pt2.Y, pt3.X-pt4.X),
       Int128Mul(pt1.X-pt2.X, pt3.Y-pt4.Y))
   else
@@ -703,11 +691,11 @@ end;
 //------------------------------------------------------------------------------
 
 function IntersectPoint(edge1, edge2: PEdge;
-  out ip: TIntPoint; UseExtendedIntRange: boolean): boolean; overload;
+  out ip: TIntPoint; UseFullInt64Range: boolean): boolean; overload;
 var
   b1,b2: double;
 begin
-  if SlopesEqual(edge1, edge2, UseExtendedIntRange) then
+  if SlopesEqual(edge1, edge2, UseFullInt64Range) then
   begin
     result := false;
     exit;
