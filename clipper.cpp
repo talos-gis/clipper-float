@@ -697,7 +697,7 @@ bool ClipperBase::AddPolygon( const Polygon &pg, PolyType polyType)
 
   for (int i = 1; i < len; ++i)
   {
-    if (Abs(pg[i].X) > MaxVal|| Abs(pg[i].Y) > MaxVal)
+    if (!m_UseFullRange && (Abs(pg[i].X) > MaxVal || Abs(pg[i].Y) > MaxVal))
       throw clipperException("Integer exceeds range bounds");
     else if (PointsEqual(p[j], pg[i])) continue;
     else if (j > 0 && SlopesEqual(p[j-1], p[j], pg[i], m_UseFullRange))
