@@ -266,6 +266,7 @@ begin
   if val.lo = 0 then
   begin
     if val.hi = 0 then exit;
+    val.lo := not val.lo;
     val.hi := not val.hi +1;
   end else
   begin
@@ -327,9 +328,9 @@ end;
 
 function Int128Mul(int1, int2: Int64): TInt128;
 var
-  a, d, e, z: Int64;
+  a, b, c: Int64;
   int1Hi, int1Lo, int2Hi, int2Lo: Int64;
-  negate: boolean;
+  hiBitSet, negate: boolean;
 begin
   //save the result's sign before clearing both sign bits ...
   negate := (int1 < 0) <> (int2 < 0);
@@ -341,12 +342,28 @@ begin
   int2Hi := int2 shr 32;
   int2Lo := int2 and $FFFFFFFF;
 
-  a := int1Hi * int2Hi; //nb it's safe to multiply 2^32 variables here
-  d := int1Lo * int2Lo;
-  z := (int1Hi + int1Lo) * (int2Hi + int2Lo) - a - d; //karatsuba equation
-  e := z + (d shr 32);
-  result.lo := (d and $FFFFFFFF) + (e and $FFFFFFFF) shl 32;
-  result.hi := a + (e shr 32);
+  //nb: It's safe to multiply 32bit ints in 64bit space without overflow
+  //Also, the *result* of the karatsuba equation (see below) can also be
+  //stored in 64bit space given that:
+  //x1*y0 + x0*y1 = (x1+x0) * (y1+y0) - x0*y0 - x1*y1 (karatsuba equation)
+  //and given that x1 (int1Hi below) and y1 (int2Hi below) are now only 31bits,
+  //and also given that (31bit*32bit) + (32bit*31bit) < 64bits.
+  //However, if either (x1+x0) > 32bits or (y1+y0) > 32bits, then we must
+  //either resort to recursion or avoid using karatsuba altogether.
+  //see also - http://en.wikipedia.org/wiki/Karatsuba_algorithm
+
+  a := int1Hi * int2Hi;
+  b := int1Lo * int2Lo;
+  c := int1Hi*int2Lo + int1Lo*int2Hi; //ie avoids karatsuba here
+
+  //given that result = a shl64 + c shl 32 + b ...
+  result.lo := c shl 32;
+  result.hi := a + (c shr 32);
+  hiBitSet := (result.lo < 0); //prepare to test for overflow carry
+  result.lo := result.lo + b;
+  if (hiBitSet and (b < 0)) or
+    ((hiBitSet <> (b < 0)) and (result.lo >= 0)) then inc(result.hi);
+
   if negate then Int128Negate(result);
 end;
 //------------------------------------------------------------------------------
@@ -451,6 +468,7 @@ begin
     result := inttostr(r) + result;
     val := valDiv10;
   end;
+  if result = '' then result := '0';
   if isNeg then result := '-' + result;
 end;
 //------------------------------------------------------------------------------
