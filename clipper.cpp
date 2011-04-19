@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.2.2                                                           *
-* Date      :  18 April 2011                                                   *
+* Version   :  4.2.3                                                           *
+* Date      :  20 April 2011                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -121,15 +121,20 @@ class Int128
       ulong64 int2Hi = tmp.lo >> 32;
       ulong64 int2Lo = tmp.lo & 0xFFFFFFFF;
 
-      ulong64 a = int1Hi * int2Hi; //nb safe to multiply 2^32 variables here
-      ulong64 d = int1Lo * int2Lo;
-      ulong64 z = (int1Hi + int1Lo) * (int2Hi + int2Lo) - a - d; //karatsuba
-      ulong64 e = z + (d >> 32);
-      Int128 result(0);
-      result.lo = (d & 0xFFFFFFFF) + ((e & 0xFFFFFFFF) << 32);
-      result.hi = a + (e >> 32);
-      if (negate) Negate(result);
-      return result;
+      //nb: see comments in clipper.pas
+      ulong64 a = int1Hi * int2Hi;
+      ulong64 b = int1Lo * int2Lo;
+      ulong64 c = int1Hi * int2Lo + int1Lo * int2Hi; //ie avoid karatsuba
+
+      tmp.lo = c << 32;
+      tmp.hi = a + (c >> 32);
+      bool hiBitSet = (tmp.lo < 0); //prepare to test for overflow carry
+      tmp.lo += b;
+      if ((hiBitSet && (b < 0)) || ((hiBitSet != (b < 0)) && (tmp.lo >= 0)))
+        tmp.hi++;
+
+      if (negate) Negate(tmp);
+      return tmp;
     }
 
     Int128 operator/ (const Int128 &rhs)
@@ -191,6 +196,7 @@ class Int128
       }
       if (hi < 0) result[i--] = '-';
       result.erase(0,i+1);
+      if (result.size() == 0) result = "0";
       return result;
     }
 
@@ -198,8 +204,17 @@ private:
 
     static void Negate(Int128 &val)
     {
-      if (val.lo == 0) { if( val.hi == 0) return; val.hi = ~val.hi +1; }
-      else { val.lo = ~val.lo +1; val.hi = ~val.hi; }
+      if (val.lo == 0)
+      {
+        if( val.hi == 0) return;
+        val.lo = ~val.lo;
+        val.hi = ~val.hi +1;
+      }
+      else
+      {
+        val.lo = ~val.lo +1;
+        val.hi = ~val.hi;
+      }
     }
 
     //debugging only ...
