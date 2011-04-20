@@ -300,7 +300,13 @@ end;
 
 function Int128LessThan(const int1, int2: TInt128): boolean;
 begin
-  result := (int1.hi < int2.hi) or ((int1.hi = int2.hi) and (int1.lo < int2.lo));
+  if (int1.hi < int2.hi) then result := true
+  else if (int1.hi > int2.hi) then result := false
+  else if (int1.hi >= 0) and (int2.hi >= 0) then
+    result := UInt64(int1.lo) < UInt64(int2.lo)
+  else if (int1.hi < 0) and (int2.hi < 0) then
+    result := UInt64(int1.lo) > UInt64(int2.lo)
+  else result := (int1.hi < 0);
 end;
 //------------------------------------------------------------------------------
 
@@ -354,7 +360,7 @@ begin
 
   a := int1Hi * int2Hi;
   b := int1Lo * int2Lo;
-  c := int1Hi*int2Lo + int1Lo*int2Hi; //ie avoids karatsuba here
+  c := int1Hi*int2Lo + int1Lo*int2Hi;
 
   //given that result = a shl64 + c shl 32 + b ...
   result.lo := c shl 32;
@@ -444,8 +450,12 @@ function Int128AsDouble(val: TInt128): double;
 const
   shift64: double = 18446744073709551616.0;
 begin
-  if (val.hi < 0) then Int128Negate(val);
-  result := -(val.lo + val.hi * shift64);
+  if (val.hi < 0) then
+  begin
+    Int128Negate(val);
+    result := -(val.lo + val.hi * shift64);
+  end else
+    result := (val.lo + val.hi * shift64);
 end;
 //------------------------------------------------------------------------------
 

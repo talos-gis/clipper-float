@@ -60,11 +60,11 @@ class Int128
     long64 hi;
     long64 lo;
 
-    Int128(long64 _hi, long64 _lo)
+    Int128(long64 _hi, ulong64 _lo)
     {
       hi = std::abs(_hi);
-      lo = std::abs(_lo);
-      if (_hi < 0 || _lo < 0) Negate(*this);
+      lo = long64(_lo);
+      if (_hi < 0) Negate(*this);
     }
     Int128(long64 _lo = 0)
     {
@@ -80,10 +80,22 @@ class Int128
     bool operator!= (const Int128 &val) { return !(*this == val);}
 
     bool operator> (const Int128 &val)
-      {return hi > val.hi || (hi == val.hi && lo > val.lo);}
+    {
+      if (hi > val.hi) return true;
+      else if (hi < val.hi) return false;
+      else if (hi >= 0 && val.hi >= 0) return lo > val.lo;
+      else if (hi < 0 && val.hi < 0) return lo < val.lo;
+      else return hi > 0;
+    }
 
     bool operator< (const Int128 &val)
-      {return hi < val.hi || (hi == val.hi && lo < val.lo);}
+    {
+      if (hi < val.hi) return true;
+      else if (hi > val.hi) return false;
+      else if (hi >= 0 && val.hi >= 0) return lo < val.lo;
+      else if (hi < 0 && val.hi < 0) return lo > val.lo;
+      else return hi < 0;
+    }
 
     Int128& operator+= (const Int128 &rhs)
     {
@@ -128,10 +140,10 @@ class Int128
 
       tmp.lo = c << 32;
       tmp.hi = a + (c >> 32);
-      bool hiBitSet = (tmp.lo < 0); //prepare to test for overflow carry
-      tmp.lo += b;
-      if ((hiBitSet && (b < 0)) || ((hiBitSet != (b < 0)) && (tmp.lo >= 0)))
-        tmp.hi++;
+      bool hiBitSet = (tmp.lo < 0);
+      tmp.lo += long64(b);
+      if ((hiBitSet && (long64(b) < 0)) ||
+        ((hiBitSet != (long64(b) < 0)) && (tmp.lo >= 0))) tmp.hi++;
 
       if (negate) Negate(tmp);
       return tmp;
@@ -169,7 +181,7 @@ class Int128
 
     double AsDouble()
     {
-      const double shift64 = 18446744073709551616.0;
+      const double shift64 = 18446744073709551616.0; //2^64
       if (hi < 0)
       {
         Int128 tmp(*this);
@@ -262,7 +274,7 @@ bool IsClockwise(const Polygon &poly, bool UseFullInt64Range)
     for (int i = 0; i < highI; ++i)
       area += Int128(poly[i].X) * Int128(poly[i+1].Y) -
         Int128(poly[i+1].X) * Int128(poly[i].Y);
-    return area > 0;
+    return area.hi >= 0;
   }
   else
   {
@@ -290,7 +302,7 @@ bool IsClockwise(PolyPt *pt, bool UseFullInt64Range)
       pt = pt->next;
     }
     while (pt != startPt);
-    return area > 0;
+    return area.hi >= 0;
   }
   else
   {
