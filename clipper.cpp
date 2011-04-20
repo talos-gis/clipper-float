@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.2.3                                                           *
-* Date      :  20 April 2011                                                   *
+* Version   :  4.2.4                                                           *
+* Date      :  21 April 2011                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -57,8 +57,6 @@ enum Position  { pFirst, pMiddle, pSecond };
 class Int128
 {
   public:
-    long64 hi;
-    long64 lo;
 
     Int128(long64 _hi, ulong64 _lo)
     {
@@ -66,13 +64,23 @@ class Int128
       lo = long64(_lo);
       if (_hi < 0) Negate(*this);
     }
+
     Int128(long64 _lo = 0)
     {
       hi = 0;
       lo = std::abs(_lo);
       if (_lo < 0) Negate(*this);
     }
+
     Int128(const Int128 &val): hi(val.hi), lo(val.lo){}
+
+    long64 operator= (const long64 &val)
+    {
+      hi = 0;
+      lo = std::abs(val);
+      if (val < 0) Negate(*this);
+      return val;
+    }
 
     bool operator== (const Int128 &val)
       {return (hi == val.hi && lo == val.lo);}
@@ -125,12 +133,12 @@ class Int128
 
       Int128 tmp(*this);
       if (tmp.hi < 0) Negate(tmp);
-      ulong64 int1Hi = tmp.lo >> 32;
+      ulong64 int1Hi = ulong64(tmp.lo) >> 32;
       ulong64 int1Lo = tmp.lo & 0xFFFFFFFF;
 
       tmp = rhs;
       if (tmp.hi < 0) Negate(tmp);
-      ulong64 int2Hi = tmp.lo >> 32;
+      ulong64 int2Hi = ulong64(tmp.lo) >> 32;
       ulong64 int2Lo = tmp.lo & 0xFFFFFFFF;
 
       //nb: see comments in clipper.pas
@@ -213,6 +221,8 @@ class Int128
     }
 
 private:
+    long64 hi;
+    long64 lo;
 
     static void Negate(Int128 &val)
     {
@@ -274,7 +284,7 @@ bool IsClockwise(const Polygon &poly, bool UseFullInt64Range)
     for (int i = 0; i < highI; ++i)
       area += Int128(poly[i].X) * Int128(poly[i+1].Y) -
         Int128(poly[i+1].X) * Int128(poly[i].Y);
-    return area.hi >= 0;
+    return area > 0;
   }
   else
   {
@@ -302,7 +312,7 @@ bool IsClockwise(PolyPt *pt, bool UseFullInt64Range)
       pt = pt->next;
     }
     while (pt != startPt);
-    return area.hi >= 0;
+    return area > 0;
   }
   else
   {
