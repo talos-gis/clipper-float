@@ -58,13 +58,6 @@ class Int128
 {
   public:
 
-    Int128(long64 _hi, ulong64 _lo)
-    {
-      hi = std::abs(_hi);
-      lo = long64(_lo);
-      if (_hi < 0) Negate(*this);
-    }
-
     Int128(long64 _lo = 0)
     {
       hi = 0;
@@ -91,8 +84,8 @@ class Int128
     {
       if (hi > val.hi) return true;
       else if (hi < val.hi) return false;
-      else if (hi >= 0 && val.hi >= 0) return lo > val.lo;
-      else if (hi < 0 && val.hi < 0) return lo < val.lo;
+      else if (hi >= 0 && val.hi >= 0) return ulong64(lo) > ulong64(val.lo);
+      else if (hi < 0 && val.hi < 0) return ulong64(lo) < ulong64(val.lo);
       else return hi > 0;
     }
 
@@ -100,8 +93,8 @@ class Int128
     {
       if (hi < val.hi) return true;
       else if (hi > val.hi) return false;
-      else if (hi >= 0 && val.hi >= 0) return lo < val.lo;
-      else if (hi < 0 && val.hi < 0) return lo > val.lo;
+      else if (hi >= 0 && val.hi >= 0) return ulong64(lo) < ulong64(val.lo);
+      else if (hi < 0 && val.hi < 0) return ulong64(lo) > ulong64(val.lo);
       else return hi < 0;
     }
 
@@ -144,7 +137,7 @@ class Int128
       //nb: see comments in clipper.pas
       ulong64 a = int1Hi * int2Hi;
       ulong64 b = int1Lo * int2Lo;
-      ulong64 c = int1Hi * int2Lo + int1Lo * int2Hi; //ie avoid karatsuba
+      ulong64 c = int1Hi * int2Lo + int1Lo * int2Hi; //nb avoid karatsuba
 
       tmp.lo = c << 32;
       tmp.hi = a + (c >> 32);
@@ -173,11 +166,11 @@ class Int128
       {
         p.hi = p.hi << 1;
         if (p.lo < 0) p.hi++;
-        p.lo = p.lo << 1;
+        p.lo = long64(p.lo) << 1;
         if (result.hi < 0) p.lo++;
         result.hi = result.hi << 1;
         if (result.lo < 0) result.hi++;
-        result.lo = result.lo << 1;
+        result.lo = long64(result.lo) << 1;
         Int128 p2(p);
         p += denom;
         if (p.hi < 0) p = p2;
