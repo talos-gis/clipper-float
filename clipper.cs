@@ -31,8 +31,8 @@
 *******************************************************************************/
 
 using System;
-using System.Text;
 using System.Collections.Generic;
+//using System.Text; //for Int128.AsString() & StringBuilder
 
 namespace clipper
 {
@@ -151,46 +151,50 @@ namespace clipper
             return lhs;
         }
 
-        public static Int128 operator* (Int128 lhs, Int128 rhs) 
+        //nb: Constructing two new Int128 objects every time we want to multiply Int64s  
+        //is slow. So, although calling the Int128Mul method doesn't look as clean, the 
+        //code runs significantly faster than if we'd used the * operator.
+        //public static Int128 operator *(Int128 lhs, Int128 rhs)
+        //{
+        //    if (!(lhs.hi == 0 || lhs.hi == -1) || !(rhs.hi == 0 || rhs.hi == -1))
+        //        throw new Exception("Int128 operator*: overflow error");
+        //    return Int128Mul(lhs.lo, rhs.lo);
+        //}
+
+        public static Int128 Int128Mul(Int64 lhs, Int64 rhs)
         {
-            if ( !(lhs.hi == 0 || lhs.hi == -1) || !(rhs.hi == 0 || rhs.hi == -1))
-            throw new Exception("Int128 operator*: overflow error");
-            bool negate = (lhs.hi < 0) != (rhs.hi < 0);
-
-            Int128 tmp = new Int128 (lhs);
-            if (tmp.hi < 0) Negate(tmp);
-            UInt64 int1Hi = (UInt64)tmp.lo >> 32;
-            UInt64 int1Lo = (UInt64)tmp.lo & 0xFFFFFFFF;
-
-            tmp.Assign(rhs);
-            if (tmp.hi < 0) Negate(tmp);
-            UInt64 int2Hi = (UInt64)tmp.lo >> 32;
-            UInt64 int2Lo = (UInt64)tmp.lo & 0xFFFFFFFF;
+            bool negate = (lhs < 0) != (rhs < 0);
+            if (lhs < 0) lhs = -lhs;
+            if (rhs < 0) rhs = -rhs;
+            UInt64 int1Hi = (UInt64)lhs >> 32;
+            UInt64 int1Lo = (UInt64)lhs & 0xFFFFFFFF;
+            UInt64 int2Hi = (UInt64)rhs >> 32;
+            UInt64 int2Lo = (UInt64)rhs & 0xFFFFFFFF;
 
             //nb: see comments in clipper.pas
             UInt64 a = int1Hi * int2Hi;
             UInt64 b = int1Lo * int2Lo;
             UInt64 c = int1Hi * int2Lo + int1Lo * int2Hi; //nb avoid karatsuba
 
-            tmp.lo = (Int64)(c << 32);
-            tmp.hi = (Int64)(a + (c >> 32));
-            bool hiBitSet = (tmp.lo < 0);
-            tmp.lo += (Int64)b;
+            Int128 result = new Int128();
+            result.lo = (Int64)(c << 32);
+            result.hi = (Int64)(a + (c >> 32));
+            bool hiBitSet = (result.lo < 0);
+            result.lo += (Int64)b;
             if ((hiBitSet && ((Int64)b < 0)) ||
-            ((hiBitSet != ((Int64)b < 0)) && (tmp.lo >= 0))) tmp.hi++;
-
-            if (negate) Negate(tmp);
-            return tmp;
+            ((hiBitSet != ((Int64)b < 0)) && (result.lo >= 0))) result.hi++;
+            if (negate) Negate(result);
+            return result;
         }
 
-        public static Int128 operator/ (Int128 lhs, Int128 rhs) 
+        public static Int128 operator /(Int128 lhs, Int128 rhs)
         {
             if (rhs.lo == 0 && rhs.hi == 0)
-            throw new Exception("Int128 operator/: divide by zero");
+                throw new Exception("Int128 operator/: divide by zero");
             bool negate = (rhs.hi < 0) != (lhs.hi < 0);
             Int128 result = new Int128(lhs), denom = new Int128(rhs);
             if (result.hi < 0) Negate(result);
-            if (denom.hi < 0)  Negate(denom);
+            if (denom.hi < 0) Negate(denom);
             if (denom > result) return new Int128(0); //result is only a fraction of 1
             Negate(denom);
 
@@ -213,7 +217,7 @@ namespace clipper
             return result;
         }
 
-        public double AsDouble()
+        public double ToDouble()
         {
             const double shift64 = 18446744073709551616.0; //2^64
             if (hi < 0)
@@ -225,52 +229,52 @@ namespace clipper
             else return (double)lo + (double)hi * shift64;
         }
 
-        //for bug testing ...
-        public string AsString()
-        {
-            int r = 0;
-            Int128 tmp = new Int128(0), val = new Int128(this);
-            if (hi < 0) Negate(val);
-            StringBuilder builder = new StringBuilder(50);
-            while (val.hi != 0 || val.lo != 0)
-            {
-                Div10(val, ref tmp, ref r);
-                builder.Insert(0, (char)('0' + r));
-                val.Assign(tmp);
-            }
-            if (hi < 0) return '-' + builder.ToString();
-            if (builder.Length == 0) return "0";
-            return builder.ToString();
-        }
+        ////for bug testing ...
+        //public string ToString()
+        //{
+        //    int r = 0;
+        //    Int128 tmp = new Int128(0), val = new Int128(this);
+        //    if (hi < 0) Negate(val);
+        //    StringBuilder builder = new StringBuilder(50);
+        //    while (val.hi != 0 || val.lo != 0)
+        //    {
+        //        Div10(val, ref tmp, ref r);
+        //        builder.Insert(0, (char)('0' + r));
+        //        val.Assign(tmp);
+        //    }
+        //    if (hi < 0) return '-' + builder.ToString();
+        //    if (builder.Length == 0) return "0";
+        //    return builder.ToString();
+        //}
 
-        //debugging only ...
-        private void Div10(Int128 val, ref Int128 result, ref int remainder)
-        {
-            remainder = 0;
-            result = new Int128(0);
-            for (int i = 63; i >= 0; --i)
-            {
-            if ((val.hi & ((Int64)1 << i)) != 0)
-                remainder = (remainder * 2) + 1; else
-                remainder *= 2;
-            if (remainder >= 10)
-            {
-                result.hi += ((Int64)1 << i);
-                remainder -= 10;
-            }
-            }
-            for (int i = 63; i >= 0; --i)
-            {
-            if ((val.lo & ((Int64)1 << i)) != 0)
-                remainder = (remainder * 2) + 1; else
-                remainder *= 2;
-            if (remainder >= 10)
-            {
-                result.lo += ((Int64)1 << i);
-                remainder -= 10;
-            }
-            }
-        }
+        ////debugging only ...
+        //private void Div10(Int128 val, ref Int128 result, ref int remainder)
+        //{
+        //    remainder = 0;
+        //    result = new Int128(0);
+        //    for (int i = 63; i >= 0; --i)
+        //    {
+        //    if ((val.hi & ((Int64)1 << i)) != 0)
+        //        remainder = (remainder * 2) + 1; else
+        //        remainder *= 2;
+        //    if (remainder >= 10)
+        //    {
+        //        result.hi += ((Int64)1 << i);
+        //        remainder -= 10;
+        //    }
+        //    }
+        //    for (int i = 63; i >= 0; --i)
+        //    {
+        //    if ((val.lo & ((Int64)1 << i)) != 0)
+        //        remainder = (remainder * 2) + 1; else
+        //        remainder *= 2;
+        //    if (remainder >= 10)
+        //    {
+        //        result.lo += ((Int64)1 << i);
+        //        remainder -= 10;
+        //    }
+        //    }
+        //}
     };
 
     //------------------------------------------------------------------------------
@@ -419,9 +423,10 @@ namespace clipper
               {
                   if ((((pp2.pt.Y <= pt.Y) && (pt.Y < pp2.prev.pt.Y)) ||
                       ((pp2.prev.pt.Y <= pt.Y) && (pt.Y < pp2.pt.Y))) &&
-                      new Int128(pt.X - pp2.pt.X) < (new Int128(pp2.prev.pt.X - pp2.pt.X) *
-                      new Int128(pt.Y - pp2.pt.Y)) / new Int128(pp2.prev.pt.Y - pp2.pt.Y))
-                      result = !result;
+                      new Int128(pt.X - pp2.pt.X) < 
+                      Int128.Int128Mul(pp2.prev.pt.X - pp2.pt.X,  pt.Y - pp2.pt.Y) / 
+                      new Int128(pp2.prev.pt.Y - pp2.pt.Y))
+                        result = !result;
                   pp2 = pp2.next;
               }
               while (pp2 != pp);
@@ -446,9 +451,9 @@ namespace clipper
         {
           if (e1.ybot == e1.ytop) return (e2.ybot == e2.ytop);
           else if (e2.ybot == e2.ytop) return false;
-          else if (UseFullInt64Range) 
-              return new Int128(e1.ytop - e1.ybot) * new Int128(e2.xtop - e2.xbot) ==
-                  new Int128(e1.xtop - e1.xbot) * new Int128(e2.ytop - e2.ybot);
+          else if (UseFullInt64Range)
+              return Int128.Int128Mul(e1.ytop - e1.ybot, e2.xtop - e2.xbot) ==
+                  Int128.Int128Mul(e1.xtop - e1.xbot, e2.ytop - e2.ybot);
           else return (Int64)(e1.ytop - e1.ybot) * (e2.xtop - e2.xbot) -
               (Int64)(e1.xtop - e1.xbot)*(e2.ytop - e2.ybot) == 0;
         }
@@ -460,8 +465,8 @@ namespace clipper
           if (pt1.Y == pt2.Y) return (pt2.Y == pt3.Y);
           else if (pt2.Y == pt3.Y) return false;
           else if (UseFullInt64Range)
-              return new Int128(pt1.Y - pt2.Y) * new Int128(pt2.X - pt3.X) ==
-                new Int128(pt1.X - pt2.X) * new Int128(pt2.Y - pt3.Y);
+              return Int128.Int128Mul(pt1.Y - pt2.Y, pt2.X - pt3.X) ==
+                Int128.Int128Mul(pt1.X - pt2.X, pt2.Y - pt3.Y);
           else return
             (Int64)(pt1.Y-pt2.Y)*(pt2.X-pt3.X) - (Int64)(pt1.X-pt2.X)*(pt2.Y-pt3.Y) == 0;
         }
@@ -471,7 +476,7 @@ namespace clipper
         {
             m_MinimaList = null;
             m_CurrentLM = null;
-            m_UseFullRange = true;
+            m_UseFullRange = true; //ie default for UseFullCoordinateRange == true
         }
         //------------------------------------------------------------------------------
 
@@ -486,6 +491,7 @@ namespace clipper
             get { return m_UseFullRange; }
             set { if (m_edges.Count == 0) m_UseFullRange = value; }
         }
+        //------------------------------------------------------------------------------
 
         public virtual void Clear()
         {
@@ -2389,19 +2395,19 @@ namespace clipper
         }
         //------------------------------------------------------------------------------
 
-        public static bool IsClockwise(Polygon poly, bool UseFullInt64Range)
+        public static bool IsClockwise(Polygon poly, bool UseFullInt64Range = true)
         {
           int highI = poly.Count -1;
           if (highI < 2) return false;
           if (UseFullInt64Range)
           {
               Int128 area;
-              area = new Int128(poly[highI].X) * new Int128(poly[0].Y) -
-                new Int128(poly[0].X) * new Int128(poly[highI].Y);
+              area = Int128.Int128Mul(poly[highI].X, poly[0].Y) -
+                Int128.Int128Mul(poly[0].X, poly[highI].Y);
               for (int i = 0; i < highI; ++i)
-                  area += new Int128(poly[i].X) * new Int128(poly[i + 1].Y) -
-                    new Int128(poly[i + 1].X) * new Int128(poly[i].Y);
-              return area.AsDouble() > 0;
+                  area += Int128.Int128Mul(poly[i].X, poly[i + 1].Y) -
+                    Int128.Int128Mul(poly[i + 1].X, poly[i].Y);
+              return area.ToDouble() > 0;
           }
           else
           {
@@ -2426,12 +2432,12 @@ namespace clipper
                 Int128 area = new Int128(0);
                 do
                 {
-                    area += (new Int128(pt.pt.X) * new Int128(pt.next.pt.Y)) -
-                    (new Int128(pt.next.pt.X) * new Int128(pt.pt.Y));
+                    area += Int128.Int128Mul(pt.pt.X, pt.next.pt.Y) -
+                        Int128.Int128Mul(pt.next.pt.X, pt.pt.Y);
                     pt = pt.next;
                 }
                 while (pt != startPt);
-                return area.AsDouble() > 0;
+                return area.ToDouble() > 0;
             }
             else
             {
@@ -2725,12 +2731,12 @@ namespace clipper
             if (UseFullInt64Range)
             {
                 Int128 a = new Int128(0);
-                a = (new Int128(poly[highI].X) * new Int128(poly[0].Y)) -
-                    new Int128(poly[0].X) * new Int128(poly[highI].Y);
+                a = Int128.Int128Mul(poly[highI].X, poly[0].Y) -
+                    Int128.Int128Mul(poly[0].X, poly[highI].Y);
                 for (int i = 0; i < highI; ++i)
-                    a += new Int128(poly[i].X) * new Int128(poly[i + 1].Y) -
-                    new Int128(poly[i + 1].X) * new Int128(poly[i].Y);
-                return a.AsDouble() / 2;
+                    a += Int128.Int128Mul(poly[i].X, poly[i + 1].Y) -
+                    Int128.Int128Mul(poly[i + 1].X, poly[i].Y);
+                return a.ToDouble() / 2;
             }
             else
             {
