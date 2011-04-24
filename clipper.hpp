@@ -219,7 +219,7 @@ private:
   PolyPt* FixupOutPolygon(PolyPt *p);
   PolyPt* FixSpikes(PolyPt *pp);
   bool IsHole(TEdge *e);
-  void AddJoin(TEdge *e1, TEdge *e2, int e1OutIdx = -1);
+  void AddJoin(TEdge *e1, TEdge *e2, int e1OutIdx = -1, int e2OutIdx = -1);
   void ClearJoins();
   void AddHorzJoin(TEdge *e, int idx);
   void ClearHorzJoins();

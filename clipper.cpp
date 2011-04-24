@@ -1283,7 +1283,7 @@ void Clipper::CopyAELToSEL()
 }
 //------------------------------------------------------------------------------
 
-void Clipper::AddJoin(TEdge *e1, TEdge *e2, int e1OutIdx)
+void Clipper::AddJoin(TEdge *e1, TEdge *e2, int e1OutIdx, int e2OutIdx)
 {
   JoinRec* jr = new JoinRec;
   if (e1OutIdx >= 0)
@@ -1291,7 +1291,9 @@ void Clipper::AddJoin(TEdge *e1, TEdge *e2, int e1OutIdx)
     jr->poly1Idx = e1->outIdx;
   jr->pt1a = IntPoint(e1->xbot, e1->ybot);
   jr->pt1b = IntPoint(e1->xtop, e1->ytop);
-  jr->poly2Idx = e2->outIdx;
+  if (e2OutIdx >= 0)
+    jr->poly2Idx = e2OutIdx; else
+    jr->poly2Idx = e2->outIdx;
   jr->pt2a = IntPoint(e2->xbot, e2->ybot);
   jr->pt2b = IntPoint(e2->xtop, e2->ytop);
   m_Joins.push_back(jr);
@@ -2144,6 +2146,18 @@ void Clipper::ProcessEdgesAtTopOfScanbeam(const long64 topY)
         if (e->outIdx >= 0)
         {
           AddPolyPt(e, IntPoint(e->xtop, e->ytop));
+
+          for (HorzJoinList::size_type i = 0; i < m_HorizJoins.size(); ++i)
+          {
+            IntPoint pt, pt2;
+            HorzJoinRec* hj = m_HorizJoins[i];
+            if (GetOverlapSegment(IntPoint(hj->edge->xbot, hj->edge->ybot),
+              IntPoint(hj->edge->xtop, hj->edge->ytop),
+              IntPoint(e->nextInLML->xbot, e->nextInLML->ybot),
+              IntPoint(e->nextInLML->xtop, e->nextInLML->ytop), pt, pt2))
+                AddJoin(hj->edge, e->nextInLML, hj->savedIdx, e->outIdx);
+          }
+
           AddHorzJoin(e->nextInLML, e->outIdx);
         }
         UpdateEdgeIntoAEL(e);

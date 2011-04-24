@@ -205,7 +205,8 @@ type
     function GetResult: TArrayOfArrayOfIntPoint;
     function FixupOutPolygon(outPoly: PPolyPt): PPolyPt;
     function IsHole(e: PEdge): boolean;
-    procedure AddJoin(e1, e2: PEdge; e1OutIdx: integer = -1);
+    procedure AddJoin(e1, e2: PEdge;
+      e1OutIdx: integer = -1; e2OutIdx: integer = -1);
     procedure ClearJoins;
     procedure AddHorzJoin(e: PEdge; idx: integer);
     procedure ClearHorzJoins;
@@ -348,7 +349,7 @@ begin
   int2Hi := int2 shr 32;
   int2Lo := int2 and $FFFFFFFF;
 
-  //nb: It's safe to multiply 32bit ints in 64bit space without overflow
+  //It's safe to multiply 32bit ints in unsigned 64bit space without overflow.
   //Also, the *result* of the karatsuba equation (see below) can also be
   //stored in 64bit space given that:
   //x1*y0 + x0*y1 = (x1+x0) * (y1+y0) - x0*y0 - x1*y1 (karatsuba equation)
@@ -1418,7 +1419,8 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure TClipper.AddJoin(e1, e2: PEdge; e1OutIdx: integer = -1);
+procedure TClipper.AddJoin(e1, e2: PEdge;
+  e1OutIdx: integer = -1; e2OutIdx: integer = -1);
 var
   jr: PJoinRec;
 begin
@@ -1431,7 +1433,9 @@ begin
     jr.pt1a := IntPoint(xbot, ybot);
     jr.pt1b := IntPoint(xtop, ytop);
   end;
-  jr.poly2Idx := e2.outIdx;
+  if e2OutIdx >= 0 then
+    jr.poly2Idx := e2OutIdx else
+    jr.poly2Idx := e2.outIdx;
   with e2^ do
   begin
     jr.pt2a := IntPoint(xbot, ybot);
@@ -2504,6 +2508,8 @@ end;
 procedure TClipper.ProcessEdgesAtTopOfScanbeam(const topY: int64);
 var
   e, ePrior: PEdge;
+  hj: PHorzRec;
+  pt, pt2: TIntPoint;
 begin
 (*******************************************************************************
 * Notes: Processing edges at scanline intersections (ie at the top or bottom   *
@@ -2547,6 +2553,18 @@ begin
         if (e.outIdx >= 0) then
         begin
           AddPolyPt(e, IntPoint(e.xtop, e.ytop));
+
+          hj := fHorizJoins;
+          if assigned(hj) then
+          repeat
+            if GetOverlapSegment(IntPoint(hj.edge.xbot, hj.edge.ybot),
+              IntPoint(hj.edge.xtop, hj.edge.ytop),
+              IntPoint(e.nextInLML.xbot, e.nextInLML.ybot),
+              IntPoint(e.nextInLML.xtop, e.nextInLML.ytop), pt, pt2) then
+                AddJoin(hj.edge, e.nextInLML, hj.savedIdx, e.outIdx);
+            hj := hj.next;
+          until hj = fHorizJoins;
+
           AddHorzJoin(e.nextInLML, e.outIdx);
         end;
         UpdateEdgeIntoAEL(e);

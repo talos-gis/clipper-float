@@ -973,7 +973,7 @@ namespace clipper
         }
         //------------------------------------------------------------------------------
 
-        private void AddJoin(TEdge e1, TEdge e2, int e1OutIdx = -1)
+        private void AddJoin(TEdge e1, TEdge e2, int e1OutIdx = -1, int e2OutIdx = -1)
         {
             JoinRec jr = new JoinRec();
             if (e1OutIdx >= 0)
@@ -981,7 +981,9 @@ namespace clipper
             jr.poly1Idx = e1.outIdx;
             jr.pt1a = new IntPoint(e1.xbot, e1.ybot);
             jr.pt1b = new IntPoint(e1.xtop, e1.ytop);
-            jr.poly2Idx = e2.outIdx;
+            if (e2OutIdx >= 0)
+                jr.poly2Idx = e2OutIdx; else
+                jr.poly2Idx = e2.outIdx;
             jr.pt2a = new IntPoint(e2.xbot, e2.ybot);
             jr.pt2b = new IntPoint(e2.xtop, e2.ytop);
             m_Joins.Add(jr);
@@ -2339,6 +2341,18 @@ namespace clipper
                 if (e.outIdx >= 0)
                 {
                     AddPolyPt(e, new IntPoint(e.xtop, e.ytop));
+
+                    for (int i = 0; i < m_HorizJoins.Count; ++i)
+                    {
+                        IntPoint pt = new IntPoint(), pt2 = new IntPoint();
+                        HorzJoinRec hj = m_HorizJoins[i];
+                        if (GetOverlapSegment(new IntPoint(hj.edge.xbot, hj.edge.ybot),
+                            new IntPoint(hj.edge.xtop, hj.edge.ytop),
+                            new IntPoint(e.nextInLML.xbot, e.nextInLML.ybot),
+                            new IntPoint(e.nextInLML.xtop, e.nextInLML.ytop), ref pt, ref pt2))
+                                AddJoin(hj.edge, e.nextInLML, hj.savedIdx, e.outIdx);
+                    }
+
                     AddHorzJoin(e.nextInLML, e.outIdx);
                 }
                 UpdateEdgeIntoAEL(ref e);
