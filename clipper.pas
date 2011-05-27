@@ -1178,6 +1178,7 @@ var
 begin
   inherited Reset;
   fScanbeam := nil;
+  DisposeAllPolyPts;
   lm := fLmList;
   while assigned(lm) do
   begin
@@ -1235,9 +1236,8 @@ var
   p1, p2: POutRec;
   i1, i2: integer;
 begin
-  if item1 = item2 then result := 0
-  else if item1 = nil then result := 1
-  else if item2 = nil then result := -1
+  if item1 = item2 then
+    result := 0
   else
   begin
     p1 := item1; p2 := item2;
@@ -1271,10 +1271,14 @@ var
   botY, topY: int64;
   looped: boolean;
 begin
-  result := true;
+  result := false;
   try try
     Reset;
-    if not assigned(fScanbeam) then exit; //ie an empty polygon set
+    if not assigned(fScanbeam) then
+    begin
+      result := true;
+      exit;
+    end;
 
     botY := PopScanbeam;
     repeat
@@ -1282,16 +1286,13 @@ begin
       ClearHorzJoins;
       ProcessHorizontals;
       topY := PopScanbeam;
-      if not ProcessIntersections(topY) then
-      begin
-        result := false;
-        Break;
-      end;
+      if not ProcessIntersections(topY) then Exit;
       ProcessEdgesAtTopOfScanbeam(topY);
       botY := topY;
     until fScanbeam = nil;
 
     //tidy up output polygons and fix orientations where necessary ...
+    //NB: WHILE THIS IS 99.9% OK, IT'S STILL NOT GOOD ENOUGH!! /////////////////
     for i := 0 to fPolyOutList.Count -1 do
     begin
       outRec := fPolyOutList[i];
@@ -1302,8 +1303,8 @@ begin
       begin
         looped := false;
         savedFL := outRec.FirstLeft;
-        while assigned(outRec.FirstLeft) and
-          outRec.FirstLeft.isHole and
+        while assigned(outRec.FirstLeft) and outRec.FirstLeft.isHole and
+          (outRec.FirstLeft.FirstLeft <> outRec.FirstLeft) and
           (not looped or (outRec.FirstLeft <> savedFL)) do
         begin
           outRec.FirstLeft := outRec.FirstLeft.FirstLeft;
@@ -1328,9 +1329,12 @@ begin
         begin
           while assigned(outRec.FirstLeft.AppendLink) do
             outRec.FirstLeft := outRec.FirstLeft.AppendLink;
-          while outRec.FirstLeft.isHole do
-            outRec.FirstLeft := outRec.FirstLeft.FirstLeft;
-          if not assigned(outRec.FirstLeft.AppendLink) then break;
+          while outRec.FirstLeft.isHole and (outRec.FirstLeft <> outRec) and
+            (outRec.FirstLeft.FirstLeft <> outRec.FirstLeft) do
+              outRec.FirstLeft := outRec.FirstLeft.FirstLeft;
+          if (outRec.FirstLeft = outRec) or
+            (outRec.FirstLeft.FirstLeft = outRec.FirstLeft) or
+            not assigned(outRec.FirstLeft.AppendLink) then Break;
         end;
       end;
 
@@ -1413,7 +1417,6 @@ var
   outRec: POutRec;
 begin
   outRec := fPolyOutList[index];
-  if not assigned(outRec) then exit;
   if not ignorePts and assigned(outRec.pts) then DisposePolyPts(outRec.pts);
   Dispose(outRec);
   fPolyOutList[index] := nil;
@@ -2119,12 +2122,8 @@ begin
   ObsoleteIdx := e2.outIdx;
 
   outRec2.pts := nil;
-
   e1.outIdx := -1; //nb: safe because we only get here via AddLocalMaxPoly
   e2.outIdx := -1;
-
-//  debug.logFormatted('AppendPolygon (post): %d <= %d',[OKIdx, ObsoleteIdx]);
-//  LogOutRecs(fPolyOutList);
 
   e := fActiveEdges;
   while assigned(e) do
@@ -2788,7 +2787,7 @@ begin
       //make sure each polygon has at least 3 vertices ...
       outRec := fPolyOutList[i];
       op := outRec.pts;
-      if not assigned(op) then Continue;
+      if not assigned(op) then break;
       cnt := PointCount(op);
       if (cnt < 3) then continue;
 
@@ -3046,10 +3045,10 @@ begin
     j := fJoinList[i];
     outRec1 := fPolyOutList[j.poly1Idx];
     if not assigned(outRec1) then Continue;
-    pp1a := outRec1.pts;
+    pp1a := outRec1^.pts;
     outRec2 := fPolyOutList[j.poly2Idx];
     if not assigned(outRec2) then Continue;
-    pp2a := outRec2.pts;
+    pp2a := outRec2^.pts;
     pt1 := j.pt2a; pt2 := j.pt2b;
     pt3 := j.pt1a; pt4 := j.pt1b;
     if not FindSegment(pp1a, pt1, pt2) then continue;
@@ -3153,6 +3152,8 @@ begin
       //having joined 2 polygons together, delete the obsolete pointer ...
       outRec2.pts := nil;
       outRec2.AppendLink := outRec1;
+      //holes are practically always joined to outers, not vice versa ...
+      if outRec1.isHole and not outRec2.isHole then outRec1.isHole := false;
 
       //now fixup any subsequent fJoins ...
       for i2 := i+1 to fJoinList.count -1 do

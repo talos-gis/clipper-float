@@ -1148,7 +1148,7 @@ bool PolySort(OutRec *or1, OutRec *or2)
     i2 = or2->FirstLeft->idx; else
     i2 = or2->idx;
   int result = i1 - i2;
-  if (result == 0 && or1->isHole != or2->isHole)
+  if (result == 0 && (or1->isHole != or2->isHole))
   {
     if (or1->isHole) return false;
     else return true;
@@ -1182,6 +1182,7 @@ bool Clipper::ExecuteInternal()
   if (succeeded)
   {
     //tidy up output polygons and fix orientations where necessary ...
+    //NB: WHILE THIS IS 99.9% OK, IT'S STILL NOT GOOD ENOUGH!! /////////////////
     for (PolyOutList::size_type i = 0; i < m_PolyOuts.size(); ++i)
     {
       OutRec *outRec = m_PolyOuts[i];
@@ -1193,6 +1194,7 @@ bool Clipper::ExecuteInternal()
         bool looped = false;
         OutRec *savedFL = outRec->FirstLeft;
         while (outRec->FirstLeft && outRec->FirstLeft->isHole &&
+          (outRec->FirstLeft->FirstLeft != outRec->FirstLeft) &&
           (!looped || outRec->FirstLeft != savedFL))
         {
           outRec->FirstLeft = outRec->FirstLeft->FirstLeft;
@@ -1216,15 +1218,17 @@ bool Clipper::ExecuteInternal()
         {
           while (outRec->FirstLeft->AppendLink)
             outRec->FirstLeft = outRec->FirstLeft->AppendLink;
-          while (outRec->FirstLeft->isHole)
-            outRec->FirstLeft = outRec->FirstLeft->FirstLeft;
-          if (!outRec->FirstLeft->AppendLink) break;
+          while (outRec->FirstLeft->isHole && outRec != outRec->FirstLeft &&
+            outRec->FirstLeft->FirstLeft != outRec->FirstLeft)
+              outRec->FirstLeft = outRec->FirstLeft->FirstLeft;
+          if (!outRec->FirstLeft->AppendLink ||
+              outRec->FirstLeft == outRec ||
+              outRec->FirstLeft->FirstLeft == outRec->FirstLeft) break;
         }
       }
-
     std::sort(m_PolyOuts.begin(), m_PolyOuts.end(), PolySort);
-
   }
+
   ClearJoins();
   ClearHorzJoins();
   return succeeded;
@@ -1705,7 +1709,7 @@ void Clipper::IntersectEdges(TEdge *e1, TEdge *e2,
 }
 //------------------------------------------------------------------------------
 
-void Clipper::SetHoleState(TEdge *e, OutRec *OutRec)
+void Clipper::SetHoleState(TEdge *e, OutRec *outRec)
 {
   bool isHole = false;
   TEdge *e2 = e->prevInAEL;
@@ -1714,44 +1718,44 @@ void Clipper::SetHoleState(TEdge *e, OutRec *OutRec)
     if (e2->outIdx >= 0)
     {
       isHole = !isHole;
-      if (! OutRec->FirstLeft)
-        OutRec->FirstLeft = m_PolyOuts[e2->outIdx];
+      if (! outRec->FirstLeft)
+        outRec->FirstLeft = m_PolyOuts[e2->outIdx];
     }
     e2 = e2->prevInAEL;
   }
-  if (isHole) OutRec->isHole = true;
+  if (isHole) outRec->isHole = true;
 }
 //------------------------------------------------------------------------------
 
 void Clipper::AppendPolygon(TEdge *e1, TEdge *e2)
 {
   //get the start and ends of both output polygons ...
-  OutRec *OutRec1 = m_PolyOuts[e1->outIdx];
-  OutRec *OutRec2 = m_PolyOuts[e2->outIdx];
-  OutPt* p1_lft = OutRec1->pts;
+  OutRec *outRec1 = m_PolyOuts[e1->outIdx];
+  OutRec *outRec2 = m_PolyOuts[e2->outIdx];
+  OutPt* p1_lft = outRec1->pts;
   OutPt* p1_rt = p1_lft->prev;
-  OutPt* p2_lft = OutRec2->pts;
+  OutPt* p2_lft = outRec2->pts;
   OutPt* p2_rt = p2_lft->prev;
 
-  OutRec *ObsoleteRec;
+  OutRec *obsoleteRec;
   OutPt *bottom1 = PolygonBottom(p1_lft);
   OutPt *bottom2 = PolygonBottom(p2_lft);
-  if (bottom1->pt.Y > bottom2->pt.Y) ObsoleteRec = OutRec2;
-  else if (bottom1->pt.Y < bottom2->pt.Y) ObsoleteRec = OutRec1;
-  else if (bottom1->pt.X < bottom2->pt.X) ObsoleteRec = OutRec2;
-  else if (bottom1->pt.X > bottom2->pt.X) ObsoleteRec = OutRec1;
+  if (bottom1->pt.Y > bottom2->pt.Y) obsoleteRec = outRec2;
+  else if (bottom1->pt.Y < bottom2->pt.Y) obsoleteRec = outRec1;
+  else if (bottom1->pt.X < bottom2->pt.X) obsoleteRec = outRec2;
+  else if (bottom1->pt.X > bottom2->pt.X) obsoleteRec = outRec1;
   //todo - the following 2 lines are really only a best guess ...
-  else if (OutRec1->isHole) ObsoleteRec = OutRec1;
-  else ObsoleteRec = OutRec2;
+  else if (outRec1->isHole) obsoleteRec = outRec1;
+  else obsoleteRec = outRec2;
 
   //fixup hole status ...
-  if (OutRec1->isHole != OutRec2->isHole)
-    if (ObsoleteRec == OutRec1)
-      OutRec1->isHole = OutRec2->isHole; else
-      OutRec2->isHole = OutRec1->isHole;
+  if (outRec1->isHole != outRec2->isHole)
+    if (obsoleteRec == outRec1)
+      outRec1->isHole = outRec2->isHole; else
+      outRec2->isHole = outRec1->isHole;
 
-  if (ObsoleteRec == OutRec1) OutRec1->FirstLeft = OutRec2->FirstLeft;
-  OutRec2->AppendLink = OutRec1;
+  if (obsoleteRec == outRec1) outRec1->FirstLeft = outRec2->FirstLeft;
+  outRec2->AppendLink = outRec1;
 
   EdgeSide side;
   //join e2 poly onto e1 poly and delete pointers to e2 ...
@@ -1765,7 +1769,7 @@ void Clipper::AppendPolygon(TEdge *e1, TEdge *e2)
       p1_lft->prev = p2_lft;
       p1_rt->next = p2_rt;
       p2_rt->prev = p1_rt;
-      OutRec1->pts = p2_rt;
+      outRec1->pts = p2_rt;
     } else
     {
       //x y z a b c
@@ -1773,7 +1777,7 @@ void Clipper::AppendPolygon(TEdge *e1, TEdge *e2)
       p1_lft->prev = p2_rt;
       p2_lft->prev = p1_rt;
       p1_rt->next = p2_lft;
-      OutRec1->pts = p2_lft;
+      outRec1->pts = p2_lft;
     }
     side = esLeft;
   } else
@@ -1799,7 +1803,7 @@ void Clipper::AppendPolygon(TEdge *e1, TEdge *e2)
 
   int OKIdx = e1->outIdx;
   int ObsoleteIdx = e2->outIdx;
-  OutRec2->pts = 0;
+  outRec2->pts = 0;
 
   e1->outIdx = -1; //nb: safe because we only get here via AddLocalMaxPoly
   e2->outIdx = -1;
