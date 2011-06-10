@@ -48,13 +48,6 @@ type
   TArrayOfIntPoint = array of TIntPoint;
   TArrayOfArrayOfIntPoint = array of TArrayOfIntPoint;
 
-  //TExPolyons: an alternative structure returned by Clipper.Execute()
-  TExPolyons = record
-    Outer: TArrayOfIntPoint;
-    Holes: TArrayOfArrayOfIntPoint;
-  end;
-  TExPolygons = array of TExPolyons;
-  
   PEdge = ^TEdge;
   TEdge = record
     xbot : int64;  //bottom
@@ -109,17 +102,27 @@ type
   POutRec = ^TOutRec;
   TOutRec = record
     idx         : integer;
+    bottomPt    : POutPt;
     isHole      : boolean;
     FirstLeft   : POutRec;
     AppendLink  : POutRec;
     pts         : POutPt;
   end;
+  TArrayOfOutRec = array of POutRec;
 
   TOutPt = record
+    idx      : integer;
     pt       : TIntPoint;
     next     : POutPt;
     prev     : POutPt;
   end;
+
+  //TExPolyons: an alternative structure returned by Clipper.Execute()
+  TExPolyons = record
+    Outer: TArrayOfIntPoint;
+    Holes: TArrayOfArrayOfIntPoint;
+  end;
+  TExPolygons = array of TExPolyons;
 
   PJoinRec = ^TJoinRec;
   TJoinRec = record
@@ -219,14 +222,15 @@ type
     procedure DisposeIntersectNodes;
     function GetResult: TArrayOfArrayOfIntPoint;
     function GetExResult: TExPolygons;
-    function FixupOutPolygon(outPoly: POutPt): POutPt;
+    procedure FixupOutPolygon(outRec: POutRec);
     procedure SetHoleState(e: PEdge; outRec: POutRec);
     procedure AddJoin(e1, e2: PEdge;
       e1OutIdx: integer = -1; e2OutIdx: integer = -1);
     procedure ClearJoins;
     procedure AddHorzJoin(e: PEdge; idx: integer);
     procedure ClearHorzJoins;
-    function JoinCommonEdges: boolean;
+    procedure JoinCommonEdges;
+    procedure FixHoleLinkage(outRec: POutRec);
   protected
     procedure Reset; override;
     function ExecuteInternal: boolean; virtual;
@@ -313,10 +317,17 @@ end;
 
 function Int128LessThan(const int1, int2: TInt128): boolean;
 begin
+  //sadly UInt64 typecasts return incorrect results in Delphi 7 ...
   if (int1.hi < int2.hi) then result := true
   else if (int1.hi > int2.hi) then result := false
-  else if (int1.hi >= 0) then result := UInt64(int1.lo) < UInt64(int2.lo)
-  else result := UInt64(int1.lo) > UInt64(int2.lo)
+  else if (int1.hi >= 0) then
+  begin
+    if (int1.lo < 0) = (int2.lo < 0) then
+      result := abs(int1.lo) < abs(int2.lo) else
+      result := (int2.lo < 0);
+  end else if (int1.lo < 0) = (int2.lo < 0) then
+    result := abs(int1.lo) > abs(int2.lo)
+  else result := (int1.lo < 0);
 end;
 //------------------------------------------------------------------------------
 
@@ -491,7 +502,6 @@ begin
   if result = '' then result := '0';
   if isNeg then result := '-' + result;
 end;
-//------------------------------------------------------------------------------
 {$OVERFLOWCHECKS ON}
 
 //------------------------------------------------------------------------------
@@ -1264,12 +1274,51 @@ begin
 end;
 //------------------------------------------------------------------------------
 
+function AppendLinkEnd(outRec: POutRec): POutRec;
+begin
+  while assigned(outRec.AppendLink) do
+    outRec := outRec.AppendLink;
+  result := outRec;
+end;
+//------------------------------------------------------------------------------
+
+procedure TClipper.FixHoleLinkage(outRec: POutRec);
+var
+  tmp: POutRec;
+begin
+  if assigned(outRec.bottomPt) then
+    tmp := POutRec(fPolyOutList[outRec.bottomPt.idx]).FirstLeft else
+    tmp := outRec.FirstLeft;
+  if outRec = tmp then
+  begin
+    outRec.FirstLeft := nil;
+    outRec.AppendLink := nil;
+    outRec.isHole := false;
+    Exit;
+  end;
+
+  if assigned(tmp) then
+  begin
+    if assigned(tmp.AppendLink) then
+      tmp := AppendLinkEnd(tmp);
+    if tmp = outRec then tmp := nil
+    else if tmp.isHole then
+    begin
+      FixHoleLinkage(tmp);
+      tmp := tmp.FirstLeft;
+    end;
+  end;
+  outRec.FirstLeft := tmp;
+  if not assigned(tmp) then outRec.isHole := false;
+  outRec.AppendLink := nil;
+end;
+//------------------------------------------------------------------------------
+
 function TClipper.ExecuteInternal: boolean;
 var
   i: integer;
-  outRec, savedFL: POutRec;
+  outRec: POutRec;
   botY, topY: int64;
-  looped: boolean;
 begin
   result := false;
   try try
@@ -1292,51 +1341,18 @@ begin
     until fScanbeam = nil;
 
     //tidy up output polygons and fix orientations where necessary ...
-    //NB: WHILE THIS IS 99.9% OK, IT'S STILL NOT GOOD ENOUGH!! /////////////////
     for i := 0 to fPolyOutList.Count -1 do
     begin
       outRec := fPolyOutList[i];
-      if not assigned(outRec.pts) then Continue;
-      outRec.pts := FixupOutPolygon(outRec.pts);
-      if not assigned(outRec.pts) then Continue;
-      if outRec.isHole then
-      begin
-        looped := false;
-        savedFL := outRec.FirstLeft;
-        while assigned(outRec.FirstLeft) and outRec.FirstLeft.isHole and
-          (outRec.FirstLeft.FirstLeft <> outRec.FirstLeft) and
-          (not looped or (outRec.FirstLeft <> savedFL)) do
-        begin
-          outRec.FirstLeft := outRec.FirstLeft.FirstLeft;
-          looped := true; //ie avoids a possible endless loop
-        end;
-        while assigned(outRec.FirstLeft) and
-          assigned(outRec.FirstLeft.AppendLink) do
-            outRec.FirstLeft := outRec.FirstLeft.AppendLink;
-        if not assigned(outRec.FirstLeft) or (outRec.FirstLeft = outRec) then
-          outRec.isHole := false;
-      end;
+      if not assigned(outRec.pts) then continue;
+      FixupOutPolygon(outRec);
+      if not assigned(outRec.pts) then continue;
+      if outRec.isHole then FixHoleLinkage(outRec);
       if (outRec.isHole = IsClockwise(outRec, fUseFullRange)) then
         ReversePolyPtLinks(outRec.pts);
     end;
 
-    if JoinCommonEdges then
-      for i := 0 to fPolyOutList.Count -1 do
-      begin
-        outRec := fPolyOutList[i];
-        if not outRec.isHole or not assigned(outRec.pts) then Continue;
-        while true do
-        begin
-          while assigned(outRec.FirstLeft.AppendLink) do
-            outRec.FirstLeft := outRec.FirstLeft.AppendLink;
-          while outRec.FirstLeft.isHole and (outRec.FirstLeft <> outRec) and
-            (outRec.FirstLeft.FirstLeft <> outRec.FirstLeft) do
-              outRec.FirstLeft := outRec.FirstLeft.FirstLeft;
-          if (outRec.FirstLeft = outRec) or
-            (outRec.FirstLeft.FirstLeft = outRec.FirstLeft) or
-            not assigned(outRec.FirstLeft.AppendLink) then Break;
-        end;
-      end;
+    JoinCommonEdges;
 
     fPolyOutList.Sort(PolySort);
     result := true;
@@ -2039,12 +2055,12 @@ end;
 
 procedure TClipper.AppendPolygon(e1, e2: PEdge);
 var
-  obsoleteRec, outRec1, outRec2: POutRec;
+  holeStateRec, outRec1, outRec2: POutRec;
   p1_lft, p1_rt, p2_lft, p2_rt: POutPt;
   newSide: TEdgeSide;
   i, OKIdx, ObsoleteIdx: integer;
   e: PEdge;
-  bottom1, bottom2: POutPt;
+  bPt1, bPt2: POutPt;
   j: PJoinRec;
   h: PHorzRec;
 begin
@@ -2056,24 +2072,21 @@ begin
   p2_lft := outRec2.pts;
   p2_rt := p2_lft.prev;
 
-  bottom1 := PolygonBottom(p1_lft);
-  bottom2 := PolygonBottom(p2_lft);
-  if (bottom1.pt.Y > bottom2.pt.Y) then obsoleteRec := outRec2
-  else if (bottom1.pt.Y < bottom2.pt.Y) then obsoleteRec := outRec1
-  else if (bottom1.pt.X < bottom2.pt.X) then obsoleteRec := outRec2
-  else if (bottom1.pt.X > bottom2.pt.X) then obsoleteRec := outRec1
+  bPt1 := outRec1.bottomPt;
+  bPt2 := outRec2.bottomPt;
+  if (bPt1.pt.Y > bPt2.pt.Y) then holeStateRec := outRec1
+  else if (bPt1.pt.Y < bPt2.pt.Y) then holeStateRec := outRec2
+  else if (bPt1.pt.X < bPt2.pt.X) then holeStateRec := outRec1
+  else if (bPt1.pt.X > bPt2.pt.X) then holeStateRec := outRec2
   //nb: the following 2 lines are really only a best guess ...
-  else if outRec1.isHole then obsoleteRec := outRec1
-  else obsoleteRec := outRec2;
+  else if outRec1.isHole then holeStateRec := outRec2
+  else holeStateRec := outRec1;
 
   //fixup hole status ...
   if (outRec1.isHole <> outRec2.isHole) then
-    if obsoleteRec = outRec1 then
+    if holeStateRec = outRec2 then
       outRec1.isHole := outRec2.isHole else
       outRec2.isHole := outRec1.isHole;
-
-  if obsoleteRec = outRec1 then outRec1.FirstLeft := outRec2.FirstLeft;
-  outRec2.AppendLink := outRec1;
 
   //join e2 poly onto e1 poly and delete pointers to e2 ...
   if e1.side = esLeft then
@@ -2118,10 +2131,14 @@ begin
     newSide := esRight;
   end;
 
+  if holeStateRec = outRec2 then
+    outRec1.bottomPt := outRec2.bottomPt;
+  outRec2.pts := nil;
+  outRec2.bottomPt := nil;
+  outRec2.AppendLink := outRec1;
   OKIdx := e1.outIdx;
   ObsoleteIdx := e2.outIdx;
 
-  outRec2.pts := nil;
   e1.outIdx := -1; //nb: safe because we only get here via AddLocalMaxPoly
   e2.outIdx := -1;
 
@@ -2168,9 +2185,11 @@ begin
     e.outIdx := outRec.idx;
     new(op);
     outRec.pts := op;
+    outRec.bottomPt := op;
     op.pt := pt;
     op.next := op;
     op.prev := op;
+    op.idx := outRec.idx;
     SetHoleState(e, outRec);
   end else
   begin
@@ -2180,6 +2199,9 @@ begin
       (not ToFront and PointsEqual(pt, op.prev.pt)) then exit;
     new(op2);
     op2.pt := pt;
+    op2.idx := outRec.idx;
+    if (op2.pt.Y = outRec.bottomPt.pt.Y) and
+      (op2.pt.X < outRec.bottomPt.pt.X) then outRec.bottomPt := op2;
     op2.next := op;
     op2.prev := op.prev;
     op.prev.next := op2;
@@ -2851,23 +2873,23 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipper.FixupOutPolygon(outPoly: POutPt): POutPt;
+procedure TClipper.FixupOutPolygon(outRec: POutRec);
 var
   pp, tmp, lastOK: POutPt;
 begin
   //FixupOutPolygon() - removes duplicate points and simplifies consecutive
   //parallel edges by removing the middle vertex.
   lastOK := nil;
-  result := nil;
 
-  result := outPoly;
-  pp := outPoly;
+  outRec.pts := outRec.bottomPt;
+  pp := outRec.bottomPt;
   while true do
   begin
     if (pp.prev = pp) or (pp.next = pp.prev) then
     begin
       DisposePolyPts(pp);
-      result := nil;
+      outRec.pts := nil;
+      outRec.bottomPt := nil;
       exit;
     end;
 
@@ -2877,10 +2899,16 @@ begin
     begin
       //OK, we need to delete a point ...
       lastOK := nil;
+      tmp := pp;
+      if pp = outRec.bottomPt then
+      begin
+        if tmp.prev.pt.Y > tmp.next.pt.Y then
+          outRec.bottomPt := tmp.prev else
+          outRec.bottomPt := tmp.next;
+        outRec.pts := outRec.bottomPt;
+      end;
       pp.prev.next := pp.next;
       pp.next.prev := pp.prev;
-      tmp := pp;
-      if pp = result then result := pp.prev;
       pp := pp.prev;
       dispose(tmp);
     end
@@ -2999,6 +3027,7 @@ begin
 
   new(result);
   result.pt := pt;
+  result.idx := p1.idx;
   if p2 = p1.next then
   begin
     p1.next := result;
@@ -3015,23 +3044,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function DeletePolyPt(pp: POutPt): POutPt;
-begin
-  if pp.next = pp then
-  begin
-    dispose(pp);
-    result := nil;
-  end else
-  begin
-    result := pp.prev;
-    pp.next.prev := result;
-    result.next := pp.next;
-    dispose(pp);
-  end;
-end;
-//------------------------------------------------------------------------------
-
-function TClipper.JoinCommonEdges: boolean;
+procedure TClipper.JoinCommonEdges;
 var
   i, i2: integer;
   j, j2: PJoinRec;
@@ -3039,16 +3052,15 @@ var
   prev, p1, p2, p3, p4, pp1a, pp2a: POutPt;
   pt1, pt2, pt3, pt4: TIntPoint;
 begin
-  result := false;
   for i := 0 to fJoinList.count -1 do
   begin
     j := fJoinList[i];
     outRec1 := fPolyOutList[j.poly1Idx];
     if not assigned(outRec1) then Continue;
-    pp1a := outRec1^.pts;
+    pp1a := outRec1.pts;
     outRec2 := fPolyOutList[j.poly2Idx];
     if not assigned(outRec2) then Continue;
-    pp2a := outRec2^.pts;
+    pp2a := outRec2.pts;
     pt1 := j.pt2a; pt2 := j.pt2b;
     pt3 := j.pt1a; pt4 := j.pt1b;
     if not FindSegment(pp1a, pt1, pt2) then continue;
@@ -3107,27 +3119,46 @@ begin
     else
       continue; //very rare and an orientation is probably wrong
 
-    result := true;
     if (j.poly2Idx = j.poly1Idx) then
     begin
-      //instead of joining two polygons, we've just created
-      //a new one by splitting one polygon into two.
-      outRec1.pts := p1;
-      outRec2 := CreateOutRec;
-      outRec2.idx := fPolyOutList.Add(outRec2);
-      j.poly2Idx := outRec2.idx;
-      outRec2.pts := p2;
+      //instead of joining two polygons, we've just created a new one by
+      //splitting one polygon into two.
+      //However, make sure the longer (and presumed larger) polygon is attached
+      //to outRec1 in case it also owns some holes ...
+      if PointCount(p1) > PointCount(p2) then
+      begin
+        outRec1.pts := PolygonBottom(p1);
+        outRec1.bottomPt := outRec1.pts;
+        outRec2 := CreateOutRec;
+        outRec2.idx := fPolyOutList.Add(outRec2);
+        j.poly2Idx := outRec2.idx;
+        outRec2.pts := PolygonBottom(p2);
+        outRec2.bottomPt := outRec2.pts;
+      end else
+      begin
+        outRec1.pts := PolygonBottom(p2);
+        outRec1.bottomPt := outRec1.pts;
+        outRec2 := CreateOutRec;
+        outRec2.idx := fPolyOutList.Add(outRec2);
+        j.poly2Idx := outRec2.idx;
+        outRec2.pts := PolygonBottom(p1);
+        outRec2.bottomPt := outRec2.pts;
+      end;
 
-      if PointInPolygon(p2.pt, p1, fUseFullRange) then
+      if PointInPolygon(outRec2.pts.pt, outRec1.pts, fUseFullRange) then
       begin
         outRec2.isHole := not outRec1.isHole;
         outRec2.FirstLeft := outRec1;
-      end else if PointInPolygon(p1.pt, p2, fUseFullRange) then
+        if (outRec2.isHole = IsClockwise(outRec2, fUseFullRange)) then
+          ReversePolyPtLinks(outRec2.pts);
+      end else if PointInPolygon(outRec1.pts.pt, outRec2.pts, fUseFullRange) then
       begin
         outRec2.isHole := outRec1.isHole;
         outRec1.isHole := not outRec2.isHole;
         outRec2.FirstLeft := outRec1.FirstLeft;
         outRec1.FirstLeft := outRec2;
+        if (outRec1.isHole = IsClockwise(outRec1, fUseFullRange)) then
+          ReversePolyPtLinks(outRec1.pts);
       end else
       begin
         //I'm assuming that if outRec1 contain any holes, it still does after
@@ -3151,11 +3182,12 @@ begin
     begin
       //having joined 2 polygons together, delete the obsolete pointer ...
       outRec2.pts := nil;
+      outRec2.bottomPt := nil;
       outRec2.AppendLink := outRec1;
       //holes are practically always joined to outers, not vice versa ...
       if outRec1.isHole and not outRec2.isHole then outRec1.isHole := false;
 
-      //now fixup any subsequent fJoins ...
+      //now fixup any subsequent joins ...
       for i2 := i+1 to fJoinList.count -1 do
       begin
         j2 := fJoinList[i2];
@@ -3166,12 +3198,8 @@ begin
     end;
 
     //cleanup edges ...
-    outRec1.pts := FixupOutPolygon(p1);
-    if j.poly2Idx <> j.poly1Idx then
-    begin
-      //nb: we only get here when initially j.poly2Idx == j.poly1Idx
-      outRec2.pts := FixupOutPolygon(p2);
-    end;
+    FixupOutPolygon(outRec1);
+    if j.poly2Idx <> j.poly1Idx then FixupOutPolygon(outRec2);
   end;
 end;
 
@@ -3294,9 +3322,15 @@ begin
     end else
       if (a1 < 0) and (-a1 < deltaSq) then highI := 0; //nb: a hole if area < 0
 
-    if highI < 2 then
+    if (highI < 2) and (delta <= 0) then
     begin
       result[j] := nil;
+      continue;
+    end;
+
+    if highI = 0 then
+    begin
+      result[j] := BuildArc(pts[j][0], 0, 2*pi, delta);
       continue;
     end;
 
@@ -3320,7 +3354,7 @@ begin
 
     //round off reflex angles (ie > 180 deg) unless it's almost flat (ie < 10deg angle) ...
     //cross product normals < 0 -> reflex angle; dot product normals == 1 -> no angle
-    if ((normals[highI].X*normals[0].Y-normals[0].X*normals[highI].Y)*delta > 0) and
+    if ((normals[highI].X*normals[0].Y-normals[0].X*normals[highI].Y)*delta >= 0) and
       ((normals[0].X*normals[highI].X+normals[0].Y*normals[highI].Y) < 0.985) then
     begin
       a1 := ArcTan2(normals[highI].Y, normals[highI].X);
@@ -3331,7 +3365,7 @@ begin
       result[j] := InsertPoints(result[j],arc,highI*2+1);
     end;
     for i := highI downto 1 do
-      if ((normals[i-1].X*normals[i].Y-normals[i].X*normals[i-1].Y)*delta > 0) and
+      if ((normals[i-1].X*normals[i].Y-normals[i].X*normals[i-1].Y)*delta >= 0) and
          ((normals[i].X*normals[i-1].X+normals[i].Y*normals[i-1].Y) < 0.985) then
       begin
         a1 := ArcTan2(normals[i-1].Y, normals[i-1].X);
