@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  4.3.0                                                           *
-* Date      :  14 May 2011                                                     *
+* Date      :  11 June 2011                                                     *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -114,9 +114,11 @@ struct OutRec {
   OutRec *FirstLeft;
   OutRec *AppendLink;
   OutPt  *pts;
+  OutPt  *bottomPt;
 };
 
 struct OutPt {
+  int     idx;
   IntPoint pt;
   OutPt   *next;
   OutPt   *prev;
@@ -239,13 +241,14 @@ private:
   void SetHoleState(TEdge *e, OutRec *OutRec);
   void DisposeIntersectNodes();
   bool FixupIntersections();
-  OutPt* FixupOutPolygon(OutPt *p);
+  void FixupOutPolygon(OutRec &outRec);
   bool IsHole(TEdge *e);
+  void FixHoleLinkage(OutRec *outRec);
   void AddJoin(TEdge *e1, TEdge *e2, int e1OutIdx = -1, int e2OutIdx = -1);
   void ClearJoins();
   void AddHorzJoin(TEdge *e, int idx);
   void ClearHorzJoins();
-  bool JoinCommonEdges();
+  void JoinCommonEdges();
 };
 
 //------------------------------------------------------------------------------
