@@ -117,12 +117,11 @@ type
     prev     : POutPt;
   end;
 
-  //TExPolyons: an alternative structure returned by Clipper.Execute()
-  TExPolyons = record
+  TExPolygon = record
     Outer: TArrayOfIntPoint;
     Holes: TArrayOfArrayOfIntPoint;
   end;
-  TExPolygons = array of TExPolyons;
+  TExPolygons = array of TExPolygon;
 
   PJoinRec = ^TJoinRec;
   TJoinRec = record
@@ -2853,7 +2852,7 @@ begin
       //make sure each polygon has at least 3 vertices ...
       outRec := fPolyOutList[i];
       op := outRec.pts;
-      if not assigned(op) then continue; //continue because may not be sorted
+      if not assigned(op) then continue; //nb: not sorted
       cnt := PointCount(op);
       if (cnt < 3) then continue;
 
