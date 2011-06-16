@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  4.3.0                                                           *
-* Date      :  11 June 2011                                                     *
+* Date      :  16 June 2011                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -187,7 +187,7 @@ public:
   void Clear();
 protected:
   void Reset();
-  virtual bool ExecuteInternal();
+  virtual bool ExecuteInternal(bool fixHoleLinkages);
 private:
   PolyOutList       m_PolyOuts;
   JoinList          m_Joins;
@@ -237,7 +237,7 @@ private:
   void ProcessIntersectList();
   void ProcessEdgesAtTopOfScanbeam(const long64 topY);
   void BuildResult(Polygons& polys);
-  void BuildResult(ExPolygons& polys);
+  void BuildResultEx(ExPolygons& polys);
   void SetHoleState(TEdge *e, OutRec *OutRec);
   void DisposeIntersectNodes();
   bool FixupIntersections();

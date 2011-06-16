@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  4.3.0                                                           *
-* Date      :  11 June 2011                                                     *
+* Date      :  16 June 2011                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -39,7 +39,7 @@
 #include <cstdlib>
 
 //Workaround for older compilers that don't have std::abs
-#if (__GNUC__ == 2 && __GNUC_MINOR__ <= 97) || (defined(BOOST_MSVC) && _MSC_VER <= 1200)
+#if (__GNUC__ == 2 && __GNUC_MINOR__ <= 97) || (defined(_MSC_VER) && _MSC_VER <= 1310)
 namespace std
 {
     long long abs(long long x) { return x < 0 ? -x : x; }
@@ -465,19 +465,19 @@ bool SlopesEqual(const IntPoint pt1, const IntPoint pt2,
 }
 //------------------------------------------------------------------------------
 
-void SetDx(TEdge &e)
-{
-  if (e.ybot == e.ytop) e.dx = horizontal;
-  else e.dx =
-    (double)(e.xtop - e.xbot) / (double)(e.ytop - e.ybot);
-}
-//---------------------------------------------------------------------------
-
 double GetDx(const IntPoint pt1, const IntPoint pt2)
 {
   if (pt1.Y == pt2.Y) return horizontal;
   else return
     (double)(pt2.X - pt1.X) / (double)(pt2.Y - pt1.Y);
+}
+//---------------------------------------------------------------------------
+
+void SetDx(TEdge &e)
+{
+  if (e.ybot == e.ytop) e.dx = horizontal;
+  else e.dx =
+    (double)(e.xtop - e.xbot) / (double)(e.ytop - e.ybot);
 }
 //---------------------------------------------------------------------------
 
@@ -1106,7 +1106,7 @@ bool Clipper::Execute(ClipType clipType, Polygons &solution,
   m_SubjFillType = subjFillType;
   m_ClipFillType = clipFillType;
   m_ClipType = clipType;
-  bool succeeded = ExecuteInternal();
+  bool succeeded = ExecuteInternal(false);
   if (succeeded) BuildResult(solution);
   m_ExecuteLocked = false;
   return succeeded;
@@ -1122,8 +1122,8 @@ bool Clipper::Execute(ClipType clipType, ExPolygons &solution,
   m_SubjFillType = subjFillType;
   m_ClipFillType = clipFillType;
   m_ClipType = clipType;
-  bool succeeded = ExecuteInternal();
-  if (succeeded) BuildResult(solution);
+  bool succeeded = ExecuteInternal(true);
+  if (succeeded) BuildResultEx(solution);
   m_ExecuteLocked = false;
   return succeeded;
 }
@@ -1157,7 +1157,7 @@ bool PolySort(OutRec *or1, OutRec *or2)
 }
 //------------------------------------------------------------------------------
 
-OutRec *AppendLinkEnd(OutRec *outRec)
+OutRec* FindAppendLinkEnd(OutRec *outRec)
 {
   while (outRec->AppendLink) outRec = outRec->AppendLink;
   return outRec;
@@ -1166,36 +1166,36 @@ OutRec *AppendLinkEnd(OutRec *outRec)
 
 void Clipper::FixHoleLinkage(OutRec *outRec)
 {
-    OutRec *tmp;
-    if (outRec->bottomPt)
-        tmp = m_PolyOuts[outRec->bottomPt->idx]->FirstLeft; else
-        tmp = outRec->FirstLeft;
-    if (outRec == tmp)
-    {
-        outRec->FirstLeft = 0;
-        outRec->AppendLink = 0;
-        outRec->isHole = false;
-        return;
-    }
-
-    if (tmp)
-    {
-        if (tmp->AppendLink) tmp = AppendLinkEnd(tmp);
-        if (tmp == outRec) tmp = 0;
-        else if (tmp->isHole)
-        {
-            FixHoleLinkage(tmp);
-            tmp = tmp->FirstLeft;
-        }
-    }
-    outRec->FirstLeft = tmp;
-    if (!tmp) outRec->isHole = false;
+  OutRec *tmp;
+  if (outRec->bottomPt)
+    tmp = m_PolyOuts[outRec->bottomPt->idx]->FirstLeft; else
+    tmp = outRec->FirstLeft;
+  //avoid a very rare endless loop (via recursion) ...
+  if (outRec == tmp)
+  {
+    outRec->FirstLeft = 0;
     outRec->AppendLink = 0;
+    outRec->isHole = false;
+    return;
+  }
+
+  if (tmp)
+  {
+    if (tmp->AppendLink) tmp = FindAppendLinkEnd(tmp);
+    if (tmp == outRec) tmp = 0;
+    else if (tmp->isHole)
+    {
+      FixHoleLinkage(tmp);
+      tmp = tmp->FirstLeft;
+    }
+  }
+  outRec->FirstLeft = tmp;
+  if (!tmp) outRec->isHole = false;
+  outRec->AppendLink = 0;
 }
 //------------------------------------------------------------------------------
 
-
-bool Clipper::ExecuteInternal()
+bool Clipper::ExecuteInternal(bool fixHoleLinkages)
 {
   bool succeeded;
   try {
@@ -1226,13 +1226,14 @@ bool Clipper::ExecuteInternal()
       if (!outRec->pts) continue;
       FixupOutPolygon(*outRec);
       if (!outRec->pts) continue;
-      if (outRec->isHole) FixHoleLinkage(outRec);
+      if (outRec->isHole && fixHoleLinkages) FixHoleLinkage(outRec);
       if (outRec->isHole == IsClockwise(outRec, m_UseFullRange))
         ReversePolyPtLinks(*outRec->pts);
     }
 
     JoinCommonEdges();
-    std::sort(m_PolyOuts.begin(), m_PolyOuts.end(), PolySort);
+    if (fixHoleLinkages)
+      std::sort(m_PolyOuts.begin(), m_PolyOuts.end(), PolySort);
   }
 
   ClearJoins();
@@ -1733,32 +1734,68 @@ void Clipper::SetHoleState(TEdge *e, OutRec *outRec)
 }
 //------------------------------------------------------------------------------
 
+bool GetNextNonDupOutPt(OutPt* pp, OutPt*& next)
+{
+  next = pp->next;
+  while (next != pp && PointsEqual(pp->pt, next->pt))
+    next = next->next;
+  return next != pp;
+}
+//------------------------------------------------------------------------------
+
+bool GetPrevNonDupOutPt(OutPt* pp, OutPt*& prev)
+{
+  prev = pp->prev;
+  while (prev != pp && PointsEqual(pp->pt, prev->pt))
+    prev = prev->prev;
+  return prev != pp;
+}
+//------------------------------------------------------------------------------
+
 void Clipper::AppendPolygon(TEdge *e1, TEdge *e2)
 {
   //get the start and ends of both output polygons ...
   OutRec *outRec1 = m_PolyOuts[e1->outIdx];
   OutRec *outRec2 = m_PolyOuts[e2->outIdx];
-  OutPt* p1_lft = outRec1->pts;
-  OutPt* p1_rt = p1_lft->prev;
-  OutPt* p2_lft = outRec2->pts;
-  OutPt* p2_rt = p2_lft->prev;
 
-  OutRec *holeStateRec;
+  //work out which polygon fragment has the correct hole state ...
   OutPt *bPt1 = outRec1->bottomPt;
   OutPt *bPt2 = outRec2->bottomPt;
+  OutRec *holeStateRec;
+  OutPt *next1, *next2, *prev1, *prev2;
   if (bPt1->pt.Y > bPt2->pt.Y) holeStateRec = outRec1;
   else if (bPt1->pt.Y < bPt2->pt.Y) holeStateRec = outRec2;
   else if (bPt1->pt.X < bPt2->pt.X) holeStateRec = outRec1;
   else if (bPt1->pt.X > bPt2->pt.X) holeStateRec = outRec2;
-  //todo - the following 2 lines are really only a best guess ...
-  else if (outRec1->isHole) holeStateRec = outRec2;
-  else holeStateRec = outRec1;
+  else if (!GetNextNonDupOutPt(bPt1, next1)) holeStateRec = outRec2;
+  else if (!GetNextNonDupOutPt(bPt2, next2)) holeStateRec = outRec1;
+  else
+  {
+    GetPrevNonDupOutPt(bPt1, prev1);
+    GetPrevNonDupOutPt(bPt2, prev2);
+    double dx1 = GetDx(bPt1->pt, next1->pt);
+    double dx2 = GetDx(bPt1->pt, prev1->pt);
+    if (dx2 > dx1) dx1 = dx2;
+    dx2 = GetDx(bPt2->pt, next2->pt);
+    if (dx2 > dx1) holeStateRec = outRec2;
+    else
+    {
+      dx2 = GetDx(bPt2->pt, prev2->pt);
+      if (dx2 > dx1) holeStateRec = outRec2;
+      else holeStateRec = outRec1;
+    }
+  }
 
   //fixup hole status ...
   if (outRec1->isHole != outRec2->isHole)
     if (holeStateRec == outRec2)
       outRec1->isHole = outRec2->isHole; else
       outRec2->isHole = outRec1->isHole;
+
+  OutPt* p1_lft = outRec1->pts;
+  OutPt* p1_rt = p1_lft->prev;
+  OutPt* p2_lft = outRec2->pts;
+  OutPt* p2_rt = p2_lft->prev;
 
   EdgeSide side;
   //join e2 poly onto e1 poly and delete pointers to e2 ...
@@ -2469,7 +2506,7 @@ void Clipper::BuildResult(Polygons &polys)
 }
 //------------------------------------------------------------------------------
 
-void Clipper::BuildResult(ExPolygons &polys)
+void Clipper::BuildResultEx(ExPolygons &polys)
 {
   PolyOutList::size_type i = 0;
   int k = 0;

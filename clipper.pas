@@ -4,7 +4,7 @@ unit clipper;
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  4.3.0                                                           *
-* Date      :  14 May 2011                                                     *
+* Date      :  16 June 2011                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -233,7 +233,7 @@ type
     procedure FixHoleLinkage(outRec: POutRec);
   protected
     procedure Reset; override;
-    function ExecuteInternal: boolean; virtual;
+    function ExecuteInternal(fixHoleLinkages: boolean): boolean; virtual;
   public
     function Execute(clipType: TClipType;
       out solution: TArrayOfArrayOfIntPoint;
@@ -718,6 +718,13 @@ begin
       Int128Mul(pt1.X-pt2.X, pt3.Y-pt4.Y))
   else
     result := (pt1.Y-pt2.Y * pt3.X-pt4.X) = (pt1.X-pt2.X * pt3.Y-pt4.Y);
+end;
+//---------------------------------------------------------------------------
+
+function GetDx(const pt1, pt2: TIntPoint): double;
+begin
+  if (pt1.Y = pt2.Y) then result := horizontal
+  else result := (pt2.X - pt1.X)/(pt2.Y - pt1.Y);
 end;
 //---------------------------------------------------------------------------
 
@@ -1212,7 +1219,7 @@ begin
     fSubjFillType := subjFillType;
     fClipFillType := clipFillType;
     fClipType := clipType;
-    result := ExecuteInternal;
+    result := ExecuteInternal(false);
     if result then solution := GetResult;
   finally
     fExecuteLocked := false;
@@ -1233,7 +1240,7 @@ begin
     fSubjFillType := subjFillType;
     fClipFillType := clipFillType;
     fClipType := clipType;
-    result := ExecuteInternal;
+    result := ExecuteInternal(true);
     if result then solution := GetExResult;
   finally
     fExecuteLocked := false;
@@ -1274,7 +1281,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function AppendLinkEnd(outRec: POutRec): POutRec;
+function FindAppendLinkEnd(outRec: POutRec): POutRec;
 begin
   while assigned(outRec.AppendLink) do
     outRec := outRec.AppendLink;
@@ -1289,6 +1296,7 @@ begin
   if assigned(outRec.bottomPt) then
     tmp := POutRec(fPolyOutList[outRec.bottomPt.idx]).FirstLeft else
     tmp := outRec.FirstLeft;
+  //avoid a very rare endless loop (via recursion) ...
   if outRec = tmp then
   begin
     outRec.FirstLeft := nil;
@@ -1300,7 +1308,7 @@ begin
   if assigned(tmp) then
   begin
     if assigned(tmp.AppendLink) then
-      tmp := AppendLinkEnd(tmp);
+      tmp := FindAppendLinkEnd(tmp);
     if tmp = outRec then tmp := nil
     else if tmp.isHole then
     begin
@@ -1314,7 +1322,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipper.ExecuteInternal: boolean;
+function TClipper.ExecuteInternal(fixHoleLinkages: boolean): boolean;
 var
   i: integer;
   outRec: POutRec;
@@ -1347,14 +1355,14 @@ begin
       if not assigned(outRec.pts) then continue;
       FixupOutPolygon(outRec);
       if not assigned(outRec.pts) then continue;
-      if outRec.isHole then FixHoleLinkage(outRec);
+      if outRec.isHole and fixHoleLinkages then FixHoleLinkage(outRec);
       if (outRec.isHole = IsClockwise(outRec, fUseFullRange)) then
         ReversePolyPtLinks(outRec.pts);
     end;
 
     JoinCommonEdges;
 
-    fPolyOutList.Sort(PolySort);
+    if fixHoleLinkages then fPolyOutList.Sort(PolySort);
     result := true;
   except
     result := false;
@@ -2053,40 +2061,76 @@ begin
 end;
 //------------------------------------------------------------------------------
 
+function GetNextNonDupOutPt(pp: POutPt; out next: POutPt): boolean;
+begin
+  next := pp.next;
+  while (next <> pp) and PointsEqual(pp.pt, next.pt) do
+    next := next.next;
+  result := next <> pp;
+end;
+//------------------------------------------------------------------------------
+
+function GetPrevNonDupOutPt(pp: POutPt; out prev: POutPt): boolean;
+begin
+  prev := pp.prev;
+  while (prev <> pp) and PointsEqual(pp.pt, prev.pt) do
+    prev := prev.prev;
+  result := prev <> pp;
+end;
+//------------------------------------------------------------------------------
+
 procedure TClipper.AppendPolygon(e1, e2: PEdge);
 var
   holeStateRec, outRec1, outRec2: POutRec;
-  p1_lft, p1_rt, p2_lft, p2_rt: POutPt;
+  bPt1, bPt2, p1_lft, p1_rt, p2_lft, p2_rt: POutPt;
+  next1, prev1, next2, prev2: POutPt;
   newSide: TEdgeSide;
   i, OKIdx, ObsoleteIdx: integer;
   e: PEdge;
-  bPt1, bPt2: POutPt;
   j: PJoinRec;
   h: PHorzRec;
+  dx1, dx2: double;
 begin
-  //get the start and ends of both output polygons ...
   outRec1 := fPolyOutList[e1.outIdx];
-  p1_lft := outRec1.pts;
-  p1_rt := p1_lft.prev;
   outRec2 := fPolyOutList[e2.outIdx];
-  p2_lft := outRec2.pts;
-  p2_rt := p2_lft.prev;
 
+  //work out which polygon fragment has the correct hole state ...
   bPt1 := outRec1.bottomPt;
   bPt2 := outRec2.bottomPt;
   if (bPt1.pt.Y > bPt2.pt.Y) then holeStateRec := outRec1
   else if (bPt1.pt.Y < bPt2.pt.Y) then holeStateRec := outRec2
   else if (bPt1.pt.X < bPt2.pt.X) then holeStateRec := outRec1
   else if (bPt1.pt.X > bPt2.pt.X) then holeStateRec := outRec2
-  //nb: the following 2 lines are really only a best guess ...
-  else if outRec1.isHole then holeStateRec := outRec2
-  else holeStateRec := outRec1;
+  else if not GetNextNonDupOutPt(bPt1, next1) then holeStateRec := outRec2
+  else if not GetNextNonDupOutPt(bPt2, next2) then holeStateRec := outRec1
+  else
+  begin
+    GetPrevNonDupOutPt(bPt1, prev1);
+    GetPrevNonDupOutPt(bPt2, prev2);
+    dx1 := GetDx(bPt1.pt, next1.pt);
+    dx2 := GetDx(bPt1.pt, prev1.pt);
+    if dx2 > dx1 then dx1 := dx2;
+    dx2 := GetDx(bPt2.pt, next2.pt);
+    if dx2 > dx1 then holeStateRec := outRec2
+    else
+    begin
+      dx2 := GetDx(bPt2.pt, prev2.pt);
+      if dx2 > dx1 then holeStateRec := outRec2
+      else holeStateRec := outRec1;
+    end;
+  end;
 
   //fixup hole status ...
   if (outRec1.isHole <> outRec2.isHole) then
     if holeStateRec = outRec2 then
       outRec1.isHole := outRec2.isHole else
       outRec2.isHole := outRec1.isHole;
+
+  //get the start and ends of both output polygons ...
+  p1_lft := outRec1.pts;
+  p1_rt := p1_lft.prev;
+  p2_lft := outRec2.pts;
+  p2_rt := p2_lft.prev;
 
   //join e2 poly onto e1 poly and delete pointers to e2 ...
   if e1.side = esLeft then
@@ -2809,7 +2853,7 @@ begin
       //make sure each polygon has at least 3 vertices ...
       outRec := fPolyOutList[i];
       op := outRec.pts;
-      if not assigned(op) then break;
+      if not assigned(op) then continue; //continue because may not be sorted
       cnt := PointCount(op);
       if (cnt < 3) then continue;
 
