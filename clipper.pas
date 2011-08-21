@@ -3421,7 +3421,6 @@ const
     result[i][out_len] := pt;
     inc(out_len);
   end;
-  //------------------------------------------------------------------------------
 
   procedure DoButt;
   begin
@@ -3440,8 +3439,8 @@ const
       pt1 := IntPoint(round(pt1.X + unitVector.X *delta),
         round(pt1.Y + unitVector.Y *delta));
       AddPoint(pt1);
-      unitVector.X := -normals[j].Y;
-      unitVector.Y := normals[j].X;
+      unitVector.X := normals[k].Y;
+      unitVector.Y := -normals[k].X;
       pt2 := IntPoint(round(pt2.X + unitVector.X *delta),
         round(pt2.Y + unitVector.Y *delta));
       AddPoint(pt2);
@@ -3455,16 +3454,15 @@ const
   procedure DoMiter;
   begin
     R := 1 + (normals[j].X*normals[k].X + normals[j].Y*normals[k].Y);
-    if (R < RMin) then
-    begin
-      DoSquare;
-    end else
+    if (R >= RMin) then
     begin
       R := delta / R;
       pt1 := IntPoint(round(pts[i][j].X + (normals[j].X + normals[k].X)*R),
         round(pts[i][j].Y + (normals[j].Y + normals[k].Y)*R));
       AddPoint(pt1);
-    end;
+    end
+    else
+      DoSquare;
   end;
 
   procedure DoRound;
