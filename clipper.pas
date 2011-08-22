@@ -3,8 +3,8 @@ unit clipper;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  4.4.1                                                           *
-* Date      :  14 August 2011                                                  *
+* Version   :  4.4.2                                                           *
+* Date      :  23 August 2011                                                  *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2011                                         *
 *                                                                              *
@@ -3424,6 +3424,10 @@ const
 
   procedure DoButt;
   begin
+    pt1.X := round(pts[i][j].X + normals[j].X * delta);
+    pt1.Y := round(pts[i][j].Y + normals[j].Y * delta);
+    pt2.X := round(pts[i][j].X + normals[k].X * delta);
+    pt2.Y := round(pts[i][j].Y + normals[k].Y * delta);
     AddPoint(pt1);
     AddPoint(pt2);
   end;
@@ -3432,6 +3436,10 @@ const
   var
     unitVector: TDoublePoint;
   begin
+    pt1.X := round(pts[i][j].X + normals[j].X * delta);
+    pt1.Y := round(pts[i][j].Y + normals[j].Y * delta);
+    pt2.X := round(pts[i][j].X + normals[k].X * delta);
+    pt2.Y := round(pts[i][j].Y + normals[k].Y * delta);
     if ((normals[j].X*normals[k].Y-normals[k].X*normals[j].Y)*delta >= 0) then
     begin
       unitVector.X := -normals[j].Y;
@@ -3470,13 +3478,17 @@ const
     m: integer;
     arc: TPolygon;
   begin
+    pt1.X := round(pts[i][j].X + normals[j].X * delta);
+    pt1.Y := round(pts[i][j].Y + normals[j].Y * delta);
+    pt2.X := round(pts[i][j].X + normals[k].X * delta);
+    pt2.Y := round(pts[i][j].Y + normals[k].Y * delta);
     AddPoint(pt1);
     //round off reflex angles (ie > 180 deg) unless it's
     //almost flat (ie < 10deg angle).
-    //cross product normals < 0 -> angle > 180 deg.
+    //(N1.X * N2.Y - N2.X * N1.Y) == unit normal "cross product" == sin(angle)
+    //(N1.X * N2.X + N1.Y * N2.Y) == unit normal "dot product" == cos(angle)
     //dot product normals == 1 -> no angle
-    if j = 0 then k := highI else k := j -1;
-    if ((normals[j].X*normals[k].Y-normals[k].X*normals[j].Y)*delta >= 0) and
+    if ((normals[j].X*normals[k].Y - normals[k].X*normals[j].Y)*delta >= 0) and
        ((normals[k].X*normals[j].X+normals[k].Y*normals[j].Y) < 0.985) then
     begin
       a1 := ArcTan2(normals[j].Y, normals[j].X);
@@ -3534,11 +3546,6 @@ begin
     for j := 0 to highI do
     begin
       if j = highI then k := 0 else k := j +1;
-      pt1.X := round(pts[i][j].X +delta *normals[j].X);
-      pt1.Y := round(pts[i][j].Y +delta *normals[j].Y);
-      pt2.X := round(pts[i][j].X +delta *normals[k].X);
-      pt2.Y := round(pts[i][j].Y +delta *normals[k].Y);
-
       case JoinType of
         jtButt: DoButt;
         jtMiter: DoMiter;
