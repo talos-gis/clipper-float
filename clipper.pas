@@ -3442,16 +3442,27 @@ const
     pt2.Y := round(pts[i][j].Y + normals[k].Y * delta);
     if ((normals[j].X*normals[k].Y-normals[k].X*normals[j].Y)*delta >= 0) then
     begin
-      unitVector.X := -normals[j].Y;
-      unitVector.Y := normals[j].X;
-      pt1 := IntPoint(round(pt1.X + unitVector.X *delta),
-        round(pt1.Y + unitVector.Y *delta));
-      AddPoint(pt1);
-      unitVector.X := normals[k].Y;
-      unitVector.Y := -normals[k].X;
-      pt2 := IntPoint(round(pt2.X + unitVector.X *delta),
-        round(pt2.Y + unitVector.Y *delta));
-      AddPoint(pt2);
+      if (normals[k].X*normals[j].X+normals[k].Y*normals[j].Y) > 0 then
+      begin
+        //convex angle > 90degrees
+        R := 1 + (normals[j].X*normals[k].X + normals[j].Y*normals[k].Y);
+        R := delta / R;
+        pt1 := IntPoint(round(pts[i][j].X + (normals[j].X + normals[k].X)*R),
+          round(pts[i][j].Y + (normals[j].Y + normals[k].Y)*R));
+        AddPoint(pt1);
+      end else
+      begin
+        unitVector.X := -normals[j].Y;
+        unitVector.Y := normals[j].X;
+        pt1 := IntPoint(round(pt1.X + unitVector.X *delta),
+          round(pt1.Y + unitVector.Y *delta));
+        AddPoint(pt1);
+        unitVector.X := normals[k].Y;
+        unitVector.Y := -normals[k].X;
+        pt2 := IntPoint(round(pt2.X + unitVector.X *delta),
+          round(pt2.Y + unitVector.Y *delta));
+        AddPoint(pt2);
+      end;
     end else
     begin
       AddPoint(pt1);
@@ -3504,9 +3515,9 @@ const
 
 begin
   deltaSq := delta*delta;
-  if MiterLimit = 0 then
-    RMin := 0 else
-    RMin := 2/sqr(MiterLimit);
+  //MiterLimit defaults to twice delta's width ...
+  if MiterLimit <= 0 then MiterLimit := 2;
+  RMin := 2/(sqr(MiterLimit));
 
   setLength(result, length(pts));
   for i := 0 to high(pts) do
