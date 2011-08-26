@@ -2274,7 +2274,11 @@ void Clipper::BuildIntersectList(const long64 botY, const long64 topY)
       if(e->tmpX > eNext->tmpX &&
         IntersectPoint(*e, *eNext, pt, m_UseFullRange))
       {
-        if (pt.Y > botY) pt.Y = botY;
+        if (pt.Y > botY)
+        {
+            pt.Y = botY;
+            pt.X = TopX(*e, pt.Y);
+        }
         AddIntersectNode( e, eNext, pt );
         SwapPositionsInSEL(e, eNext);
         isModified = true;
@@ -2891,7 +2895,7 @@ struct DoublePoint
 Polygon BuildArc(const IntPoint &pt,
   const double a1, const double a2, const double r)
 {
-  int steps = std::max(6, int(std::sqrt(std::abs(r)) * std::abs(a2 - a1)));
+  int steps = std::max(6, int(std::sqrt(std::fabs(r)) * std::fabs(a2 - a1)));
   Polygon result(steps);
   int n = steps - 1;
   double da = (a2 - a1) / n;
@@ -2958,6 +2962,8 @@ PolyOffsetBuilder(Polygons& in_polys, Polygons& out_polys,
     {
         m_curr_poly = &out_polys[i];
         int len = in_polys[i].size();
+        if (len > 1 && m_p[i][0].X == m_p[i][len - 1].X &&
+            m_p[i][0].Y == m_p[i][len - 1].Y) len--;
         m_highJ = len - 1;
 
         //to minimize artefacts, strip out those polygons where
@@ -3069,15 +3075,17 @@ void PolyOffsetBuilder::DoSquare(int i, int j)
         }
         else
         {
-            DoublePoint unitVector = DoublePoint(-normals[j].Y, normals[j].X);
-            pt1.X = (long64)(pt1.X + unitVector.X * m_delta);
-            pt1.Y = (long64)(pt1.Y + unitVector.Y * m_delta);
-            AddPoint(pt1);
-            unitVector.X = normals[k].Y;
-            unitVector.Y = -normals[k].X;
-            pt2.X = (long64)(pt2.X + unitVector.X * m_delta);
-            pt2.Y = (long64)(pt2.Y + unitVector.Y * m_delta);
-            AddPoint(pt2);
+              double a1 = std::atan2(normals[j].Y, normals[j].X);
+              double a2 = std::atan2(-normals[k].Y, -normals[k].X);
+              a1 = std::fabs(a2 - a1);
+              if (a1 > pi) a1 = pi * 2 - a1;
+              double dx = std::tan((pi - a1)/4) *std::fabs(m_delta); ////
+              pt1 = IntPoint((long64)(pt1.X -normals[j].Y *dx),
+                (long64)(pt1.Y + normals[j].X *dx));
+              AddPoint(pt1);
+              pt2 = IntPoint((long64)(pt2.X + normals[k].Y *dx),
+                (long64)(pt2.Y -normals[k].X *dx));
+              AddPoint(pt2);
         }
     }
     else

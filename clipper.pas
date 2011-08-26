@@ -2655,7 +2655,11 @@ begin
         if (e.tmpX > eNext.tmpX) and
           IntersectPoint(e, eNext, pt, fUseFullRange) then
         begin
-          if pt.Y > botY then pt.Y := botY;
+          if pt.Y > botY then
+          begin
+            pt.Y := botY;
+            pt.X := TopX(e, pt.Y);
+          end;
           AddIntersectNode(e, eNext, pt);
           SwapPositionsInSEL(e, eNext);
           isModified := true;
@@ -3434,7 +3438,7 @@ const
 
   procedure DoSquare;
   var
-    unitVector: TDoublePoint;
+    dx: double;
   begin
     pt1.X := round(pts[i][j].X + normals[j].X * delta);
     pt1.Y := round(pts[i][j].Y + normals[j].Y * delta);
@@ -3452,15 +3456,16 @@ const
         AddPoint(pt1);
       end else
       begin
-        unitVector.X := -normals[j].Y;
-        unitVector.Y := normals[j].X;
-        pt1 := IntPoint(round(pt1.X + unitVector.X *delta),
-          round(pt1.Y + unitVector.Y *delta));
+        a1 := ArcTan2(normals[j].Y, normals[j].X);
+        a2 := ArcTan2(-normals[k].Y, -normals[k].X);
+        a1 := abs(a2 - a1);
+        if a1 > pi then a1 := pi*2 - a1;
+        dx := tan((pi - a1)/4) *abs(delta); ////
+        pt1 := IntPoint(round(pt1.X -normals[j].Y *dx),
+          round(pt1.Y + normals[j].X *dx));
         AddPoint(pt1);
-        unitVector.X := normals[k].Y;
-        unitVector.Y := -normals[k].X;
-        pt2 := IntPoint(round(pt2.X + unitVector.X *delta),
-          round(pt2.Y + unitVector.Y *delta));
+        pt2 := IntPoint(round(pt2.X + normals[k].Y *dx),
+          round(pt2.Y -normals[k].X *dx));
         AddPoint(pt2);
       end;
     end else
@@ -3523,6 +3528,8 @@ begin
   for i := 0 to high(pts) do
   begin
     len := length(pts[i]);
+    if (len > 1) and (pts[i][0].X = pts[i][len - 1].X) and
+        (pts[i][0].Y = pts[i][len - 1].Y) then dec(len);
     highI := len -1;
 
     //when 'shrinking' polygons, to minimize artefacts,

@@ -2317,10 +2317,14 @@ namespace polyonclipping
               IntPoint pt = new IntPoint();
               if(e.tmpX > eNext.tmpX && IntersectPoint(e, eNext, ref pt))
               {
-                if (pt.Y > botY) pt.Y = botY;
-                AddIntersectNode(e, eNext, pt);
-                SwapPositionsInSEL(e, eNext);
-                isModified = true;
+                  if (pt.Y > botY)
+                  {
+                      pt.Y = botY;
+                      pt.X = TopX(e, pt.Y);
+                  }
+                  AddIntersectNode(e, eNext, pt);
+                  SwapPositionsInSEL(e, eNext);
+                  isModified = true;
               }
               else
                 e = eNext;
@@ -3149,6 +3153,8 @@ namespace polyonclipping
                 for (int i = 0; i < pts.Count; i++)
                 {
                     int len = pts[i].Count;
+                    if (len > 1 && pts[i][0].X == pts[i][len - 1].X &&
+                        pts[i][0].Y == pts[i][len - 1].Y) len--;
                     this.highJ = len - 1;
 
                     //to minimize artefacts, strip out those polygons where
@@ -3259,15 +3265,16 @@ namespace polyonclipping
                     }
                     else
                     {
-                        DoublePoint unitVector =
-                            new DoublePoint(-normals[j].Y, normals[j].X);
-                        pt1.X = (Int64)(pt1.X + unitVector.X * delta);
-                        pt1.Y = (Int64)(pt1.Y + unitVector.Y * delta);
+                        double a1 = Math.Atan2(normals[j].Y, normals[j].X);
+                        double a2 = Math.Atan2(-normals[k].Y, -normals[k].X);
+                        a1 = Math.Abs(a2 - a1);
+                        if (a1 > Math.PI) a1 = Math.PI * 2 - a1;
+                        double dx = Math.Tan((Math.PI - a1)/4) *Math.Abs(delta); ////
+                        pt1 = new IntPoint((Int64)(pt1.X -normals[j].Y *dx),
+                          (Int64)(pt1.Y + normals[j].X *dx));
                         AddPoint(pt1);
-                        unitVector.X = normals[k].Y;
-                        unitVector.Y = -normals[k].X;
-                        pt2.X = (Int64)(pt2.X + unitVector.X * delta);
-                        pt2.Y = (Int64)(pt2.Y + unitVector.Y * delta);
+                        pt2 = new IntPoint((Int64)(pt2.X + normals[k].Y *dx),
+                          (Int64)(pt2.Y -normals[k].X *dx));
                         AddPoint(pt2);
                     }
                 }
