@@ -371,21 +371,6 @@ bool Orientation(OutRec *outRec, bool UseFullInt64Range)
 }
 //------------------------------------------------------------------------------
 
-int PointCount(OutPt *pts)
-{
-  if (!pts) return 0;
-  int result = 0;
-  OutPt *p = pts;
-  do
-  {
-    result++;
-    p = p->next;
-  }
-  while (p != pts);
-  return result;
-}
-//------------------------------------------------------------------------------
-
 inline bool PointsEqual( const IntPoint &pt1, const IntPoint &pt2)
 {
   return ( pt1.X == pt2.X && pt1.Y == pt2.Y );
@@ -1758,13 +1743,13 @@ void Clipper::IntersectEdges(TEdge *e1, TEdge *e2,
   {
     case pftPositive: e1Wc = e1->windCnt; break;
     case pftNegative: e1Wc = -e1->windCnt; break;
-    default: e1Wc = abs(e1->windCnt);
+    default: e1Wc = Abs(e1->windCnt);
   }
   switch(e2FillType)
   {
     case pftPositive: e2Wc = e2->windCnt; break;
     case pftNegative: e2Wc = -e2->windCnt; break;
-    default: e2Wc = abs(e2->windCnt);
+    default: e2Wc = Abs(e2->windCnt);
   }
 
   if ( e1Contributing && e2contributing )
@@ -1798,13 +1783,13 @@ void Clipper::IntersectEdges(TEdge *e1, TEdge *e2,
     {
       case pftPositive: e1Wc2 = e1->windCnt2; break;
       case pftNegative : e1Wc2 = -e1->windCnt2; break;
-      default: e1Wc2 = abs(e1->windCnt2);
+      default: e1Wc2 = Abs(e1->windCnt2);
     }
     switch (e2FillType2)
     {
       case pftPositive: e2Wc2 = e2->windCnt2; break;
       case pftNegative: e2Wc2 = -e2->windCnt2; break;
-      default: e2Wc2 = abs(e2->windCnt2);
+      default: e2Wc2 = Abs(e2->windCnt2);
     }
 
     //neither edge is currently contributing ...
