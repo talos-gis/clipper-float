@@ -2107,6 +2107,7 @@ namespace ClipperLib
             else if ( (e1Wc == 0 || e1Wc == 1) && 
                 (e2Wc == 0 || e2Wc == 1) && !e1stops && !e2stops )
             {
+                //neither edge is currently contributing ...
                 Int64 e1Wc2, e2Wc2;
                 switch (e1FillType2)
                 {
@@ -2121,7 +2122,6 @@ namespace ClipperLib
                     default: e2Wc2 = Math.Abs(e2.windCnt2); break;
                 }
 
-                //neither edge is currently contributing ...
                 if (e1.polyType != e2.polyType)
                     AddLocalMinPoly(e1, e2, pt);
                 else if (e1Wc == 1 && e2Wc == 1)
@@ -2135,7 +2135,7 @@ namespace ClipperLib
                             }
                         case ClipType.ctUnion:
                             {
-                                if (e1.windCnt2 == 0 && e2.windCnt2 == 0)
+                                if (e1.windCnt2 <= 0 && e2.windCnt2 <= 0)
                                     AddLocalMinPoly(e1, e2, pt);
                                 break;
                             }
@@ -2146,7 +2146,7 @@ namespace ClipperLib
                                     e2Wc2 > 0) ||
                                     (e1.polyType == PolyType.ptSubject && 
                                     e2.polyType == PolyType.ptSubject &&
-                                    e1.windCnt2 == 0 && e2.windCnt2 == 0))
+                                    e1Wc2 <= 0 && e2Wc2 <= 0))
                                         AddLocalMinPoly(e1, e2, pt);
                                 break;
                             }

@@ -2117,6 +2117,8 @@ begin
   else if  ((e1Wc = 0) or (e1Wc = 1)) and ((e2Wc = 0) or (e2Wc = 1)) and
     not e1stops and not e2stops then
   begin
+    //neither edge is currently contributing ...
+
     case e1FillType2 of
       pftPositive: e1Wc2 := e1.windCnt2;
       pftNegative : e1Wc2 := -e1.windCnt2;
@@ -2128,7 +2130,6 @@ begin
       else e2Wc2 := abs(e2.windCnt2);
     end;
 
-    //nb: neither edge is currently contributing ...
     if (e1.polytype <> e2.polytype) then
       AddLocalMinPoly(e1, e2, pt)
     else if (e1Wc = 1) and (e2Wc = 1) then
@@ -2137,13 +2138,13 @@ begin
           if (e1Wc2 > 0) and (e2Wc2 > 0) then
             AddLocalMinPoly(e1, e2, pt);
         ctUnion:
-          if (e1.windCnt2 = 0) and (e2.windCnt2 = 0) then
+          if (e1Wc2 <= 0) and (e2Wc2 <= 0) then
             AddLocalMinPoly(e1, e2, pt);
         ctDifference:
           if ((e1.polyType = ptClip) and (e2.polyType = ptClip) and
             (e1Wc2 > 0) and (e2Wc2 > 0)) or
             ((e1.polyType = ptSubject) and (e2.polyType = ptSubject) and
-            (e1.windCnt2 = 0) and (e2.windCnt2 = 0)) then
+            (e1Wc2 <= 0) and (e2Wc2 <= 0)) then
               AddLocalMinPoly(e1, e2, pt);
         ctXor:
           AddLocalMinPoly(e1, e2, pt);
