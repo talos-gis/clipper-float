@@ -3,7 +3,7 @@ unit clipper;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0                                                           *
+* Version   :  5.3.0                                                           *
 * Date      :  10 January 2012                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
@@ -28,7 +28,7 @@ unit clipper;
 * Paper no. DETC2005-85513 PP. 565-575                                         *
 * ASME 2005 International Design Engineering Technical Conferences             *
 * and Computers and Information in Engineering Conference (IDETC/CIE2005)      *
-* September 24–28, 2005 , Long Beach, California, USA                          *
+* September 24-28, 2005 , Long Beach, California, USA                          *
 * http://www.me.berkeley.edu/~mcmains/pubs/DAC05OffsetPolygon.pdf              *
 *                                                                              *
 *******************************************************************************)
@@ -330,7 +330,6 @@ resourcestring
   rsHorizontal = 'ProcessHorizontal error';
   rsInvalidInt = 'Coordinate exceeds range bounds';
   rsJoinError = 'Join Output polygons error';
-  rsHoleLinkError = 'HoleLinkage error';
 
 //------------------------------------------------------------------------------
 // TPolyTree methods ...
@@ -356,7 +355,7 @@ end;
 function TPolyTree.GetChild(Index: integer): TPolyNode;
 begin
   if (Index < 0) or (Index >= FTopCount) then
-    raise Exception.Create('TPoly range error: ' + inttostr(Index));
+    raise Exception.Create('TPolyTree range error: ' + inttostr(Index));
   result := FTopPolys[Index];
 end;
 
@@ -367,7 +366,7 @@ end;
 function TPolyNode.GetChild(Index: integer): TPolyNode;
 begin
   if (Index < 0) or (Index >= FCount) then
-    raise Exception.Create('TPoly range error: ' + inttostr(Index));
+    raise Exception.Create('TPolyNode range error: ' + inttostr(Index));
   result := FChilds[Index];
 end;
 
@@ -2382,6 +2381,7 @@ begin
   Result.FirstLeft := nil;
   Result.Pts := nil;
   Result.BottomPt := nil;
+  Result.PolyNode := nil;
 end;
 //------------------------------------------------------------------------------
 
@@ -2400,7 +2400,6 @@ begin
     new(Op);
     OutRec.Pts := Op;
     OutRec.BottomPt := Op;
-    OutRec.PolyNode := nil;
     
     Op.Pt := Pt;
     Op.Next := Op;
