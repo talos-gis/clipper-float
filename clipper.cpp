@@ -2927,10 +2927,11 @@ bool Poly2ContainsPoly1(OutPt* outPt1, OutPt* outPt2, bool UseFullInt64Range)
 
 void Clipper::FixupFirstLefts1(OutRec* OldOutRec, OutRec* NewOutRec)
 { 
+  
   for (PolyOutList::size_type i = 0; i < m_PolyOuts.size(); ++i)
   {
     OutRec* outRec = m_PolyOuts[i];
-    if (!outRec->pts && outRec->FirstLeft == OldOutRec) 
+    if (outRec->pts && outRec->FirstLeft == OldOutRec) 
     {
       if (Poly2ContainsPoly1(outRec->pts, NewOutRec->pts, m_UseFullRange))
         outRec->FirstLeft = NewOutRec;
