@@ -1,8 +1,8 @@
 ﻿/*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  5.3.0                                                           *
-* Date      :  10 January 2012                                                 *
+* Version   :  5.3.1                                                           *
+* Date      :  21 January 2012                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -45,6 +45,7 @@ using System.Collections.Generic;
 namespace ClipperLib
 {
 
+   
     using Polygon = List<IntPoint>;
     using Polygons = List<List<IntPoint>>;
 
@@ -54,8 +55,7 @@ namespace ClipperLib
     //------------------------------------------------------------------------------
 
     public class PolyTree 
-    { 
-        private int m_TopCount;
+    {
         internal List<PolyNode> m_AllPolys = new List<PolyNode>();
         internal List<PolyNode> m_TopPolys = new List<PolyNode>();
 
@@ -63,19 +63,36 @@ namespace ClipperLib
         { 
             m_AllPolys.Clear(); 
             m_TopPolys.Clear(); 
-            m_TopCount = 0; 
         }
         
         public int Count
-        { 
-            get{return m_TopCount;} 
+        {
+            get { return m_TopPolys.Count; } 
         }
-        
+
         public List<PolyNode> Childs
-        { 
-            get{return m_TopPolys;}
+        {
+            get { return m_TopPolys; }
         }
-        
+
+        public PolyNode GetFirst()
+        {
+            if (m_TopPolys.Count > 0)
+                return m_TopPolys[0];
+            else
+                return null;
+        }
+
+        public PolyNode GetNext(PolyNode currentNode)
+        {
+            if (currentNode == null) return null;
+            PolyNode result = currentNode.GetNext();
+            if (result != null) return result;
+            while (currentNode.m_Parent != null) currentNode = currentNode.m_Parent;
+            if (currentNode.m_ChildIdx == m_TopPolys.Count - 1) return null; 
+            else return m_TopPolys[currentNode.m_ChildIdx + 1];
+        }
+
         ~PolyTree()
         { 
             Clear();
@@ -83,14 +100,54 @@ namespace ClipperLib
     }
         
     public class PolyNode 
-    { 
+    {
+        internal PolyNode m_Parent;
+        internal int m_ChildIdx;
         private int m_Count;
         private List<PolyNode> m_Childs = new List<PolyNode>();
         public Polygon polygon = new Polygon();
 
+        private bool IsHoleNode()
+        {
+            bool result = false;
+            PolyNode node = m_Parent;
+            while (node != null)
+            {
+                result = !result;
+                node = node.m_Parent;
+            }
+            return result;
+        }
+
         public int Count 
         { 
             get { return m_Count; } 
+        }
+
+        internal void AddChild(PolyNode Child)
+        {
+            m_Childs.Add(Child);
+            Child.m_Parent = this;
+            Child.m_ChildIdx = m_Count;
+            m_Count++;
+        }
+
+        internal PolyNode GetNext()
+        {
+            if (m_Count > 0) 
+                return m_Childs[0]; 
+            else
+                return GetNextSibling();        
+        }
+  
+        internal PolyNode GetNextSibling()
+        {
+            if (m_Parent == null)
+                return null;
+            else if (m_ChildIdx == m_Parent.m_Count - 1)
+                return m_Parent.GetNextSibling();
+            else
+                return m_Parent.m_Childs[m_ChildIdx + 1];
         }
 
         public List<PolyNode> Childs
@@ -98,10 +155,14 @@ namespace ClipperLib
             get { return m_Childs; }
         }
 
-        internal void AddChild(PolyNode Child)
+        public PolyNode Parent
         {
-            m_Childs.Add(Child);
-            m_Count++;
+            get { return m_Parent; }
+        }
+
+        public bool IsHole
+        {
+            get { return IsHoleNode(); }
         }
     }
         
@@ -340,12 +401,6 @@ namespace ClipperLib
             this.left = l; this.top = t;
             this.right = r; this.bottom = b;
         }
-    }
-
-    public struct ExPolygon
-    {
-        public Polygon outer;
-        public Polygons holes;
     }
 
     public enum ClipType { ctIntersection, ctUnion, ctDifference, ctXor };
@@ -900,6 +955,7 @@ namespace ClipperLib
         private List<JoinRec> m_Joins;
         private List<HorzJoinRec> m_HorizJoins;
         private bool m_ReverseOutput;
+        private bool m_UsingPolyTree;
 
         public Clipper()
         {
@@ -908,6 +964,7 @@ namespace ClipperLib
             m_SortedEdges = null;
             m_IntersectNodes = null;
             m_ExecuteLocked = false;
+            m_UsingPolyTree = false;
             m_PolyOuts = new List<OutRec>();
             m_Joins = new List<JoinRec>();
             m_HorizJoins = new List<HorzJoinRec>();
@@ -1001,6 +1058,7 @@ namespace ClipperLib
             m_SubjFillType = subjFillType;
             m_ClipFillType = clipFillType;
             m_ClipType = clipType;
+            m_UsingPolyTree = false;
             bool succeeded = ExecuteInternal();
             //build the return polygons ...
             if (succeeded) BuildResult(solution);
@@ -1017,6 +1075,7 @@ namespace ClipperLib
             m_SubjFillType = subjFillType;
             m_ClipFillType = clipFillType;
             m_ClipType = clipType;
+            m_UsingPolyTree = true;
             bool succeeded = ExecuteInternal();
             //build the return polygons ...
             if (succeeded) BuildResult2(polytree);
@@ -1079,8 +1138,9 @@ namespace ClipperLib
             if (succeeded)
             { 
                 //tidy up output polygons and fix orientations where necessary ...
-                foreach (OutRec outRec in m_PolyOuts)
+                for (int i = 0; i < m_PolyOuts.Count; i++)
                 {
+                  OutRec outRec = m_PolyOuts[i];
                   if (outRec.pts == null) continue;
                   FixupOutPolygon(outRec);
                   if (outRec.pts == null) continue;
@@ -1479,11 +1539,6 @@ namespace ClipperLib
 
         private void SwapPositionsInAEL(TEdge edge1, TEdge edge2)
         {
-            if (edge1.nextInAEL == null && edge1.prevInAEL == null)
-                return;
-            if (edge2.nextInAEL == null && edge2.prevInAEL == null)
-                return;
-
             if (edge1.nextInAEL == edge2)
             {
                 TEdge next = edge2.nextInAEL;
@@ -2806,8 +2861,8 @@ namespace ClipperLib
         //------------------------------------------------------------------------------
 
         public static void ReversePolygons(Polygons polys)
-        { 
-            foreach (var poly in polys) poly.Reverse();
+        {
+            polys.ForEach(delegate(Polygon poly) { poly.Reverse(); });
         }
         //------------------------------------------------------------------------------
 
@@ -2836,8 +2891,9 @@ namespace ClipperLib
         {
             polyg.Clear();
             polyg.Capacity = m_PolyOuts.Count;
-            foreach (OutRec outRec in m_PolyOuts)
+            for (int i = 0; i < m_PolyOuts.Count; i++)
             {
+                OutRec outRec = m_PolyOuts[i];
                 if (outRec.pts == null) continue;
                 OutPt p = outRec.pts;
                 int cnt = PointCount(p);
@@ -2859,8 +2915,9 @@ namespace ClipperLib
 
             //add each output polygon/contour to polytree ...
             polytree.m_AllPolys.Capacity = m_PolyOuts.Count;
-            foreach (OutRec outRec in m_PolyOuts)
+            for (int i = 0; i < m_PolyOuts.Count; i++)
             {
+                OutRec outRec = m_PolyOuts[i];
                 int cnt = PointCount(outRec.pts);
                 if (cnt < 3) continue;
                 FixHoleLinkage(outRec);
@@ -2869,7 +2926,7 @@ namespace ClipperLib
                 outRec.polyNode = pn;
                 pn.polygon.Capacity = cnt;
                 OutPt op = outRec.pts;
-                for (int i = 0; i < cnt; i++)
+                for (int j = 0; j < cnt; j++)
                 {
                     pn.polygon.Add(op.pt);
                     op = op.prev;
@@ -2878,13 +2935,17 @@ namespace ClipperLib
 
             //fixup PolyNode links etc ...
             polytree.m_TopPolys.Capacity = m_PolyOuts.Count;
-            foreach (OutRec outRec in m_PolyOuts)
+            for (int i = 0; i < m_PolyOuts.Count; i++)
             {
+                OutRec outRec = m_PolyOuts[i];
                 if (outRec.polyNode == null) continue;
-                if (outRec.FirstLeft == null) 
-                  polytree.m_TopPolys.Add(outRec.polyNode);
+                if (outRec.FirstLeft == null)
+                {
+                    outRec.polyNode.m_ChildIdx = polytree.m_TopPolys.Count;
+                    polytree.m_TopPolys.Add(outRec.polyNode);
+                }
                 else
-                  outRec.FirstLeft.polyNode.AddChild(outRec.polyNode);
+                    outRec.FirstLeft.polyNode.AddChild(outRec.polyNode);
             }
         }
         //------------------------------------------------------------------------------
@@ -3019,6 +3080,50 @@ namespace ClipperLib
         }
         //----------------------------------------------------------------------
 
+        private bool Poly2ContainsPoly1(OutPt outPt1, OutPt outPt2, bool UseFullInt64Range)
+        {
+            //find the first pt in outPt1 that isn't also a vertex of outPt2 ...
+            OutPt outPt = outPt1;
+            do
+            {
+                if (!PointIsVertex(outPt.pt, outPt2)) break;
+                outPt = outPt.next;
+            }
+            while (outPt != outPt1);
+            bool result;
+            //sometimes a point on one polygon can be touching the other polygon 
+            //so to be totally confident outPt1 is inside outPt2 repeat ...
+            do
+            {
+                result = PointInPolygon(outPt.pt, outPt2, UseFullInt64Range);
+                outPt = outPt.next;
+            }
+            while (result && outPt != outPt1);
+            return result;
+        }
+        //----------------------------------------------------------------------
+
+        private void FixupFirstLefts1(OutRec OldOutRec, OutRec NewOutRec)
+        { 
+            for (int i = 0; i < m_PolyOuts.Count; i++)
+            {
+                OutRec outRec = m_PolyOuts[i];
+                if (outRec.pts != null && outRec.FirstLeft == OldOutRec) 
+                {
+                    if (Poly2ContainsPoly1(outRec.pts, NewOutRec.pts, m_UseFullRange))
+                        outRec.FirstLeft = NewOutRec;
+                }
+            }
+        }
+        //----------------------------------------------------------------------
+
+        private void FixupFirstLefts2(OutRec OldOutRec, OutRec NewOutRec)
+        { 
+            foreach (OutRec outRec in m_PolyOuts)
+                if (outRec.FirstLeft == OldOutRec) outRec.FirstLeft = NewOutRec;
+        }
+        //----------------------------------------------------------------------
+
         private void JoinCommonEdges()
         {
           for (int i = 0; i < m_Joins.Count; i++)
@@ -3033,7 +3138,8 @@ namespace ClipperLib
             //get the polygon fragment with the correct hole state (FirstLeft)
             //before calling JoinPoints() ...
             OutRec holeStateRec;
-            if (Param1RightOfParam2(outRec1, outRec2)) holeStateRec = outRec2;
+            if (outRec1 == outRec2) holeStateRec = outRec1;
+            else if (Param1RightOfParam2(outRec1, outRec2)) holeStateRec = outRec2;
             else if (Param1RightOfParam2(outRec2, outRec1)) holeStateRec = outRec1;
             else holeStateRec = GetLowermostRec(outRec1, outRec2);
 
@@ -3055,13 +3161,17 @@ namespace ClipperLib
                 outRec2.bottomPt = outRec2.pts;
                 outRec2.bottomPt.idx = outRec2.idx;
 
-                if (PointInPolygon(outRec2.pts.pt, outRec1.pts, m_UseFullRange))
+                if (Poly2ContainsPoly1(outRec2.pts, outRec1.pts, m_UseFullRange))
                 {
                     //outRec2 is contained by outRec1 ...
                     outRec2.isHole = !outRec1.isHole;
                     outRec2.FirstLeft = outRec1;
 
                     FixupJoinRecs(j, p2, i + 1);
+
+                    //fixup FirstLeft pointers that may need reassigning to OutRec1
+                    if (m_UsingPolyTree) FixupFirstLefts2(outRec2, outRec1);
+
                     FixupOutPolygon(outRec1); //nb: do this BEFORE testing orientation
                     FixupOutPolygon(outRec2); //    but AFTER calling FixupJoinRecs()
 
@@ -3069,7 +3179,7 @@ namespace ClipperLib
                         ReversePolyPtLinks(outRec2.pts);
 
                 }
-                else if (PointInPolygon(outRec1.pts.pt, outRec2.pts, m_UseFullRange))
+                else if (Poly2ContainsPoly1(outRec1.pts, outRec2.pts, m_UseFullRange))
                 {
                     //outRec1 is contained by outRec2 ...
                     outRec2.isHole = outRec1.isHole;
@@ -3078,6 +3188,10 @@ namespace ClipperLib
                     outRec1.FirstLeft = outRec2;
 
                     FixupJoinRecs(j, p2, i + 1);
+                    
+                    //fixup FirstLeft pointers that may need reassigning to OutRec1
+                    if (m_UsingPolyTree) FixupFirstLefts2(outRec1, outRec2);
+
                     FixupOutPolygon(outRec1); //nb: do this BEFORE testing orientation
                     FixupOutPolygon(outRec2); //    but AFTER calling FixupJoinRecs()
 
@@ -3091,6 +3205,10 @@ namespace ClipperLib
                     outRec2.FirstLeft = outRec1.FirstLeft;
 
                     FixupJoinRecs(j, p2, i + 1);
+
+                    //fixup FirstLeft pointers that may need reassigning to OutRec2
+                    if (m_UsingPolyTree) FixupFirstLefts1(outRec1, outRec2);
+
                     FixupOutPolygon(outRec1); //nb: do this BEFORE testing orientation
                     FixupOutPolygon(outRec2); //    but AFTER calling FixupJoinRecs()
                 }
@@ -3120,6 +3238,9 @@ namespace ClipperLib
                     if (j2.poly1Idx == ObsoleteIdx) j2.poly1Idx = OKIdx;
                     if (j2.poly2Idx == ObsoleteIdx) j2.poly2Idx = OKIdx;
                 }
+
+                //fixup FirstLeft pointers that may need reassigning to OutRec1
+                if (m_UsingPolyTree) FixupFirstLefts2(outRec2, outRec1);
             }
           }
         }

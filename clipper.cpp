@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  5.3.0                                                           *
-* Date      :  10 January 2012                                                 *
+* Version   :  5.3.1                                                           *
+* Date      :  21 January 2012                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -77,23 +77,77 @@ void PolyTree::Clear()
 }
 //------------------------------------------------------------------------------
 
+int PolyTree::Count()
+{
+  return Childs.size();
+}
+//------------------------------------------------------------------------------
+
+PolyNode* PolyTree::GetFirst()
+{
+  if (Childs.size() > 0)
+      return Childs[0];
+  else
+      return 0;
+}
+//------------------------------------------------------------------------------
+
+PolyNode* PolyTree::GetNext(PolyNode* currentNode)
+{
+  if (!currentNode) return 0;
+  PolyNode* result = currentNode->GetNext();
+  if (result) return result;
+  while (currentNode->Parent) currentNode = currentNode->Parent;
+  if (currentNode->ChildIdx == Childs.size() - 1) return 0; 
+  else return Childs[currentNode->ChildIdx + 1];
+}
+//------------------------------------------------------------------------------
+
+
 PolyTree::~PolyTree() 
 { 
     Clear(); 
 }  
 //------------------------------------------------------------------------------
 
-void PolyNode::AddChild(PolyNode *Child)
-{
-    Childs.push_back(Child);
-}
+PolyNode* PolyNode::GetNext()
+{ 
+  if (Childs.size() > 0) 
+      return Childs[0]; 
+  else
+      return GetNextSibling();        
+}  
 //------------------------------------------------------------------------------
 
-PolyNode::~PolyNode()
-{
-    polygon.resize(0); 
-    Childs.resize(0);
-}
+PolyNode* PolyNode::GetNextSibling()
+{ 
+  if (!Parent)
+      return 0;
+  else if (ChildIdx == Parent->Childs.size() - 1)
+      return Parent->GetNextSibling();
+  else
+      return Parent->Childs[ChildIdx + 1];
+}  
+//------------------------------------------------------------------------------
+
+bool PolyNode::IsHole()
+{ 
+  bool result = false;
+  PolyNode* node = Parent;
+  while (node)
+  {
+      result = !result;
+      node = node->Parent;
+  }
+  return result;
+}  
+//------------------------------------------------------------------------------
+
+int PolyNode::Count()
+{ 
+  return Childs.size();
+}  
+
 
 //------------------------------------------------------------------------------
 // Int128 class (enables safe math on signed 64bit integers)
@@ -116,10 +170,11 @@ class Int128
       if (_lo < 0)  hi = -1; else hi = 0; 
     }
 
-    Int128(const Int128 &val): hi(val.hi), lo(val.lo){}
 
-    Int128(const long64& _hi, const ulong64& _lo): hi(_hi), lo(_lo){}
+    Int128(const Int128 &val): lo(val.lo), hi(val.hi){}
 
+    Int128(const long64& _hi, const ulong64& _lo): lo(_lo), hi(_hi){}
+    
     long64 operator = (const long64 &val)
     {
       lo = (ulong64)val;
@@ -1111,6 +1166,7 @@ bool Clipper::Execute(ClipType clipType, Polygons &solution,
   m_SubjFillType = subjFillType;
   m_ClipFillType = clipFillType;
   m_ClipType = clipType;
+  m_UsingPolyTree = false;
   bool succeeded = ExecuteInternal();
   if (succeeded) BuildResult(solution);
   m_ExecuteLocked = false;
@@ -1126,6 +1182,7 @@ bool Clipper::Execute(ClipType clipType, PolyTree& polytree,
   m_SubjFillType = subjFillType;
   m_ClipFillType = clipFillType;
   m_ClipType = clipType;
+  m_UsingPolyTree = true;
   bool succeeded = ExecuteInternal();
   if (succeeded) BuildResult2(polytree);
   m_ExecuteLocked = false;
@@ -2038,9 +2095,6 @@ TEdge *GetMaximaPair(TEdge *e)
 
 void Clipper::SwapPositionsInAEL(TEdge *edge1, TEdge *edge2)
 {
-  if(  !edge1->nextInAEL &&  !edge1->prevInAEL ) return;
-  if(  !edge2->nextInAEL &&  !edge2->prevInAEL ) return;
-
   if(  edge1->nextInAEL == edge2 )
   {
     TEdge* next = edge2->nextInAEL;
@@ -2616,6 +2670,8 @@ void Clipper::BuildResult2(PolyTree& polytree)
         //created here (and destroys them in its destructor)
         polytree_allnodes.push_back(pn);
         outRec->polyNode = pn;
+        pn->Parent = 0;
+        pn->ChildIdx = 0;
         pn->polygon.reserve(cnt);
         OutPt *op = outRec->pts;
         for (int j = 0; j < cnt; j++)
@@ -2632,9 +2688,16 @@ void Clipper::BuildResult2(PolyTree& polytree)
         OutRec* outRec = m_PolyOuts[i];
         if (!outRec->polyNode) continue;
         if (!outRec->FirstLeft) 
+        {
+          outRec->polyNode->ChildIdx = polytree.Childs.size();
           polytree.Childs.push_back(outRec->polyNode);
+        }
         else
-          outRec->FirstLeft->polyNode->AddChild(outRec->polyNode);
+        {
+          outRec->polyNode->ChildIdx = outRec->FirstLeft->polyNode->Childs.size();
+          outRec->FirstLeft->polyNode->Childs.push_back(outRec->polyNode);
+          outRec->polyNode->Parent = outRec->FirstLeft->polyNode;
+        }
     }
 }
 //------------------------------------------------------------------------------
@@ -2757,72 +2820,72 @@ void Clipper::DoBothEdges(TEdge *edge1, TEdge *edge2, const IntPoint &pt)
 
 bool Clipper::JoinPoints(const JoinRec *j, OutPt *&p1, OutPt *&p2)
 {
-    OutRec *outRec1 = m_PolyOuts[j->poly1Idx];
-    OutRec *outRec2 = m_PolyOuts[j->poly2Idx];
-    if (!outRec1 || !outRec2)  return false;  
-    OutPt *pp1a = outRec1->pts;
-    OutPt *pp2a = outRec2->pts;
-    IntPoint pt1 = j->pt2a, pt2 = j->pt2b;
-    IntPoint pt3 = j->pt1a, pt4 = j->pt1b;
-    if (!FindSegment(pp1a, pt1, pt2)) return false;
-    if (outRec1 == outRec2)
-    {
-      //we're searching the same polygon for overlapping segments so
-      //segment 2 mustn't be the same as segment 1 ...
-      pp2a = pp1a->next;
-      if (!FindSegment(pp2a, pt3, pt4) || (pp2a == pp1a)) return false;
-    }
-    else if (!FindSegment(pp2a, pt3, pt4)) return false;
+  OutRec *outRec1 = m_PolyOuts[j->poly1Idx];
+  OutRec *outRec2 = m_PolyOuts[j->poly2Idx];
+  if (!outRec1 || !outRec2)  return false;  
+  OutPt *pp1a = outRec1->pts;
+  OutPt *pp2a = outRec2->pts;
+  IntPoint pt1 = j->pt2a, pt2 = j->pt2b;
+  IntPoint pt3 = j->pt1a, pt4 = j->pt1b;
+  if (!FindSegment(pp1a, pt1, pt2)) return false;
+  if (outRec1 == outRec2)
+  {
+    //we're searching the same polygon for overlapping segments so
+    //segment 2 mustn't be the same as segment 1 ...
+    pp2a = pp1a->next;
+    if (!FindSegment(pp2a, pt3, pt4) || (pp2a == pp1a)) return false;
+  }
+  else if (!FindSegment(pp2a, pt3, pt4)) return false;
 
-    if (!GetOverlapSegment(pt1, pt2, pt3, pt4, pt1, pt2)) return false;
+  if (!GetOverlapSegment(pt1, pt2, pt3, pt4, pt1, pt2)) return false;
 
-    OutPt *p3, *p4, *prev = pp1a->prev;
-    //get p1 & p2 polypts - the overlap start & endpoints on poly1
-    if (PointsEqual(pp1a->pt, pt1)) p1 = pp1a;
-    else if (PointsEqual(prev->pt, pt1)) p1 = prev;
-    else p1 = InsertPolyPtBetween(pp1a, prev, pt1);
+  OutPt *p3, *p4, *prev = pp1a->prev;
+  //get p1 & p2 polypts - the overlap start & endpoints on poly1
+  if (PointsEqual(pp1a->pt, pt1)) p1 = pp1a;
+  else if (PointsEqual(prev->pt, pt1)) p1 = prev;
+  else p1 = InsertPolyPtBetween(pp1a, prev, pt1);
 
-    if (PointsEqual(pp1a->pt, pt2)) p2 = pp1a;
-    else if (PointsEqual(prev->pt, pt2)) p2 = prev;
-    else if ((p1 == pp1a) || (p1 == prev))
-      p2 = InsertPolyPtBetween(pp1a, prev, pt2);
-    else if (Pt3IsBetweenPt1AndPt2(pp1a->pt, p1->pt, pt2))
-      p2 = InsertPolyPtBetween(pp1a, p1, pt2); else
-      p2 = InsertPolyPtBetween(p1, prev, pt2);
+  if (PointsEqual(pp1a->pt, pt2)) p2 = pp1a;
+  else if (PointsEqual(prev->pt, pt2)) p2 = prev;
+  else if ((p1 == pp1a) || (p1 == prev))
+    p2 = InsertPolyPtBetween(pp1a, prev, pt2);
+  else if (Pt3IsBetweenPt1AndPt2(pp1a->pt, p1->pt, pt2))
+    p2 = InsertPolyPtBetween(pp1a, p1, pt2); else
+    p2 = InsertPolyPtBetween(p1, prev, pt2);
 
-    //get p3 & p4 polypts - the overlap start & endpoints on poly2
-    prev = pp2a->prev;
-    if (PointsEqual(pp2a->pt, pt1)) p3 = pp2a;
-    else if (PointsEqual(prev->pt, pt1)) p3 = prev;
-    else p3 = InsertPolyPtBetween(pp2a, prev, pt1);
+  //get p3 & p4 polypts - the overlap start & endpoints on poly2
+  prev = pp2a->prev;
+  if (PointsEqual(pp2a->pt, pt1)) p3 = pp2a;
+  else if (PointsEqual(prev->pt, pt1)) p3 = prev;
+  else p3 = InsertPolyPtBetween(pp2a, prev, pt1);
 
-    if (PointsEqual(pp2a->pt, pt2)) p4 = pp2a;
-    else if (PointsEqual(prev->pt, pt2)) p4 = prev;
-    else if ((p3 == pp2a) || (p3 == prev))
-      p4 = InsertPolyPtBetween(pp2a, prev, pt2);
-    else if (Pt3IsBetweenPt1AndPt2(pp2a->pt, p3->pt, pt2))
-      p4 = InsertPolyPtBetween(pp2a, p3, pt2); else
-      p4 = InsertPolyPtBetween(p3, prev, pt2);
+  if (PointsEqual(pp2a->pt, pt2)) p4 = pp2a;
+  else if (PointsEqual(prev->pt, pt2)) p4 = prev;
+  else if ((p3 == pp2a) || (p3 == prev))
+    p4 = InsertPolyPtBetween(pp2a, prev, pt2);
+  else if (Pt3IsBetweenPt1AndPt2(pp2a->pt, p3->pt, pt2))
+    p4 = InsertPolyPtBetween(pp2a, p3, pt2); else
+    p4 = InsertPolyPtBetween(p3, prev, pt2);
 
-    //p1.pt == p3.pt and p2.pt == p4.pt so join p1 to p3 and p2 to p4 ...
-    if (p1->next == p2 && p3->prev == p4)
-    {
-      p1->next = p3;
-      p3->prev = p1;
-      p2->prev = p4;
-      p4->next = p2;
-      return true;
-    }
-    else if (p1->prev == p2 && p3->next == p4)
-    {
-      p1->prev = p3;
-      p3->next = p1;
-      p2->next = p4;
-      p4->prev = p2;
-      return true;
-    }
-    else
-      return false; //an orientation is probably wrong
+  //p1.pt == p3.pt and p2.pt == p4.pt so join p1 to p3 and p2 to p4 ...
+  if (p1->next == p2 && p3->prev == p4)
+  {
+    p1->next = p3;
+    p3->prev = p1;
+    p2->prev = p4;
+    p4->next = p2;
+    return true;
+  }
+  else if (p1->prev == p2 && p3->next == p4)
+  {
+    p1->prev = p3;
+    p3->next = p1;
+    p2->next = p4;
+    p4->prev = p2;
+    return true;
+  }
+  else
+    return false; //an orientation is probably wrong
 }
 //----------------------------------------------------------------------
 
@@ -2836,6 +2899,53 @@ void Clipper::FixupJoinRecs(JoinRec *j, OutPt *pt, unsigned startIdx)
       if (j2->poly2Idx == j->poly1Idx && PointIsVertex(j2->pt2a, pt))
         j2->poly2Idx = j->poly2Idx;
     }
+}
+//----------------------------------------------------------------------
+
+bool Poly2ContainsPoly1(OutPt* outPt1, OutPt* outPt2, bool UseFullInt64Range)
+{
+  //find the first pt in outPt1 that isn't also a vertex of outPt2 ...
+  OutPt* outPt = outPt1;
+  do
+  {
+      if (!PointIsVertex(outPt->pt, outPt2)) break;
+      outPt = outPt->next;
+  }
+  while (outPt != outPt1);
+  bool result;
+  //sometimes a point on one polygon can be touching the other polygon 
+  //so to be totally confident outPt1 is inside outPt2 repeat ...
+  do
+  {
+    result = PointInPolygon(outPt->pt, outPt2, UseFullInt64Range);
+    outPt = outPt->next;
+  }
+  while (result && outPt != outPt1);
+  return result;
+}
+//----------------------------------------------------------------------
+
+void Clipper::FixupFirstLefts1(OutRec* OldOutRec, OutRec* NewOutRec)
+{ 
+  for (PolyOutList::size_type i = 0; i < m_PolyOuts.size(); ++i)
+  {
+    OutRec* outRec = m_PolyOuts[i];
+    if (!outRec->pts && outRec->FirstLeft == OldOutRec) 
+    {
+      if (Poly2ContainsPoly1(outRec->pts, NewOutRec->pts, m_UseFullRange))
+        outRec->FirstLeft = NewOutRec;
+    }
+  }
+}
+//----------------------------------------------------------------------
+
+void Clipper::FixupFirstLefts2(OutRec* OldOutRec, OutRec* NewOutRec)
+{ 
+  for (PolyOutList::size_type i = 0; i < m_PolyOuts.size(); ++i)
+  {
+    OutRec* outRec = m_PolyOuts[i];
+    if (outRec->FirstLeft == OldOutRec) outRec->FirstLeft = NewOutRec;
+  }
 }
 //----------------------------------------------------------------------
 
@@ -2853,14 +2963,13 @@ void Clipper::JoinCommonEdges()
     //get the polygon fragment with the correct hole state (FirstLeft)
     //before calling JoinPoints() ...
     OutRec *holeStateRec;
-    if (Param1RightOfParam2(outRec1, outRec2)) holeStateRec = outRec2;
+    if (outRec1 == outRec2) holeStateRec = outRec1;
+    else if (Param1RightOfParam2(outRec1, outRec2)) holeStateRec = outRec2;
     else if (Param1RightOfParam2(outRec2, outRec1)) holeStateRec = outRec1;
     else holeStateRec = GetLowermostRec(outRec1, outRec2);
 
-
     OutPt *p1, *p2;
     if (!JoinPoints(j, p1, p2)) continue;
-
 
     if (outRec1 == outRec2)
     {
@@ -2877,21 +2986,25 @@ void Clipper::JoinCommonEdges()
       outRec2->bottomPt = outRec2->pts;
       outRec2->bottomPt->idx = outRec2->idx;
 
-      if (PointInPolygon(outRec2->pts->pt, outRec1->pts, m_UseFullRange))
+      if (Poly2ContainsPoly1(outRec2->pts, outRec1->pts, m_UseFullRange))
       {
         //outRec2 is contained by outRec1 ...
         outRec2->isHole = !outRec1->isHole;
         outRec2->FirstLeft = outRec1;
 
         FixupJoinRecs(j, p2, i+1);
+
+        //fixup FirstLeft pointers that may need reassigning to OutRec1
+        if (m_UsingPolyTree) FixupFirstLefts2(outRec2, outRec1);
+
         FixupOutPolygon(*outRec1); //nb: do this BEFORE testing orientation
         FixupOutPolygon(*outRec2); //    but AFTER calling FixupJoinRecs()
 
 
         if ((outRec2->isHole ^ m_ReverseOutput) == (Area(*outRec2, m_UseFullRange) > 0))
           ReversePolyPtLinks(outRec2->pts);
-
-      } else if (PointInPolygon(outRec1->pts->pt, outRec2->pts, m_UseFullRange))
+            
+      } else if (Poly2ContainsPoly1(outRec1->pts, outRec2->pts, m_UseFullRange))
       {
         //outRec1 is contained by outRec2 ...
         outRec2->isHole = outRec1->isHole;
@@ -2900,6 +3013,10 @@ void Clipper::JoinCommonEdges()
         outRec1->FirstLeft = outRec2;
 
         FixupJoinRecs(j, p2, i+1);
+
+        //fixup FirstLeft pointers that may need reassigning to OutRec1
+        if (m_UsingPolyTree) FixupFirstLefts2(outRec1, outRec2);
+
         FixupOutPolygon(*outRec1); //nb: do this BEFORE testing orientation
         FixupOutPolygon(*outRec2); //    but AFTER calling FixupJoinRecs()
 
@@ -2913,6 +3030,10 @@ void Clipper::JoinCommonEdges()
         outRec2->FirstLeft = outRec1->FirstLeft;
 
         FixupJoinRecs(j, p2, i+1);
+
+        //fixup FirstLeft pointers that may need reassigning to OutRec2
+        if (m_UsingPolyTree) FixupFirstLefts1(outRec1, outRec2);
+
         FixupOutPolygon(*outRec1); //nb: do this BEFORE testing orientation
         FixupOutPolygon(*outRec2); //    but AFTER calling FixupJoinRecs()
       }
@@ -2942,6 +3063,9 @@ void Clipper::JoinCommonEdges()
         if (j2->poly1Idx == ObsoleteIdx) j2->poly1Idx = OKIdx;
         if (j2->poly2Idx == ObsoleteIdx) j2->poly2Idx = OKIdx;
       }
+
+      //fixup FirstLeft pointers that may need reassigning to OutRec1
+      if (m_UsingPolyTree) FixupFirstLefts2(outRec2, outRec1);
     }
   }
 }

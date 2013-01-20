@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  5.3.0                                                           *
-* Date      :  10 January 2012                                                 *
+* Version   :  5.3.1                                                           *
+* Date      :  21 January 2012                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -78,6 +78,9 @@ private:
 public:
     PolyNodes Childs;
     void Clear();
+    int Count();
+    PolyNode* GetFirst();
+    PolyNode* GetNext(PolyNode* currentNode);
     ~PolyTree();
 };
         
@@ -86,8 +89,12 @@ class PolyNode
 public:
     Polygon polygon;
     PolyNodes Childs;
-    ~PolyNode();
-    void AddChild(PolyNode *Child);
+    int ChildIdx;
+    PolyNode* Parent;
+    PolyNode* GetNext();
+    PolyNode* GetNextSibling();
+    bool IsHole();
+    int Count();
 };
 
 enum JoinType { jtSquare, jtRound, jtMiter };
@@ -242,11 +249,12 @@ private:
   Scanbeam         *m_Scanbeam;
   TEdge           *m_ActiveEdges;
   TEdge           *m_SortedEdges;
-  IntersectNode    *m_IntersectNodes;
-  bool              m_ExecuteLocked;
-  PolyFillType      m_ClipFillType;
-  PolyFillType      m_SubjFillType;
-  bool              m_ReverseOutput;
+  IntersectNode   *m_IntersectNodes;
+  bool             m_ExecuteLocked;
+  PolyFillType     m_ClipFillType;
+  PolyFillType     m_SubjFillType;
+  bool             m_ReverseOutput;
+  bool             m_UsingPolyTree; 
   void DisposeScanbeamList();
   void SetWindingCount(TEdge& edge);
   bool IsEvenOddFillType(const TEdge& edge) const;
@@ -299,6 +307,8 @@ private:
   bool JoinPoints(const JoinRec *j, OutPt *&p1, OutPt *&p2);
   void FixupJoinRecs(JoinRec *j, OutPt *pt, unsigned startIdx);
   void JoinCommonEdges();
+  void FixupFirstLefts1(OutRec* OldOutRec, OutRec* NewOutRec);
+  void FixupFirstLefts2(OutRec* OldOutRec, OutRec* NewOutRec);
 };
 
 //------------------------------------------------------------------------------
