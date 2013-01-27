@@ -1,8 +1,8 @@
 ﻿/*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  5.3.1                                                           *
-* Date      :  21 January 2012                                                 *
+* Version   :  5.1.0                                                           *
+* Date      :  28 January 2012                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -54,58 +54,38 @@ namespace ClipperLib
     // PolyTree & PolyNode classes
     //------------------------------------------------------------------------------
 
-    public class PolyTree 
+    public class PolyTree : PolyNode
     {
         internal List<PolyNode> m_AllPolys = new List<PolyNode>();
-        internal List<PolyNode> m_TopPolys = new List<PolyNode>();
 
-        public void Clear() 
-        { 
-            m_AllPolys.Clear(); 
-            m_TopPolys.Clear(); 
+        ~PolyTree()
+        {
+            Clear();
         }
         
-        public int Count
+        public void Clear() 
         {
-            get { return m_TopPolys.Count; } 
+            for (int i = 0; i < m_AllPolys.Count; i++)
+                m_AllPolys[i] = null;
+            m_AllPolys.Clear(); 
+            m_Childs.Clear(); 
         }
-
-        public List<PolyNode> Childs
-        {
-            get { return m_TopPolys; }
-        }
-
+        
         public PolyNode GetFirst()
         {
-            if (m_TopPolys.Count > 0)
-                return m_TopPolys[0];
+            if (m_Childs.Count > 0)
+                return m_Childs[0];
             else
                 return null;
         }
-
-        public PolyNode GetNext(PolyNode currentNode)
-        {
-            if (currentNode == null) return null;
-            PolyNode result = currentNode.GetNext();
-            if (result != null) return result;
-            while (currentNode.m_Parent != null) currentNode = currentNode.m_Parent;
-            if (currentNode.m_ChildIdx == m_TopPolys.Count - 1) return null; 
-            else return m_TopPolys[currentNode.m_ChildIdx + 1];
-        }
-
-        ~PolyTree()
-        { 
-            Clear();
-        }  
     }
         
     public class PolyNode 
     {
         internal PolyNode m_Parent;
-        internal int m_ChildIdx;
-        private int m_Count;
-        private List<PolyNode> m_Childs = new List<PolyNode>();
-        public Polygon polygon = new Polygon();
+        internal Polygon m_polygon = new Polygon();
+        internal int m_Index;
+        internal List<PolyNode> m_Childs = new List<PolyNode>();
 
         private bool IsHoleNode()
         {
@@ -119,35 +99,40 @@ namespace ClipperLib
             return result;
         }
 
-        public int Count 
-        { 
-            get { return m_Count; } 
+        public int Count
+        {
+            get { return m_Childs.Count; }
+        }
+
+        public Polygon Contour
+        {
+            get { return m_polygon; }
         }
 
         internal void AddChild(PolyNode Child)
         {
+            int cnt = m_Childs.Count;
             m_Childs.Add(Child);
             Child.m_Parent = this;
-            Child.m_ChildIdx = m_Count;
-            m_Count++;
+            Child.m_Index = cnt;
         }
 
-        internal PolyNode GetNext()
+        public PolyNode GetNext()
         {
-            if (m_Count > 0) 
+            if (m_Childs.Count > 0) 
                 return m_Childs[0]; 
             else
-                return GetNextSibling();        
+                return GetNextSiblingUp();        
         }
   
-        internal PolyNode GetNextSibling()
+        internal PolyNode GetNextSiblingUp()
         {
             if (m_Parent == null)
                 return null;
-            else if (m_ChildIdx == m_Parent.m_Count - 1)
-                return m_Parent.GetNextSibling();
+            else if (m_Index == m_Parent.m_Childs.Count - 1)
+                return m_Parent.GetNextSiblingUp();
             else
-                return m_Parent.m_Childs[m_ChildIdx + 1];
+                return m_Parent.m_Childs[m_Index + 1];
         }
 
         public List<PolyNode> Childs
@@ -2845,6 +2830,7 @@ namespace ClipperLib
           {
             if (eNext == null) throw new ClipperException("DoMaxima error");
             IntersectEdges( e, eNext, new IntPoint(X, topY), Protects.ipBoth );
+            SwapPositionsInAEL(e, eNext);
             eNext = eNext.nextInAEL;
           }
           if( e.outIdx < 0 && eMaxPair.outIdx < 0 )
@@ -2924,25 +2910,26 @@ namespace ClipperLib
                 PolyNode pn = new PolyNode();
                 polytree.m_AllPolys.Add(pn);
                 outRec.polyNode = pn;
-                pn.polygon.Capacity = cnt;
+                pn.m_polygon.Capacity = cnt;
                 OutPt op = outRec.pts;
                 for (int j = 0; j < cnt; j++)
                 {
-                    pn.polygon.Add(op.pt);
+                    pn.m_polygon.Add(op.pt);
                     op = op.prev;
                 }
             }
 
             //fixup PolyNode links etc ...
-            polytree.m_TopPolys.Capacity = m_PolyOuts.Count;
+            polytree.m_Childs.Capacity = m_PolyOuts.Count;
             for (int i = 0; i < m_PolyOuts.Count; i++)
             {
                 OutRec outRec = m_PolyOuts[i];
                 if (outRec.polyNode == null) continue;
                 if (outRec.FirstLeft == null)
                 {
-                    outRec.polyNode.m_ChildIdx = polytree.m_TopPolys.Count;
-                    polytree.m_TopPolys.Add(outRec.polyNode);
+                    outRec.polyNode.m_Index = polytree.m_Childs.Count;
+                    polytree.m_Childs.Add(outRec.polyNode);
+                    outRec.polyNode.m_Parent = polytree;
                 }
                 else
                     outRec.FirstLeft.polyNode.AddChild(outRec.polyNode);

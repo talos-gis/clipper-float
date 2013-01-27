@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  5.3.1                                                           *
-* Date      :  21 January 2012                                                 *
+* Version   :  5.1.0                                                           *
+* Date      :  28 January 2012                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -71,32 +71,33 @@ std::ostream& operator <<(std::ostream &s, Polygons &p);
 class PolyNode;
 typedef std::vector< PolyNode* > PolyNodes;
 
-class PolyTree 
-{ 
-private:
-    PolyNodes AllNodes; //must be first member (see hack)
-public:
-    PolyNodes Childs;
-    void Clear();
-    int Count();
-    PolyNode* GetFirst();
-    PolyNode* GetNext(PolyNode* currentNode);
-    ~PolyTree();
-};
-        
 class PolyNode 
 { 
 public:
-    Polygon polygon;
+    Polygon Contour;
     PolyNodes Childs;
-    int ChildIdx;
     PolyNode* Parent;
     PolyNode* GetNext();
-    PolyNode* GetNextSibling();
     bool IsHole();
     int Count();
+private:
+    PolyNode* GetNextSiblingUp();
+    int Index; //node index in Parent.Childs
+    void AddChild(PolyNode& child);
+    friend class Clipper; //to access Index
 };
 
+class PolyTree: public PolyNode
+{ 
+public:
+    ~PolyTree();
+    PolyNode* GetFirst();
+    void Clear();
+private:
+    PolyNodes AllNodes;
+    friend class Clipper; //to access AllNodes
+};
+        
 enum JoinType { jtSquare, jtRound, jtMiter };
 
 bool Orientation(const Polygon &poly);

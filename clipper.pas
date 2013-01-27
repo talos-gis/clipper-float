@@ -3,8 +3,8 @@ unit clipper;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  5.3.1                                                           *
-* Date      :  21 January 2012                                                 *
+* Version   :  5.1.0                                                           *
+* Date      :  28 January 2012                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -60,40 +60,36 @@ type
   TPolyNode = class;
   TArrayOfPolyNode = array of TPolyNode;
 
-  TPolyTree = class              //replaces TExPolygons used in prior versions
-  private
-    FTopCount  : Integer;
-    FAllPolys: TArrayOfPolyNode; //list all PolyNodes (ie includes holes etc)
-    FTopPolys: TArrayOfPolyNode; //list of top (ie outermost) PolyNodes only
-    function GetChild(Index: Integer): TPolyNode;
-  public
-    procedure Clear;
-    function GetFirst: TPolyNode;
-    function GetNext(CurrentNode: TPolyNode): TPolyNode;
-    property Count: Integer read FTopCount;                  //top node count
-    property Child[index: Integer]: TPolyNode read GetChild; //top node
-    destructor Destroy; override;
-  end;
-
   TPolyNode = class
   private
+    FPolygon: TPolygon;
     FParent  : TPolyNode;
-    FChildIdx: Integer;
+    FIndex: Integer;
     FCount   : Integer;
     FBuffLen : Integer;
     FChilds: TArrayOfPolyNode;
     function GetChild(Index: Integer): TPolyNode;
     function IsHoleNode: boolean;
     procedure AddChild(PolyNode: TPolyNode);
-    function GetNext: TPolyNode;
-    function GetNextSibling: TPolyNode;
+    function GetNextSiblingUp: TPolyNode;
   public
-    Polygon: TPolygon;
+    function GetNext: TPolyNode;
     property Count: Integer read FCount;
-    property Child[index: Integer]: TPolyNode read GetChild;
+    property Childs[index: Integer]: TPolyNode read GetChild;
     property Parent: TPolyNode read FParent;
     property IsHole: Boolean read IsHoleNode;
+    property Contour: TPolygon read FPolygon;
   end;
+
+  TPolyTree = class(TPolyNode)   //replaces TExPolygons
+  private
+    FAllNodes: TArrayOfPolyNode; //container for ALL PolyNodes
+  public
+    procedure Clear;
+    function GetFirst: TPolyNode;
+    destructor Destroy; override;
+  end;
+
 
   //definitions below here are used internally ...
   TEdgeSide = (esLeft, esRight);
@@ -343,59 +339,6 @@ resourcestring
   rsJoinError = 'Join Output polygons error';
 
 //------------------------------------------------------------------------------
-// TPolyTree methods ...
-//------------------------------------------------------------------------------
-
-destructor TPolyTree.Destroy;
-begin
-  Clear;
-  inherited;
-end;
-//------------------------------------------------------------------------------
-
-procedure TPolyTree.Clear;
-var
-  I: Integer;
-begin
-  for I := 0 to high(FAllPolys) do FAllPolys[I].Free;
-  FAllPolys := nil;
-  FTopPolys := nil;
-  FTopCount  := 0;
-end;
-//------------------------------------------------------------------------------
-
-function TPolyTree.GetChild(Index: Integer): TPolyNode;
-begin
-  if (Index < 0) or (Index >= FTopCount) then
-    raise Exception.Create('TPolyTree range error: ' + inttostr(Index));
-  Result := FTopPolys[Index];
-end;
-//------------------------------------------------------------------------------
-
-function TPolyTree.GetFirst: TPolyNode;
-begin
-  if FTopCount > 0 then
-    Result := FTopPolys[0] else
-    Result := nil;
-end;
-//------------------------------------------------------------------------------
-
-function TPolyTree.GetNext(CurrentNode: TPolyNode): TPolyNode;
-begin
-  if not Assigned(CurrentNode) then
-  begin
-    Result := nil;
-    Exit;
-  end;
-  Result := CurrentNode.GetNext;
-  if Assigned(Result) then Exit;
-  while Assigned(CurrentNode.FParent) do CurrentNode := CurrentNode.FParent;
-  if CurrentNode.FChildIdx = FTopCount -1 then
-    Result := nil else
-    Result := FTopPolys[CurrentNode.FChildIdx +1];
-end;
-
-//------------------------------------------------------------------------------
 // TPolyNode methods ...
 //------------------------------------------------------------------------------
 
@@ -415,7 +358,7 @@ begin
     SetLength(FChilds, FBuffLen);
   end;
   PolyNode.FParent := self;
-  PolyNode.FChildIdx := FCount;
+  PolyNode.FIndex := FCount;
   FChilds[FCount] := PolyNode;
   Inc(FCount);
 end;
@@ -439,18 +382,48 @@ function TPolyNode.GetNext: TPolyNode;
 begin
   if FCount > 0 then
     Result := FChilds[0] else
-    Result := GetNextSibling;
+    Result := GetNextSiblingUp;
 end;
 //------------------------------------------------------------------------------
 
-function TPolyNode.GetNextSibling: TPolyNode;
+function TPolyNode.GetNextSiblingUp: TPolyNode;
 begin
-  if not Assigned(FParent) then
+  if not Assigned(FParent) then //protects against TPolyTree.GetNextSiblingUp()
     Result := nil
-  else if FChildIdx = FParent.FCount -1 then
-      Result := FParent.GetNextSibling
+  else if FIndex = FParent.FCount -1 then
+      Result := FParent.GetNextSiblingUp
   else
-      Result := FParent.Child[FChildIdx +1];
+      Result := FParent.Childs[FIndex +1];
+end;
+
+//------------------------------------------------------------------------------
+// TPolyTree methods ...
+//------------------------------------------------------------------------------
+
+destructor TPolyTree.Destroy;
+begin
+  Clear;
+  inherited;
+end;
+//------------------------------------------------------------------------------
+
+procedure TPolyTree.Clear;
+var
+  I: Integer;
+begin
+  for I := 0 to high(FAllNodes) do FAllNodes[I].Free;
+  FAllNodes := nil;
+  FBuffLen := 16;
+  SetLength(FChilds, FBuffLen);
+  FCount := 0;
+end;
+//------------------------------------------------------------------------------
+
+function TPolyTree.GetFirst: TPolyNode;
+begin
+  if FCount > 0 then
+    Result := FChilds[0] else
+    Result := nil;
 end;
 
 //------------------------------------------------------------------------------
@@ -2700,6 +2673,7 @@ begin
       ((Direction = dRightToLeft) and (E.XCurr >= HorzLeft)) then
     begin
       //ok, so far it looks like we're still in range of the horizontal Edge
+
       if (E.XCurr = HorzEdge.XTop) and not Assigned(eMaxPair) then
       begin
         if SlopesEqual(E, HorzEdge.NextInLML, FUse64BitRange) then
@@ -2954,6 +2928,7 @@ begin
   begin
     if not Assigned(ENext) then raise exception.Create(rsDoMaxima);
     IntersectEdges(E, ENext, IntPoint(X, TopY), [ipLeft, ipRight]);
+    SwapPositionsInAEL(E, ENext);
     ENext := ENext.NextInAEL;
   end;
   if (E.OutIdx < 0) and (EMaxPair.OutIdx < 0) then
@@ -3117,7 +3092,7 @@ var
 begin
   try
     PolyTree.Clear;
-    setlength(PolyTree.FAllPolys, FPolyOutList.Count);
+    setlength(PolyTree.FAllNodes, FPolyOutList.Count);
 
     //add PolyTree ...
     CntAll := 0;
@@ -3129,22 +3104,22 @@ begin
       FixHoleLinkage(OutRec);
 
       PolyNode := TPolyNode.Create;
-      PolyTree.FAllPolys[CntAll] := PolyNode;
+      PolyTree.FAllNodes[CntAll] := PolyNode;
       OutRec.PolyNode := PolyNode;
       Inc(CntAll);
-      SetLength(PolyNode.Polygon, Cnt);
+      SetLength(PolyNode.FPolygon, Cnt);
       Op := OutRec.Pts;
       for J := 0 to Cnt -1 do
       begin
-        PolyNode.Polygon[J].X := Op.Pt.X;
-        PolyNode.Polygon[J].Y := Op.Pt.Y;
+        PolyNode.FPolygon[J].X := Op.Pt.X;
+        PolyNode.FPolygon[J].Y := Op.Pt.Y;
         Op := Op.Prev;
       end;
     end;
 
     //fix Poly links ...
-    setlength(PolyTree.FAllPolys, CntAll);
-    setLength(PolyTree.FTopPolys, CntAll);
+    setlength(PolyTree.FAllNodes, CntAll);
+    setLength(PolyTree.FChilds, CntAll);
     for I := 0 to FPolyOutList.Count -1 do
     begin
       OutRec := fPolyOutList[I];
@@ -3154,12 +3129,12 @@ begin
           OutRec.FirstLeft.PolyNode.AddChild(OutRec.PolyNode);
         end else
         begin
-          PolyTree.FTopPolys[PolyTree.FTopCount] := OutRec.PolyNode;
-          OutRec.PolyNode.FChildIdx := PolyTree.FTopCount;
-          Inc(PolyTree.FTopCount);
+          PolyTree.FChilds[PolyTree.FCount] := OutRec.PolyNode;
+          OutRec.PolyNode.FIndex := PolyTree.FCount;
+          Inc(PolyTree.FCount);
         end;
     end;
-    setLength(PolyTree.FTopPolys, PolyTree.FTopCount);
+    setLength(PolyTree.FChilds, PolyTree.FCount);
     Result := true;
   except
     Result := false;

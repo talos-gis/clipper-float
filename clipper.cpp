@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  5.3.1                                                           *
-* Date      :  21 January 2012                                                 *
+* Version   :  5.1.0                                                           *
+* Date      :  28 January 2012                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -68,18 +68,18 @@ inline long64 Abs(long64 val)
 // PolyTree & PolyNode methods ...
 //------------------------------------------------------------------------------
 
+PolyTree::~PolyTree() 
+{ 
+    Clear(); 
+}  
+//------------------------------------------------------------------------------
+
 void PolyTree::Clear()
 {
     for (PolyNodes::size_type i = 0; i < AllNodes.size(); ++i)
       delete AllNodes[i];
     AllNodes.resize(0); 
     Childs.resize(0);
-}
-//------------------------------------------------------------------------------
-
-int PolyTree::Count()
-{
-  return Childs.size();
 }
 //------------------------------------------------------------------------------
 
@@ -92,22 +92,13 @@ PolyNode* PolyTree::GetFirst()
 }
 //------------------------------------------------------------------------------
 
-PolyNode* PolyTree::GetNext(PolyNode* currentNode)
+void PolyNode::AddChild(PolyNode& child)
 {
-  if (!currentNode) return 0;
-  PolyNode* result = currentNode->GetNext();
-  if (result) return result;
-  while (currentNode->Parent) currentNode = currentNode->Parent;
-  if (currentNode->ChildIdx == Childs.size() - 1) return 0; 
-  else return Childs[currentNode->ChildIdx + 1];
+  int cnt = Childs.size();
+  Childs.push_back(&child);
+  child.Parent = this;
+  child.Index = cnt;
 }
-//------------------------------------------------------------------------------
-
-
-PolyTree::~PolyTree() 
-{ 
-    Clear(); 
-}  
 //------------------------------------------------------------------------------
 
 PolyNode* PolyNode::GetNext()
@@ -115,18 +106,18 @@ PolyNode* PolyNode::GetNext()
   if (Childs.size() > 0) 
       return Childs[0]; 
   else
-      return GetNextSibling();        
+      return GetNextSiblingUp();        
 }  
 //------------------------------------------------------------------------------
 
-PolyNode* PolyNode::GetNextSibling()
+PolyNode* PolyNode::GetNextSiblingUp()
 { 
-  if (!Parent)
+  if (!Parent) //protects against PolyTree.GetNextSiblingUp()
       return 0;
-  else if (ChildIdx == Parent->Childs.size() - 1)
-      return Parent->GetNextSibling();
+  else if (Index == Parent->Childs.size() - 1)
+      return Parent->GetNextSiblingUp();
   else
-      return Parent->Childs[ChildIdx + 1];
+      return Parent->Childs[Index + 1];
 }  
 //------------------------------------------------------------------------------
 
@@ -2459,6 +2450,7 @@ void Clipper::DoMaxima(TEdge *e, long64 topY)
   {
     if (!eNext) throw clipperException("DoMaxima error");
     IntersectEdges( e, eNext, IntPoint(X, topY), ipBoth );
+    SwapPositionsInAEL(e, eNext);
     eNext = eNext->nextInAEL;
   }
   if( e->outIdx < 0 && eMaxPair->outIdx < 0 )
@@ -2644,20 +2636,10 @@ int PointCount(OutPt *pts)
 }
 //------------------------------------------------------------------------------
 
-//Hack access to PolyTree's private member AllNodes ...
-//As a C++ newbie, I don't know a better way to access 
-//AllNodes while still keeping it private
-PolyNodes& PolyTreeAllNodes(PolyTree& polytree)
-{
-  return *(reinterpret_cast<PolyNodes*>(&polytree)); 
-}
-//------------------------------------------------------------------------------
-
 void Clipper::BuildResult2(PolyTree& polytree)
 {
     polytree.Clear();
-    PolyNodes polytree_allnodes = PolyTreeAllNodes(polytree);
-    polytree_allnodes.reserve(m_PolyOuts.size());
+    polytree.AllNodes.reserve(m_PolyOuts.size());
     //add each output polygon/contour to polytree ...
     for (PolyOutList::size_type i = 0; i < m_PolyOuts.size(); i++)
     {
@@ -2667,16 +2649,15 @@ void Clipper::BuildResult2(PolyTree& polytree)
         FixHoleLinkage(*outRec);
         PolyNode* pn = new PolyNode();
         //nb: polytree takes ownership of all the PolyNodes
-        //created here (and destroys them in its destructor)
-        polytree_allnodes.push_back(pn);
+        polytree.AllNodes.push_back(pn);
         outRec->polyNode = pn;
         pn->Parent = 0;
-        pn->ChildIdx = 0;
-        pn->polygon.reserve(cnt);
+        pn->Index = 0;
+        pn->Contour.reserve(cnt);
         OutPt *op = outRec->pts;
         for (int j = 0; j < cnt; j++)
         {
-            pn->polygon.push_back(op->pt);
+            pn->Contour.push_back(op->pt);
             op = op->prev;
         }
     }
@@ -2689,14 +2670,13 @@ void Clipper::BuildResult2(PolyTree& polytree)
         if (!outRec->polyNode) continue;
         if (!outRec->FirstLeft) 
         {
-          outRec->polyNode->ChildIdx = polytree.Childs.size();
+          outRec->polyNode->Index = polytree.Childs.size();
           polytree.Childs.push_back(outRec->polyNode);
+          outRec->polyNode->Parent = &polytree;
         }
         else
         {
-          outRec->polyNode->ChildIdx = outRec->FirstLeft->polyNode->Childs.size();
-          outRec->FirstLeft->polyNode->Childs.push_back(outRec->polyNode);
-          outRec->polyNode->Parent = outRec->FirstLeft->polyNode;
+          outRec->FirstLeft->polyNode->AddChild(*outRec->polyNode);
         }
     }
 }
