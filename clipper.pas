@@ -84,10 +84,12 @@ type
   TPolyTree = class(TPolyNode)   //replaces TExPolygons
   private
     FAllNodes: TArrayOfPolyNode; //container for ALL PolyNodes
+    function GetTotal: Integer;
   public
     procedure Clear;
     function GetFirst: TPolyNode;
     destructor Destroy; override;
+    property Total: Integer read GetTotal;
   end;
 
 
@@ -309,11 +311,15 @@ function ReversePolygons(const Pts: TPolygons): TPolygons;
 //and inner 'hole' polygons must be oriented counter-clockwise ...
 function OffsetPolygons(const Polys: TPolygons; const Delta: Double;
   JoinType: TJoinType = jtSquare; MiterLimit: Double = 2;
-  AutoFix: Boolean = true): TPolygons;
+  AutoFix: Boolean = True): TPolygons;
 
 //SimplifyPolygon converts a self-intersecting polygon into a simple polygon.
 function SimplifyPolygon(const poly: TPolygon; FillType: TPolyFillType = pftEvenOdd): TPolygons;
 function SimplifyPolygons(const polys: TPolygons; FillType: TPolyFillType = pftEvenOdd): TPolygons;
+
+//CleanPolygon removes adjacent vertices closer than the specified distance.
+function CleanPolygon(Poly: TPolygon; Distance: double = 1.415): TPolygon;
+function CleanPolygons(Polys: TPolygons; Distance: double = 1.415): TPolygons;
 
 implementation
 
@@ -368,7 +374,7 @@ function TPolyNode.IsHoleNode: boolean;
 var
   Node: TPolyNode;
 begin
-  Result := false;
+  Result := False;
   Node := FParent;
   while Assigned(Node) do
   begin
@@ -424,6 +430,12 @@ begin
   if FCount > 0 then
     Result := FChilds[0] else
     Result := nil;
+end;
+//------------------------------------------------------------------------------
+
+function TPolyTree.GetTotal: Integer;
+begin
+  Result := length(FAllNodes);
 end;
 
 //------------------------------------------------------------------------------
@@ -1139,7 +1151,7 @@ begin
   Result := False; //ie assume nothing added
   len := length(polygon);
   if len < 3 then Exit;
-  setlength(Pg, len);
+  SetLength(Pg, len);
   Pg[0] := polygon[0];
   J := 0;
   //1. check that coordinate values are within the valid range, and
@@ -1370,7 +1382,7 @@ begin
     FSubjFillType := subjFillType;
     FClipFillType := clipFillType;
     FClipType := clipType;
-    FUsingPolyTree := false;
+    FUsingPolyTree := False;
     Result := ExecuteInternal;
     if Result then solution := GetResult;
   finally
@@ -1391,7 +1403,7 @@ begin
     FSubjFillType := subjFillType;
     FClipFillType := clipFillType;
     FClipType := clipType;
-    FUsingPolyTree := true;
+    FUsingPolyTree := True;
     Result := ExecuteInternal and GetResult2(PolyTree);
   finally
     FExecuteLocked := False;
@@ -3062,7 +3074,7 @@ var
   Op: POutPt;
 begin
   J := 0;
-  setLength(Result, FPolyOutList.Count);
+  SetLength(Result, FPolyOutList.Count);
   for I := 0 to FPolyOutList.Count -1 do
     if Assigned(fPolyOutList[I]) then
     begin
@@ -3079,7 +3091,7 @@ begin
       end;
       Inc(J);
     end;
-  setLength(Result, J);
+  SetLength(Result, J);
 end;
 //------------------------------------------------------------------------------
 
@@ -3092,7 +3104,7 @@ var
 begin
   try
     PolyTree.Clear;
-    setlength(PolyTree.FAllNodes, FPolyOutList.Count);
+    SetLength(PolyTree.FAllNodes, FPolyOutList.Count);
 
     //add PolyTree ...
     CntAll := 0;
@@ -3118,8 +3130,8 @@ begin
     end;
 
     //fix Poly links ...
-    setlength(PolyTree.FAllNodes, CntAll);
-    setLength(PolyTree.FChilds, CntAll);
+    SetLength(PolyTree.FAllNodes, CntAll);
+    SetLength(PolyTree.FChilds, CntAll);
     for I := 0 to FPolyOutList.Count -1 do
     begin
       OutRec := fPolyOutList[I];
@@ -3134,10 +3146,10 @@ begin
           Inc(PolyTree.FCount);
         end;
     end;
-    setLength(PolyTree.FChilds, PolyTree.FCount);
-    Result := true;
+    SetLength(PolyTree.FChilds, PolyTree.FCount);
+    Result := True;
   except
-    Result := false;
+    Result := False;
   end;
 end;
 //------------------------------------------------------------------------------
@@ -3661,7 +3673,7 @@ const
   begin
     Len := length(Result[I]);
     if OutLen = Len then
-      setlength(Result[I], Len + BuffLength);
+      SetLength(Result[I], Len + BuffLength);
     Result[I][OutLen] := Pt;
     Inc(OutLen);
   end;
@@ -3763,7 +3775,7 @@ begin
   Result := nil;
 
   //AutoFix - fixes polygon orientation if necessary and removes
-  //duplicate vertices. Can be set false when you're sure that polygon
+  //duplicate vertices. Can be set False when you're sure that polygon
   //orientation is correct and that there are no duplicate vertices.
   if AutoFix then
   begin
@@ -3800,7 +3812,7 @@ begin
   if MiterLimit <= 1 then MiterLimit := 1;
   RMin := 2/(sqr(MiterLimit));
 
-  setLength(Result, length(Pts));
+  SetLength(Result, length(Pts));
   for I := 0 to high(Pts) do
   begin
     Result[I] := nil;
@@ -3817,7 +3829,7 @@ begin
     end;
 
     //build Normals ...
-    setLength(Normals, Len);
+    SetLength(Normals, Len);
     for J := 0 to Len-2 do
       Normals[J] := GetUnitNormal(Pts[I][J], Pts[I][J+1]);
     Normals[Len-1] := GetUnitNormal(Pts[I][Len-1], Pts[I][0]);
@@ -3839,7 +3851,7 @@ begin
       end;
       K := J;
     end;
-    setLength(Result[I], OutLen);
+    SetLength(Result[I], OutLen);
   end;
 
   //finally, clean up untidy corners ...
@@ -3852,7 +3864,7 @@ begin
     end else
     begin
       Bounds := GetBounds(Result);
-      setlength(Outer, 4);
+      SetLength(Outer, 4);
       Outer[0] := IntPoint(Bounds.left-10, Bounds.bottom+10);
       Outer[1] := IntPoint(Bounds.right+10, Bounds.bottom+10);
       Outer[2] := IntPoint(Bounds.right+10, Bounds.top-10);
@@ -3863,7 +3875,7 @@ begin
       Len := length(Result);
       for J := 1 to Len -1 do Result[J-1] := Result[J];
       if Len > 0 then
-        setlength(Result, Len -1);
+        SetLength(Result, Len -1);
       //restore polygon orientation ...
       Result := ReversePolygons(Result);
     end;
@@ -3894,6 +3906,52 @@ begin
   finally
     free;
   end;
+end;
+//------------------------------------------------------------------------------
+
+function CleanPolygon(Poly: TPolygon; Distance: double = 1.415): TPolygon;
+var
+  D, I, J, Len: Integer;
+  Ip: TIntPoint;
+begin
+  //Delta = proximity in units/pixels below which vertices
+  //will be stripped. Default ~= sqrt(2) so when adjacent
+  //vertices have both x & y coords within 1 unit, then
+  //the second vertex will be stripped.
+  Len := Length(Poly);
+  if (Len < 3) then
+  begin
+    Result := nil;
+    Exit;
+  end;
+  SetLength(Result, Len);
+  D := Round(Distance * Distance);
+  Ip := Poly[0];
+  J := 1;
+  for I := 1 to Len -1 do
+  begin
+    if ((Poly[I].X - Ip.X) * (Poly[I].X - Ip.X) +
+        (Poly[I].Y - Ip.Y) * (Poly[I].Y - Ip.Y) <= D) then
+          continue;
+    Result[J] := Poly[I];
+    Ip := Poly[I];
+    inc(J);
+  end;
+  Ip := Poly[J - 1];
+  if ((Poly[0].X - Ip.X) * (Poly[0].X - Ip.X) +
+      (Poly[0].Y - Ip.Y) * (Poly[0].Y - Ip.Y) <= D) then dec(J);
+  if (J < Len) then SetLength(Result, J);
+end;
+//------------------------------------------------------------------------------
+
+function CleanPolygons(Polys: TPolygons; Distance: double = 1.415): TPolygons;
+var
+  I, Len: Integer;
+begin
+  Len := Length(Polys);
+  SetLength(Result, Len);
+  for I := 0 to Len - 1 do
+    Result[I] := CleanPolygon(Polys[I], Distance);
 end;
 
 //------------------------------------------------------------------------------

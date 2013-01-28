@@ -68,12 +68,6 @@ inline long64 Abs(long64 val)
 // PolyTree & PolyNode methods ...
 //------------------------------------------------------------------------------
 
-PolyTree::~PolyTree() 
-{ 
-    Clear(); 
-}  
-//------------------------------------------------------------------------------
-
 void PolyTree::Clear()
 {
     for (PolyNodes::size_type i = 0; i < AllNodes.size(); ++i)
@@ -132,13 +126,6 @@ bool PolyNode::IsHole()
   }
   return result;
 }  
-//------------------------------------------------------------------------------
-
-int PolyNode::Count()
-{ 
-  return Childs.size();
-}  
-
 
 //------------------------------------------------------------------------------
 // Int128 class (enables safe math on signed 64bit integers)
@@ -3392,6 +3379,45 @@ void SimplifyPolygons(const Polygons &in_polys, Polygons &out_polys, PolyFillTyp
 void SimplifyPolygons(Polygons &polys, PolyFillType fillType)
 {
   SimplifyPolygons(polys, polys, fillType);
+}
+//------------------------------------------------------------------------------
+
+void CleanPolygon(Polygon& in_poly, Polygon& out_poly, double distance)
+{
+  //delta = proximity in units/pixels below which vertices
+  //will be stripped. Default ~= sqrt(2) so when adjacent 
+  //vertices have both x & y coords within 1 unit, then 
+  //the second vertex will be stripped. 
+  int len = in_poly.size();
+  if (len < 3) 
+    out_poly.resize(0);
+  else
+    out_poly.resize(in_poly.size());
+
+  int d = (int)(distance * distance);
+  IntPoint p = in_poly[0];
+  int j = 1;
+  for (int i = 1; i < len; i++)
+  {
+      if ((in_poly[i].X - p.X) * (in_poly[i].X - p.X) +
+          (in_poly[i].Y - p.Y) * (in_poly[i].Y - p.Y) <= d)
+          continue;
+      out_poly[j] = in_poly[i];
+      p = in_poly[i];
+      j++;
+  }
+  p = in_poly[j - 1];
+  if ((in_poly[0].X - p.X) * (in_poly[0].X - p.X) +
+      (in_poly[0].Y - p.Y) * (in_poly[0].Y - p.Y) <= d)
+      j--;
+  if (j < len)
+    out_poly.resize(j);
+}
+//------------------------------------------------------------------------------
+void CleanPolygons(Polygons& in_polys, Polygons& out_polys, double distance)
+{
+  for (Polygons::size_type i = 0; i < in_polys.size(); ++i)
+    CleanPolygon(in_polys[i], out_polys[i], distance);
 }
 //------------------------------------------------------------------------------
 

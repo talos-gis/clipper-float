@@ -79,7 +79,7 @@ public:
     PolyNode* Parent;
     PolyNode* GetNext();
     bool IsHole();
-    int Count();
+    int Count(){return Childs.size();};
 private:
     PolyNode* GetNextSiblingUp();
     int Index; //node index in Parent.Childs
@@ -90,9 +90,10 @@ private:
 class PolyTree: public PolyNode
 { 
 public:
-    ~PolyTree();
+    ~PolyTree(){Clear();};
     PolyNode* GetFirst();
     void Clear();
+    int Total(){return AllNodes.size();};
 private:
     PolyNodes AllNodes;
     friend class Clipper; //to access AllNodes
@@ -104,9 +105,13 @@ bool Orientation(const Polygon &poly);
 double Area(const Polygon &poly);
 void OffsetPolygons(const Polygons &in_polys, Polygons &out_polys,
   double delta, JoinType jointype = jtSquare, double MiterLimit = 2, bool AutoFix = true);
+
 void SimplifyPolygon(const Polygon &in_poly, Polygons &out_polys, PolyFillType fillType = pftEvenOdd);
 void SimplifyPolygons(const Polygons &in_polys, Polygons &out_polys, PolyFillType fillType = pftEvenOdd);
 void SimplifyPolygons(Polygons &polys, PolyFillType fillType = pftEvenOdd);
+
+void CleanPolygon(Polygon& in_poly, Polygon& out_poly, double distance = 1.415);
+void CleanPolygons(Polygons& in_polys, Polygons& out_polys, double distance = 1.415);
 
 void ReversePolygon(Polygon& p);
 void ReversePolygons(Polygons& p);

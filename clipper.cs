@@ -78,6 +78,12 @@ namespace ClipperLib
             else
                 return null;
         }
+
+        public int Total
+        {
+            get { return m_AllPolys.Count; }
+        }
+
     }
         
     public class PolyNode 
@@ -3640,6 +3646,39 @@ namespace ClipperLib
             return result;
         }
         //------------------------------------------------------------------------------
+
+        public static Polygon CleanPolygon(Polygon poly,
+            double delta = 1.415)
+        {
+            //delta = proximity in units/pixels below which vertices
+            //will be stripped. Default ~= sqrt(2) so when adjacent 
+            //vertices have both x & y coords within 1 unit, then 
+            //the second vertex will be stripped. 
+            int len = poly.Count;
+            if (len < 3) return null;
+            Polygon result = new Polygon(poly);
+            int d = (int)(delta * delta);
+            IntPoint p = poly[0];
+            int j = 1;
+            for (int i = 1; i < len; i++)
+            {
+                if ((poly[i].X - p.X) * (poly[i].X - p.X) +
+                    (poly[i].Y - p.Y) * (poly[i].Y - p.Y) <= d)
+                    continue;
+                result[j] = poly[i];
+                p = poly[i];
+                j++;
+            }
+            p = poly[j - 1];
+            if ((poly[0].X - p.X) * (poly[0].X - p.X) +
+                (poly[0].Y - p.Y) * (poly[0].Y - p.Y) <= d)
+                j--;
+            if (j < len)
+                result.RemoveRange(j, len - j);
+            return result;
+        }
+        //------------------------------------------------------------------------------
+
 
     } //end ClipperLib namespace
   
