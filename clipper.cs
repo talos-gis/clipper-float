@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  5.1.0                                                           *
-* Date      :  28 January 2012                                                 *
+* Date      :  1 February 2013                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -105,7 +105,7 @@ namespace ClipperLib
             return result;
         }
 
-        public int Count
+        public int ChildCount
         {
             get { return m_Childs.Count; }
         }
@@ -3676,6 +3676,23 @@ namespace ClipperLib
             if (j < len)
                 result.RemoveRange(j, len - j);
             return result;
+        }
+        //------------------------------------------------------------------------------
+
+        public static void PolyTreeToPolygons(PolyTree polytree, Polygons polygons)
+        {
+            polygons.Clear();
+            polygons.Capacity = polytree.Total;
+            AddPolyNodeToPolygons(polytree, polygons);
+        }
+        //------------------------------------------------------------------------------
+
+        public static void AddPolyNodeToPolygons(PolyNode polynode, Polygons polygons)
+        {
+            if (polynode.Contour.Count > 0) 
+                polygons.Add(polynode.Contour);
+            foreach (PolyNode pn in polynode.Childs)
+                AddPolyNodeToPolygons(pn, polygons);
         }
         //------------------------------------------------------------------------------
 

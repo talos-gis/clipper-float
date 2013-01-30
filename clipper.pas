@@ -4,7 +4,7 @@ unit clipper;
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  5.1.0                                                           *
-* Date      :  28 January 2012                                                 *
+* Date      :  1 February 2013                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -74,7 +74,7 @@ type
     function GetNextSiblingUp: TPolyNode;
   public
     function GetNext: TPolyNode;
-    property Count: Integer read FCount;
+    property ChildCount: Integer read FCount;
     property Childs[index: Integer]: TPolyNode read GetChild;
     property Parent: TPolyNode read FParent;
     property IsHole: Boolean read IsHoleNode;
@@ -320,6 +320,8 @@ function SimplifyPolygons(const polys: TPolygons; FillType: TPolyFillType = pftE
 //CleanPolygon removes adjacent vertices closer than the specified distance.
 function CleanPolygon(Poly: TPolygon; Distance: double = 1.415): TPolygon;
 function CleanPolygons(Polys: TPolygons; Distance: double = 1.415): TPolygons;
+
+function PolyTreeToPolygons(PolyTree: TPolyTree): TPolygons;
 
 implementation
 
@@ -3952,6 +3954,28 @@ begin
   SetLength(Result, Len);
   for I := 0 to Len - 1 do
     Result[I] := CleanPolygon(Polys[I], Distance);
+end;
+//------------------------------------------------------------------------------
+
+procedure AddPolyNodeToPolygons(PolyNode: TPolyNode; var Polygons: TPolygons);
+var
+  I: Integer;
+begin
+  if Length(PolyNode.Contour) > 0 then
+  begin
+    I := Length(Polygons);
+    SetLength(Polygons, I +1);
+    Polygons[I] := PolyNode.Contour;
+  end;
+  for I := 0 to PolyNode.ChildCount - 1 do
+    AddPolyNodeToPolygons(PolyNode.Childs[I], Polygons);
+end;
+//------------------------------------------------------------------------------
+
+function PolyTreeToPolygons(PolyTree: TPolyTree): TPolygons;
+begin
+  Result := nil;
+  AddPolyNodeToPolygons(PolyTree, Result);
 end;
 
 //------------------------------------------------------------------------------

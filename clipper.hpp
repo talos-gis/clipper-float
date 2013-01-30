@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  5.1.0                                                           *
-* Date      :  28 January 2012                                                 *
+* Date      :  1 February 2013                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -79,7 +79,7 @@ public:
     PolyNode* Parent;
     PolyNode* GetNext();
     bool IsHole();
-    int Count(){return Childs.size();};
+    int ChildCount();
 private:
     PolyNode* GetNextSiblingUp();
     int Index; //node index in Parent.Childs
@@ -93,7 +93,7 @@ public:
     ~PolyTree(){Clear();};
     PolyNode* GetFirst();
     void Clear();
-    int Total(){return AllNodes.size();};
+    int Total();
 private:
     PolyNodes AllNodes;
     friend class Clipper; //to access AllNodes
@@ -112,6 +112,8 @@ void SimplifyPolygons(Polygons &polys, PolyFillType fillType = pftEvenOdd);
 
 void CleanPolygon(Polygon& in_poly, Polygon& out_poly, double distance = 1.415);
 void CleanPolygons(Polygons& in_polys, Polygons& out_polys, double distance = 1.415);
+
+void PolyTreeToPolygons(PolyTree& polytree, Polygons& polygons);
 
 void ReversePolygon(Polygon& p);
 void ReversePolygons(Polygons& p);

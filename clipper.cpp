@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  5.1.0                                                           *
-* Date      :  28 January 2012                                                 *
+* Date      :  1 February 2013                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -65,7 +65,7 @@ inline long64 Abs(long64 val)
 }
 
 //------------------------------------------------------------------------------
-// PolyTree & PolyNode methods ...
+// PolyTree methods ...
 //------------------------------------------------------------------------------
 
 void PolyTree::Clear()
@@ -83,6 +83,22 @@ PolyNode* PolyTree::GetFirst()
       return Childs[0];
   else
       return 0;
+}
+//------------------------------------------------------------------------------
+
+int PolyTree::Total()
+{
+  return AllNodes.size();
+}
+
+//------------------------------------------------------------------------------
+// PolyNode methods ...
+//------------------------------------------------------------------------------
+
+
+int PolyNode::ChildCount()
+{
+  return Childs.size();
 }
 //------------------------------------------------------------------------------
 
@@ -3418,6 +3434,23 @@ void CleanPolygons(Polygons& in_polys, Polygons& out_polys, double distance)
 {
   for (Polygons::size_type i = 0; i < in_polys.size(); ++i)
     CleanPolygon(in_polys[i], out_polys[i], distance);
+}
+//------------------------------------------------------------------------------
+
+void AddPolyNodeToPolygons(PolyNode& polynode, Polygons& polygons)
+{
+  if (polynode.Contour.size() > 0)
+    polygons.push_back(polynode.Contour);
+  for (PolyNodes::size_type i = 0; i < polynode.Childs.size(); ++i)
+    AddPolyNodeToPolygons(*polynode.Childs[i], polygons);
+}
+//------------------------------------------------------------------------------
+
+void PolyTreeToPolygons(PolyTree& polytree, Polygons& polygons)
+{
+  polygons.resize(0); 
+  polygons.reserve(polytree.Total());
+  AddPolyNodeToPolygons(polytree, polygons);
 }
 //------------------------------------------------------------------------------
 
