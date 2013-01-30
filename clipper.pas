@@ -376,7 +376,7 @@ function TPolyNode.IsHoleNode: boolean;
 var
   Node: TPolyNode;
 begin
-  Result := False;
+  Result := True;
   Node := FParent;
   while Assigned(Node) do
   begin
@@ -3145,6 +3145,7 @@ begin
         begin
           PolyTree.FChilds[PolyTree.FCount] := OutRec.PolyNode;
           OutRec.PolyNode.FIndex := PolyTree.FCount;
+          OutRec.PolyNode.FParent := PolyTree;
           Inc(PolyTree.FCount);
         end;
     end;

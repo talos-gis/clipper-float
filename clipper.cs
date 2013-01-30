@@ -95,7 +95,7 @@ namespace ClipperLib
 
         private bool IsHoleNode()
         {
-            bool result = false;
+            bool result = true;
             PolyNode node = m_Parent;
             while (node != null)
             {

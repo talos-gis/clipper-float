@@ -133,7 +133,7 @@ PolyNode* PolyNode::GetNextSiblingUp()
 
 bool PolyNode::IsHole()
 { 
-  bool result = false;
+  bool result = true;
   PolyNode* node = Parent;
   while (node)
   {
