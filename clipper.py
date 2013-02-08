@@ -1390,23 +1390,7 @@ class Clipper(ClipperBase):
                     _AddOutPt(e, Point(e.xTop, e.yTop), self._PolyOutList)
                 e = self._UpdateEdgeIntoAEL(e)
             e = e.nextInAEL
-            
-    def ValidateAEL(self, val, s):
-        e = self._ActiveEdges
-        if e is None: return
-        while e.nextInAEL is not None:
-            if e.nextInAEL.prevInAEL is not e: 
-                print(str(val) + ": " + s)
-                raise Exception("oops!")  
-            e = e.nextInAEL
-            
-    def DebugAEL(self, y):
-        print(y)
-        e = self._ActiveEdges
-        while e is not None:
-            print(e)
-            e = e.nextInAEL
-          
+                      
     def _Area(self, pts):
         # see http://www.mathopenref.com/coordpolygonarea2.html
         result = 0.0
@@ -1418,7 +1402,7 @@ class Clipper(ClipperBase):
         return result / 2
         
     def _ExecuteInternal(self):
-        #try:
+        try:
             self._Reset()
             if self._Scanbeam is None: return True
             botY = self._PopScanbeam()
@@ -1426,8 +1410,6 @@ class Clipper(ClipperBase):
                 self._InsertLocalMinimaIntoAEL(botY)
                 self._ProcessHorizontals()
                 topY = self._PopScanbeam()
-                # self.ValidateAEL(botY, "a")
-                # self.DebugAEL(botY) ############# 
                 if not self._ProcessIntersections(botY, topY): return False
                 self._ProcessEdgesAtTopOfScanbeam(topY)
                 botY = topY
@@ -1439,8 +1421,8 @@ class Clipper(ClipperBase):
                 if outRec.isHole == (self._Area(outRec.pts) > 0.0):
                     _ReversePolyPtLinks(outRec.pts)
             return True
-        #except:
-        #    return False
+        except:
+            return False
     
     def Execute(
             self,
