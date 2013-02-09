@@ -33,9 +33,9 @@
 
 import math
 from collections import namedtuple
-from decimal import Decimal
+from decimal import Decimal, getcontext
 
-# decimal.getcontext().prec = 14
+getcontext().prec = 8
 horizontal = Decimal('-Infinity')
 
 class ClipType: (Intersection, Union, Difference, Xor) = range(4)
@@ -44,7 +44,7 @@ class PolyFillType: (EvenOdd, NonZero, Positive, Negative) = range(4)
 class JoinType: (Square, Round, Miter) = range(3)
 class EdgeSide: (Left, Right) = range(2)
 class Protects: (Neither, Left, Right, Both) = range(4)
-class Direction: (RightToLeft, LeftToRight) = range(2)
+class Direction: (LeftToRight, RightToLeft) = range(2)
 
 Point = namedtuple('Point', 'x y')
 
@@ -91,6 +91,18 @@ class OutRec(object):
         self.FirstLeft = None
         self.pts = None
         self.PolyNode = None
+
+class JoinRec(object):
+    __slots__ = ('pt1a','pt1b','poly1Idx','pt2a', 'pt2b','poly2Idx')
+
+class HorzJoin(object):
+    edge = None
+    savedIdx = 0
+    prevHj = None
+    nextHj = None
+    def __init__(self, edge, idx):
+        self.edge = edge
+        self.savedIdx = idx
 
 #===============================================================================
 # Unit global functions ...
@@ -415,7 +427,7 @@ def _IntersectPoint(edge1, edge2):
 def _TopX(e, currentY):
     if currentY == e.yTop: return e.xTop
     elif e.xTop == e.xBot: return e.xBot
-    else: return e.xBot + round(e.dx *(currentY - e.yBot))
+    else: return e.xBot + round(e.dx * Decimal(currentY - e.yBot))
 
 def _E2InsertsBeforeE1(e1,e2):
     if e2.xCurr == e1.xCurr:
@@ -644,19 +656,46 @@ def _FixHoleLinkage(outRec):
             (orfl.isHole == outRec.isHole or orfl.pts is None):
         orfl = orfl.firstLeft
     outRec.firstLeft = orfl
+    
+def _SwapPoints(pt1, pt2):
+    tmp = pt1
+    pt1 = pt2
+    pt2 = tmp
+    
+def _GetOverlapSegment(pt1a, pt1b, pt2a, pt2b):
+    # precondition: segments are co-linear
+    pt1 = pt2 = None
+    if abs(pt1a.x - pt1b.x) > abs(pt1a.y - pt1b.y):
+        if pt1a.x > pt1b.x: _SwapPoints(pt1a, pt1b)
+        if pt2a.x > pt2b.x: _SwapPoints(pt2a, pt2b)
+        if (pt1a.x > pt2a.x): pt1 = pt1a
+        else: pt1 = pt2a
+        if (pt1b.x < pt2b.x): pt2 = pt1b
+        else: pt2 = pt2b
+        return pt1, pt2, pt1.x < pt2.x
+    else:
+        if pt1a.y < pt1b.y: _SwapPoints(pt1a, pt1b)
+        if pt2a.y < pt2b.y: _SwapPoints(pt2a, pt2b)
+        if (pt1a.y < pt2a.y): pt1 = pt1a 
+        else: pt1 = pt2a
+        if (pt1b.y > pt2b.y): pt2 = pt1b 
+        else: pt2 = pt2b
+        return pt1, pt2, pt1.y > pt2.y
 
 class Clipper(ClipperBase):
-    _PolyOutList        = []
-    _ClipType             = ClipType.Intersection
-    _Scanbeam             = None
-    _ActiveEdges        = None
-    _SortedEdges        = None
-    _IntersectNodes = None
+    _PolyOutList      = []
+    _ClipType         = ClipType.Intersection
+    _Scanbeam         = None
+    _ActiveEdges      = None
+    _SortedEdges      = None
+    _IntersectNodes   = None
     _ClipFillType     = PolyFillType.EvenOdd
     _SubjFillType     = PolyFillType.EvenOdd
     _ExecuteLocked    = False
     _ReverseOutput    = False
     _UsingPolyTree    = False
+    _JoinList         = None
+    _HorzJoins        = None
 
     def _Reset(self):
         ClipperBase._Reset(self)
@@ -854,6 +893,19 @@ class Clipper(ClipperBase):
                 self._InsertScanbeam(rb.yTop)
             if self._IsContributing(lb):
                 self._AddLocalMinPoly(lb, rb, Point(lb.xCurr, self._CurrentLocMin.y))
+            
+            if rb.outIdx >= 0 and rb.dx == horizontal and self._HorzJoins is not None:
+                hj = self._HorzJoins
+                while True:
+                    dummy1, dummy2, overlap = _GetOverlapSegment(Point(hj.edge.xBot, hj.edge.yBot),
+                                                 Point(hj.edge.xTop, hj.edge.yTop), 
+                                                 Point(rb.xBot, rb.yBot),
+                                                 Point(rb.xTop, rb.yTop))
+                    if overlap:
+                        self._AddJoin(hj.edge, rb, hj.savedIdx)
+                    hj = hj.nextHj
+                    if hj == self._HorzJoins: break
+            
             if (lb.nextInAEL != rb):
                 e = lb.nextInAEL
                 pt = Point(lb.xCurr, lb.yCurr)
@@ -1001,6 +1053,33 @@ class Clipper(ClipperBase):
             e = self._SortedEdges
             self._DeleteFromSEL(e)
             self._ProcessHorizontal(e)
+            
+    def _AddJoin(self, e1, e2):
+        e1OutIdx, e2OutIdx = 0, 0
+        jr = JoinRec()
+        if e1OutIdx >= 0: jr.poly1Idx = e1OutIdx
+        else: jr.poly1Idx = e1.outIdx
+        jr.pt1a = Point(e1.xcurr, e1.ycurr)
+        jr.pt1b = Point(e1.xtop, e2.ytop)
+        if e2OutIdx >= 0: jr.poly2Idx = e2OutIdx 
+        else: jr.poly2Idx = e2.outIdx
+        jr.pt2a = Point(e2.xCurr, e2.yCurr)
+        jr.pt2b = Point(e2.xTop, e2.yTop)
+        if self._JoinList is None: 
+            self._JoinList = []
+        self._JoinList.append(jr)
+                
+    def _AddHorzJoin(self, e, idx):
+        hj = HorzJoin(e, idx)
+        if self._HorzJoins == None:
+            self._HorzJoins = hj
+            hj.nextHj = hj
+            hj.prevHj = hj
+        else:
+            hj.nextHj = self._HorzJoins
+            hj.prevHj = self._HorzJoins.prevHj
+            self._HorzJoins.prevHj.nextHj = hj
+            self._HorzJoins.prevHj = hj
 
     def _AddIntersectNode(self, e1, e2, pt):
         newNode = IntersectNode(e1, e2, pt)
@@ -1332,7 +1411,21 @@ class Clipper(ClipperBase):
                 e.side = newSide
                 break
             e = e.nextInAEL
-
+            
+        if self._JoinList is not None:
+            for jr in self._JoinList:
+                if jr.poly1Idx == ObsoleteIdx: jr.poly1Idx = OKIdx
+                if jr.poly2Idx == ObsoleteIdx: jr.poly2Idx = OKIdx
+        
+        if self._HorzJoins is not None:
+            hj = self._HorzJoins
+            while True:
+                if hj.savedIdx == ObsoleteIdx: 
+                    hj.savedIdx = OKIdx
+                hj = hj.nextHj
+                if hj == self._HorzJoins: 
+                    break
+        
     def _FixupIntersections(self):
         if self._IntersectNodes.nextIn is None: return True
         try:
@@ -1374,6 +1467,21 @@ class Clipper(ClipperBase):
                 if _IsIntermediate(e, topY) and e.nextInLML.dx == horizontal:
                     if e.outIdx >= 0:
                         _AddOutPt(e, Point(e.xTop, e.yTop), self._PolyOutList)
+                        
+                        hj = self._HorzJoins
+                        if hj is not None:
+                            while True:
+                                dummy1, dummy2, overlap = _GetOverlapSegment(Point(hj.edge.xBot, hj.edge.yBot),
+                                                                      Point(hj.edge.xTop, hj.edge.yTop),
+                                                                      Point(e.nextInLML.XBot, e.nextInLML.yBot),
+                                                                      Point(e.nextInLML.xTop, e.nextInLML.yTop))
+                                if overlap:
+                                    self._AddJoin(hj.edge, e.nextInLML, hj.savedIdx, e.outIdx)
+                                hj = hj.nextHj
+                            if hj == self._HorzJoins: 
+                                break
+                            self._AddHorzJoin(e.nextInLML, e.outIdx)                        
+                        
                     e = self._UpdateEdgeIntoAEL(e)
                     self._AddEdgeToSEL(e)
                 else:
@@ -1402,28 +1510,35 @@ class Clipper(ClipperBase):
         return result / 2
         
     def _ExecuteInternal(self):
-        try:
-            self._Reset()
-            if self._Scanbeam is None: return True
-            botY = self._PopScanbeam()
-            while self._Scanbeam is not None:
-                self._InsertLocalMinimaIntoAEL(botY)
-                self._ProcessHorizontals()
-                topY = self._PopScanbeam()
-                if not self._ProcessIntersections(botY, topY): return False
-                self._ProcessEdgesAtTopOfScanbeam(topY)
-                botY = topY
+        # try: 
+            try:
+                self._Reset()
+                if self._Scanbeam is None: return True
+                botY = self._PopScanbeam()
+                while self._Scanbeam is not None:
+                    self._InsertLocalMinimaIntoAEL(botY)
+                    self._HorzJoins = None
+                    self._ProcessHorizontals()
+                    topY = self._PopScanbeam()
+                    if not self._ProcessIntersections(botY, topY): return False
+                    self._ProcessEdgesAtTopOfScanbeam(topY)
+                    botY = topY
+                    
+                for outRec in self._PolyOutList:
+                    if outRec.pts is None: continue                
+                    _FixupOutPolygon(outRec)
+                    if outRec.pts is None: continue
+                    if outRec.isHole == (self._Area(outRec.pts) > 0.0):
+                        _ReversePolyPtLinks(outRec.pts)
                 
-            for outRec in self._PolyOutList:
-                if outRec.pts is None: continue                
-                _FixupOutPolygon(outRec)
-                if outRec.pts is None: continue
-                if outRec.isHole == (self._Area(outRec.pts) > 0.0):
-                    _ReversePolyPtLinks(outRec.pts)
-            return True
-        except:
-            return False
-    
+                # if self._JoinList is not None: self._JoinCommonEdges()
+                return True
+            finally:
+                self._JoinList = None
+                self._HorzJoins = None
+        # except:
+        #     return False
+
     def Execute(
             self,
             clipType,

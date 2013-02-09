@@ -2,16 +2,10 @@ from clipper import Area, Clipper, Point, ClipType, PolyType, PolyFillType
 import math
 import re
 from random import randint
-
+# from subprocess import call
+import os
+ 
 #===============================================================================
-#===============================================================================
-
-def HtmlColor(val):
-    return "#{0:06x}".format(val & 0xFFFFFF)
-#===============================================================================
-
-def AlphaClr(val):
-    return "{0:.2f}".format(float(val >> 24)/255)
 #===============================================================================
 
 def LoadFile1(lines):
@@ -72,12 +66,12 @@ def LoadFile(filename):
         return None
 #===============================================================================
     
-def SaveToFile(filename, polys, decimals = 0):
-    scaling = math.pow(10, decimals)
+def SaveToFile(filename, polys, scale = 1.0):
+    invScale = 1.0 / scale
     try:
         f = open(filename, 'w')
         try:
-            if scaling == 1:
+            if invScale == 1:
                 for poly in polys:
                     for pt in poly:
                         f.write("{0}, {1}\n".format(pt.x, pt.y))
@@ -85,15 +79,12 @@ def SaveToFile(filename, polys, decimals = 0):
             else:
                 for poly in polys:
                     for pt in poly:
-                        f.write("{0:.4f}, {1:.4f}\n".format(pt.x / scaling, pt.y / scaling))
+                        f.write("{0:.4f}, {1:.4f}\n".format(pt.x * invScale, pt.y * invScale))
                     f.write("\n")
         finally:
             f.close()
     except:
         return
-
-#===============================================================================
-# Generate random polygon
 #===============================================================================
     
 def RandomPoly(maxWidth, maxHeight, vertCnt):
@@ -107,6 +98,12 @@ def RandomPoly(maxWidth, maxHeight, vertCnt):
 #===============================================================================
 class SVGBuilder(object):
     
+    def HtmlColor(self, val):
+        return "#{0:06x}".format(val & 0xFFFFFF)
+    
+    def AlphaClr(self, val):
+        return "{0:.2f}".format(float(val >> 24)/255)
+
     class StyleInfo(object):
         fillType = PolyFillType.EvenOdd
         brushClr = 0
@@ -156,9 +153,9 @@ class SVGBuilder(object):
         pi.polygons = polys
         self.PolyInfoList.append(pi)
     
-    def SaveToFile(self, filename, scale = 1.0, margin = 10):
+    def SaveToFile(self, filename, invScale = 1.0, margin = 10):
         if len(self.PolyInfoList) == 0: return False
-        if scale == 0: scale = 1.0
+        if invScale == 0: invScale = 1.0
         if margin < 0: margin = 0
         pi = self.PolyInfoList[0]
         # get bounding rect ...
@@ -171,10 +168,10 @@ class SVGBuilder(object):
                     if ip.x > right: right = ip.x
                     if ip.y < top: top = ip.y
                     if ip.y > bottom: bottom = ip.y
-        left *= scale
-        top *= scale
-        right *= scale
-        bottom *= scale
+        left *= invScale
+        top *= invScale
+        right *= invScale
+        bottom *= invScale
         offsetX = -left + margin      
         offsetY = -top + margin      
                     
@@ -186,14 +183,15 @@ class SVGBuilder(object):
             for p in pi.polygons:
                 cnt = len(p)
                 if cnt < 3: continue
-                f.write(" M {0:.2f} {1:.2f}".format(p[0].x * scale + offsetX, p[0].y * scale + offsetY))
+                f.write(" M {0:.2f} {1:.2f}".format(p[0].x * invScale + offsetX, p[0].y * invScale + offsetY))
                 for i in range(1,cnt):
-                    f.write(" L {0:.2f} {1:.2f}".format(p[i].x * scale + offsetX, p[i].y * scale + offsetY))
+                    f.write(" L {0:.2f} {1:.2f}".format(p[i].x * invScale + offsetX, p[i].y * invScale + offsetY))
                 f.write(" z")
             fillRule = "evenodd"
             if pi.fillType != PolyFillType.EvenOdd: fillRule = "nonzero"
-            f.write(self.PathFormat.format(HtmlColor(pi.brushClr), 
-                AlphaClr(pi.brushClr), fillRule, HtmlColor(pi.penClr), AlphaClr(pi.penClr),  pi.penWidth))
+            f.write(self.PathFormat.format(self.HtmlColor(pi.brushClr), 
+                self.AlphaClr(pi.brushClr), fillRule, 
+                self.HtmlColor(pi.penClr), self.AlphaClr(pi.penClr),  pi.penWidth))
             
             if (pi.showCoords):
                 f.write("<g font-family=\"Verdana\" font-size=\"11\" fill=\"black\">\n\n")
@@ -201,8 +199,8 @@ class SVGBuilder(object):
                     cnt = len(p)
                     if cnt < 3: continue
                     for pt in p:
-                        x = pt.x * scale + offsetX
-                        y = pt.y * scale + offsetY
+                        x = pt.x * invScale + offsetX
+                        y = pt.y * invScale + offsetY
                         f.write("<text x=\"{0}\" y=\"{1}\">{2},{3}</text>\n".format(x, y, pt.x, pt.y))
                     f.write("\n")
                 f.write("</g>\n")
@@ -212,26 +210,33 @@ class SVGBuilder(object):
         return True
 
 #===============================================================================
+# Main entry ...
 #===============================================================================
 
+#load saved subject and clip polygons ...    
 #subj = LoadFile('./subj.txt')
 #clip = LoadFile('./clip.txt')
 
-subj = []
-subj.append(RandomPoly(640, 480, 50))
-clip = []
-clip.append(RandomPoly(640, 480, 50))
+scaleExp = 0
+scale = math.pow(10, scaleExp)
+invScale = 1 / scale
 
+# Generate random subject and clip polygons ...
+subj, clip = [], [] 
+subj.append(RandomPoly(640 * scale, 480 * scale, 50))
+clip.append(RandomPoly(640 * scale, 480 * scale, 50))
+
+# Load the polygons into Clipper and execute the boolean clip op ...
+solution = [] 
 c = Clipper()
 c.AddPolygons(subj, PolyType.Subject)
 c.AddPolygons(clip, PolyType.Clip)
-
-solution = [] 
-pft = PolyFillType.NonZero
+pft = PolyFillType.EvenOdd
 result = c.Execute(ClipType.Intersection, solution, pft, pft)
 
-SaveToFile('./solution.txt', solution)
+SaveToFile('./solution.txt', solution, scale)
 
+# Create an SVG file to display what's happened ...
 svgBuilder = SVGBuilder()
 # svgBuilder.GlobalStyle.showCoords = True
 svgBuilder.GlobalStyle.fillType = pft
@@ -244,6 +249,7 @@ for poly in solution:
     if Area(poly) < 0: holes.append(poly)
 svgBuilder.GlobalStyle.penWidth = 0.6
 svgBuilder.AddPolygons(holes, 0x0, 0xFFFF0000)
-svgBuilder.SaveToFile('./test.svg', 1.0, 100)
+svgBuilder.SaveToFile('./test.svg', invScale, 100)
 
-if not result: print("failed")
+if result: os.startfile('test.svg') # call(('open', 'test.svg'))
+else: print("failed")
