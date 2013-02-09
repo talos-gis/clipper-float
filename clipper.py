@@ -49,7 +49,6 @@ class Direction: (LeftToRight, RightToLeft) = range(2)
 Point = namedtuple('Point', 'x y')
 
 class LocalMinima(object):
-    y = 0
     leftBound = rightBound = nextLm = None
     def __init__(self, y, leftBound, rightBound):
         self.y = y
@@ -126,27 +125,33 @@ def Area(polygon):
 #===============================================================================
 class PolyNode(object):
     """Node of PolyTree"""
-    Contour = []
-    Parent = None
-    Index = 0
-    ChildCount = 0
-    Childs = []
+    
+    def __init__(self):
+        self.Contour = []
+        self.Childs = []
+        self.Parent = None
+        self.Index = 0
+        self.ChildCount = 0
+    
     def IsHole(self):
         result = True
         while (self.Parent is not None):
             result = not result
             self.Parent = self.Parent.Parent
         return result
+    
     def GetNext(self):
         if (self.ChildCount > 0):
             return self.Childs[0]
         else:
             return self._GetNextSiblingUp()
+    
     def _AddChild(self, node):
         self.Childs.append(node)
         node.Index = self.ChildCount
         node.Parent = self
         self.ChildCount += 1
+    
     def _GetNextSiblingUp(self):
         if (self.Parent is None):
             return None
@@ -157,16 +162,22 @@ class PolyNode(object):
 
 class PolyTree(PolyNode):
     """Container for PolyNodes"""
-    _AllNodes = []
+
+    def __init__(self):
+        PolyNode.__init__(self)
+        self._AllNodes = []
+        
     def Clear(self):
         self._AllNodes = []
         self.Childs = []
         self.ChildCount = 0
+    
     def GetFirst(self):
         if (self.ChildCount > 0):
             return self.Childs[0]
         else:
             return None
+    
     def Total(self):
         return len(self._AllNodes)
 
@@ -181,6 +192,27 @@ def PolyTreeToPolygons(polytree):
     result = []
     _AddPolyNodeToPolygons(polytree, result)
     return result
+
+#===============================================================================
+# Edge class 
+#===============================================================================
+
+class Edge(object):
+
+    def __init__(self):
+        self.xBot, self.yBot, self.xCurr, self.yCurr, = 0, 0, 0, 0
+        self.xTop, self.yTop, self.tmpX = 0, 0, 0
+        self.dx, self.deltaX , self.deltaY = Decimal(0), Decimal(0), Decimal(0)
+        self.polyType = PolyType.Subject 
+        self.side = EdgeSide.Left
+        self.windDelta, self.windCnt, self.windCnt2 = 0, 0, 0 
+        self.outIdx = -1
+        self.nextE, self.prevE, self.nextInLML = None, None, None
+        self.prevInAEL, self.nextInAEL, self.prevInSEL, self.nextInSEL = None, None, None, None
+        
+    def __repr__(self):
+        return "(%i,%i -> %i,%i {dx:%0.2f} %i {%x})" % \
+            (self.xBot, self.yBot, self.xTop, self.yTop, self.dx, self.outIdx, id(self))
 
 #===============================================================================
 # ClipperBase class (+ data structs & ancilliary functions)
@@ -198,29 +230,19 @@ def _SlopesEqual(pt1, pt2, pt3, pt4 = None):
 def _SlopesEqual2(e1, e2):
     return e1.deltaY * e2.deltaX == e1.deltaX * e2.deltaY
 
-class Edge(object):
-    xBot = yBot = xCurr = yCurr = xTop = yTop = tmpX = 0
-    dx = Decimal(0); deltaX = deltaY = 0
-    polyType = PolyType.Subject; side = EdgeSide.Left
-    windDelta = windCnt = windCnt2 = 0; outIdx = -1
-    nextE = prevE = nextInLML = prevInAEL = nextInAEL = prevInSEL= nextInSEL = None
-    def __repr__(self):
-        return "(%i,%i -> %i,%i {dx:%0.2f} %i {%x})" % \
-            (self.xBot, self.yBot, self.xTop, self.yTop, self.dx, self.outIdx, id(self))
-
 def _SetDx(e):
-    e.deltaX = e.xTop - e.xBot
-    e.deltaY = e.yTop - e.yBot
+    e.deltaX = Decimal(e.xTop - e.xBot)
+    e.deltaY = Decimal(e.yTop - e.yBot)
     if e.deltaY == 0: e.dx = horizontal
-    else: e.dx = Decimal(e.deltaX)/Decimal(e.deltaY)
+    else: e.dx = e.deltaX/e.deltaY
 
 def _SwapSides(e1, e2):
-    side =    e1.side
+    side    = e1.side
     e1.side = e2.side
     e2.side = side
 
 def _SwapPolyIndexes(e1, e2):
-    idx =    e1.outIdx
+    idx       = e1.outIdx
     e1.outIdx = e2.outIdx
     e2.outIdx = idx
 
@@ -249,12 +271,14 @@ def _SwapX(e):
     e.xCurr = e.xTop
     e.xTop = e.xBot
     e.xBot = e.xCurr
-
+    
 class ClipperBase(object):
-    _EdgeList            = []   # 2D array
-    _LocalMinList    = None     # single-linked list of LocalMinima
-    _CurrentLocMin = None
 
+    def __init__(self):
+        self._EdgeList      = []       # 2D array
+        self._LocalMinList  = None     # single-linked list of LocalMinima
+        self._CurrentLocMin = None
+        
     def _InsertLocalMinima(self, lm):
         if self._LocalMinList is None:
             self._LocalMinList = lm
@@ -279,7 +303,7 @@ class ClipperBase(object):
             elif e.yBot == e.prevE.yBot: break
             else: e.nextInLML = e.prevE
             e = e.nextE
-        lm = None
+
         if e.dx == horizontal:
             if (e.xBot != e.prevE.xBot): _SwapX(e)
             lm = LocalMinima(e.prevE.yBot, e.prevE, e)
@@ -664,7 +688,6 @@ def _SwapPoints(pt1, pt2):
     
 def _GetOverlapSegment(pt1a, pt1b, pt2a, pt2b):
     # precondition: segments are co-linear
-    pt1 = pt2 = None
     if abs(pt1a.x - pt1b.x) > abs(pt1a.y - pt1b.y):
         if pt1a.x > pt1b.x: _SwapPoints(pt1a, pt1b)
         if pt2a.x > pt2b.x: _SwapPoints(pt2a, pt2b)
@@ -683,20 +706,23 @@ def _GetOverlapSegment(pt1a, pt1b, pt2a, pt2b):
         return pt1, pt2, pt1.y > pt2.y
 
 class Clipper(ClipperBase):
-    _PolyOutList      = []
-    _ClipType         = ClipType.Intersection
-    _Scanbeam         = None
-    _ActiveEdges      = None
-    _SortedEdges      = None
-    _IntersectNodes   = None
-    _ClipFillType     = PolyFillType.EvenOdd
-    _SubjFillType     = PolyFillType.EvenOdd
-    _ExecuteLocked    = False
-    _ReverseOutput    = False
-    _UsingPolyTree    = False
-    _JoinList         = None
-    _HorzJoins        = None
 
+    def __init__(self):
+        ClipperBase.__init__(self)
+        self._PolyOutList = []        
+        self._ClipType         = ClipType.Intersection
+        self._Scanbeam         = None
+        self._ActiveEdges      = None
+        self._SortedEdges      = None
+        self._IntersectNodes   = None
+        self._ClipFillType     = PolyFillType.EvenOdd
+        self._SubjFillType     = PolyFillType.EvenOdd
+        self._ExecuteLocked    = False
+        self._ReverseOutput    = False
+        self._UsingPolyTree    = False
+        self._JoinList         = None
+        self._HorzJoins        = None
+        
     def _Reset(self):
         ClipperBase._Reset(self)
         _Scanbeam = None
@@ -708,7 +734,7 @@ class Clipper(ClipperBase):
             lm = lm.nextLm
 
     def Clear(self):
-        _PolyOutList = []
+        self._PolyOutList = []
         ClipperBase.Clear(self)
 
     def _InsertScanbeam(self, y):
@@ -780,7 +806,6 @@ class Clipper(ClipperBase):
             return self._SubjFillType == PolyFillType.EvenOdd
 
     def _IsContributing(self, edge):
-        pft = pft2 = PolyType.Subject
         result = True
         if edge.PolyType == PolyType.Subject:
             pft = self._SubjFillType
@@ -990,8 +1015,6 @@ class Clipper(ClipperBase):
         return True
 
     def _ProcessHorizontal(self, horzEdge):
-        horzLeft = horzRight = 0
-        direction = None
         if horzEdge.xCurr < horzEdge.xTop:
             horzLeft = horzEdge.xCurr
             horzRight = horzEdge.xTop
@@ -1054,8 +1077,7 @@ class Clipper(ClipperBase):
             self._DeleteFromSEL(e)
             self._ProcessHorizontal(e)
             
-    def _AddJoin(self, e1, e2):
-        e1OutIdx, e2OutIdx = 0, 0
+    def _AddJoin(self, e1, e2, e1OutIdx = -1, e2OutIdx = -1):
         jr = JoinRec()
         if e1OutIdx >= 0: jr.poly1Idx = e1OutIdx
         else: jr.poly1Idx = e1.outIdx
@@ -1203,7 +1225,6 @@ class Clipper(ClipperBase):
             elif e2.windCnt2 == 0: e2.windCnt2 = 1
             else: e2.windCnt2 = 0
 
-        e1FillType = e2FillType = PolyFillType.EvenOdd
         if e1.PolyType == PolyType.Subject:
             e1FillType = self._SubjFillType
             e1FillType2 = self._ClipFillType
@@ -1218,7 +1239,6 @@ class Clipper(ClipperBase):
             e2FillType = self._ClipFillType
             e2FillType2 = self._SubjFillType
 
-        e1Wc = e2Wc = 0
         if e1FillType == PolyFillType.Positive: e1Wc = e1.windCnt
         elif e1FillType == PolyFillType.Negative: e1Wc = -e1.windCnt
         else: e1Wc = abs(e1.windCnt)
@@ -1247,7 +1267,6 @@ class Clipper(ClipperBase):
         elif    (e1Wc == 0 or e1Wc == 1) and (e2Wc == 0 or e2Wc == 1) and \
             not e1stops and not e2stops:
 
-            e1Wc2 = e2Wc2 = 0
             e1FillType2 = e2FillType2 = PolyFillType.EvenOdd
             if e1FillType2 == PolyFillType.Positive: e1Wc2 = e1.windCnt2
             elif e1FillType2 == PolyFillType.Negative: e1Wc2 = -e1.windCnt2
