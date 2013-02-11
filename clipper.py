@@ -2068,22 +2068,22 @@ def OffsetPolygons(polys, delta, jointype = JoinType.Square, miterLimit= 2.0, au
             k = j
         res.append(result)
 
-#    c = Clipper()
-#    c.AddPolygons(res, PolyType.Subject)
-#    if delta > 0:
-#        c.Execute(ClipType.Union, res, PolyFillType.Positive, PolyFillType.Positive)
-#    else:
-#        bounds = _GetBounds(res)
-#        outer = []
-#        outer.append(Point(bounds.left-10, bounds.bottom+10))
-#        outer.append(Point(bounds.right+10, bounds.bottom+10))
-#        outer.append(Point(bounds.right+10, bounds.top-10))
-#        outer.append(Point(bounds.left-10, bounds.top-10))
-#        c.AddPolygon(outer, PolyType.Subject)
-#        c.Execute(ClipType.Union, res, PolyFillType.Negative, PolyFillType.Negative)
-#        res.pop(0)
-#        for poly in res:
-#            poly = poly[::-1]             
+    c = Clipper()
+    c.AddPolygons(res, PolyType.Subject)
+    if delta > 0:
+        c.Execute(ClipType.Union, res, PolyFillType.Positive, PolyFillType.Positive)
+    else:
+        bounds = _GetBounds(res)
+        outer = []
+        outer.append(Point(bounds.left-10, bounds.bottom+10))
+        outer.append(Point(bounds.right+10, bounds.bottom+10))
+        outer.append(Point(bounds.right+10, bounds.top-10))
+        outer.append(Point(bounds.left-10, bounds.top-10))
+        c.AddPolygon(outer, PolyType.Subject)
+        c.Execute(ClipType.Union, res, PolyFillType.Negative, PolyFillType.Negative)
+        res.pop(0)
+        for poly in res:
+            poly = poly[::-1]             
     return res
 
 def CleanPolygon(poly, distance = 1.415):
