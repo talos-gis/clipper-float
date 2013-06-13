@@ -3,7 +3,7 @@ unit Beziers;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.1                                                             *
+* Version   :  0.1a                                                            *
 * Date      :  13 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
@@ -23,6 +23,8 @@ uses
   Windows, Messages, SysUtils, Classes, Math, Clipper;
 
 type
+  TBezierType = (CubicBezier, CubicSpline, QuadBezier, QuadSpline);
+
   PIntNode = ^TIntNode;
   TIntNode = record
     Val: Integer;
@@ -31,8 +33,8 @@ type
   end;
 
   //nb: Specifications of TBezier class ...
-  //Max. value for reference (passed to constructor) = 32,000
-  //Max. number of bezier segments = 32,000
+  //Max. value for Ref (a user supplied TBezier identifier) = 32,000
+  //Max. number of TBezier segments = 32,000 (ie supports poly-beziers)
   TBezier = class
   private
     Reference: Word;
@@ -40,17 +42,22 @@ type
     procedure GetSubBezierInternal(SegIdx: Integer;
       StartIdx, EndIdx: Int64; var IntList: PIntNode);
   public
-    constructor Create(const CtrlPts: TPolygon; Ref: Word; Precision: Double = 0.5);
+    constructor Create(
+      const CtrlPts: TPolygon;   //CtrlPts: Bezier control points
+      BezType: TBezierType;      //CubicBezier, QuadBezier, etc ...
+      Ref: Word;                 //Ref: user supplied identifier;
+      Precision: Double = 0.5);  //Precision of flattened path
     destructor Destroy; override;
     function FlattenedPath: TPolygon;
-    function GetSubBezier(startZ, endZ: Int64): TPolygon;
+    //Reconstruct: returns a list of Bezier control points using the
+    //information provided in the startZ and endZ parameters (together with
+    //the object's stored data) ...
+    function Reconstruct(startZ, endZ: Int64): TPolygon;
   end;
 
 implementation
 
 type
-  TBezierType = (CubicBezier, CubicSpline, QuadBezier, QuadSpline);
-
   TSegment = class
   protected
     BezierType: TBezierType;
@@ -59,7 +66,6 @@ type
     Ctrls: array [0..3] of TDoublePoint;
     Childs: array [0..1] of TSegment;
     procedure GetFlattenedPath(var Path: TPolygon; Init: Boolean = False); virtual; abstract;
-    procedure Find(Index, Msb: cardinal; out Segment: TSegment);
   public
     constructor Create(Ref, Seg, Idx: Cardinal); overload; virtual;
     destructor Destroy; override;
@@ -107,7 +113,6 @@ begin
   if not assigned(IntNodes) then Exit;
   while assigned(IntNodes.Prev) do
     IntNodes := IntNodes.Prev;
-  //OK, we're at the very first node.
 
   repeat
     IntNode := IntNodes;
@@ -163,26 +168,6 @@ begin
   FreeAndNil(childs[0]);
   FreeAndNil(childs[1]);
   inherited;
-end;
-//------------------------------------------------------------------------------
-
-procedure TSegment.Find(Index, Msb: cardinal; out Segment: TSegment);
-var
-  Fill: Cardinal;
-begin
-  if not assigned(childs[0]) then
-    Segment := Self
-  else if (Msb = 0) then
-    childs[0].Find(0, 0, Segment)
-  else
-  begin
-    Index := Index and ((1 shl Msb) -1);
-    Dec(Msb);
-    Fill := 1 shl (Msb);
-    if Index and Fill <> 0 then
-      childs[1].Find(Index or Fill, Msb, Segment) else
-      childs[0].Find(Index or Fill, Msb, Segment);
-  end;
 end;
 
 //------------------------------------------------------------------------------
@@ -265,7 +250,8 @@ end;
 // TBezier methods ...
 //------------------------------------------------------------------------------
 
-constructor TBezier.Create(const CtrlPts: TPolygon; Ref: Word; Precision: Double = 0.5);
+constructor TBezier.Create(const CtrlPts: TPolygon;
+  BezType: TBezierType; Ref: Word; Precision: Double = 0.5);
 var
   I, HighPts: Integer;
   CubicBez: TCubicBez;
@@ -324,7 +310,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TBezier.GetSubBezier(startZ, endZ: Int64): TPolygon;
+function TBezier.Reconstruct(startZ, endZ: Int64): TPolygon;
 var
   I, J, K, Seg1, Seg2, Cnt: Integer;
   IntList, IntCurrent: PIntNode;
@@ -394,6 +380,10 @@ begin
       if Seg1 <> Seg2 then
         GetSubBezierInternal(Seg1, startZ, 1, IntCurrent) else
         GetSubBezierInternal(Seg1, startZ, endZ, IntCurrent);
+
+      //IntList now contains a number of sub-segments (or at least their
+      //indexes) that define part or all of the original segment.
+      //Now we add these sub-segments to the new list of control points ...
 
       IntCurrent := IntList.Next; //skip the dummy IntNode
       while assigned(IntCurrent) do
