@@ -42,7 +42,6 @@ type
   public
     constructor Create(const CtrlPts: TPolygon; Ref: Word; Precision: Double = 0.5);
     destructor Destroy; override;
-    //procedure Debug;
     function FlattenedPath: TPolygon;
     function GetSubBezier(startZ, endZ: Int64): TPolygon;
   end;
@@ -62,7 +61,6 @@ type
     procedure GetFlattenedPath(var Path: TPolygon; Init: Boolean = False); virtual; abstract;
     procedure Find(Index, Msb: cardinal; out Segment: TSegment);
   public
-    //procedure Debug;
     constructor Create(Ref, Seg, Idx: Cardinal); overload; virtual;
     destructor Destroy; override;
   end;
@@ -126,17 +124,6 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function GetLeastSignificantBit(v: cardinal): cardinal; //index is zero based
-const
-   MulDeBruijnBitPosition: array[0..31] of integer =
-    (0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8,
-    31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11, 5, 10, 9);
-begin
-  //http://stackoverflow.com/questions/757059/position-of-least-significant-bit-that-is-set
-  Result := MulDeBruijnBitPosition[((v and -v) * $77CB531) shr 27];
-end;
-//------------------------------------------------------------------------------
-
 function GetMostSignificantBit(v: cardinal): cardinal; //index is zero based
 var
   i: cardinal;
@@ -197,24 +184,6 @@ begin
       childs[0].Find(Index or Fill, Msb, Segment);
   end;
 end;
-//------------------------------------------------------------------------------
-
-//procedure TSegment.Debug;
-//var
-//  ZVal: Int64;
-//begin
-//  if not assigned(childs[0]) then
-//  begin
-//    Int64Rec(ZVal).Lo := Index;
-//    Int64Rec(ZVal).Hi := Ref shl 16 or Segment;
-//      DebugUnit.Debug.LogFormatted('%1.0f, %1.0f, %16.16x',
-//        [ctrls[3].X, ctrls[3].Y, ZVal]);
-//    Exit;
-//  end;
-//  childs[0].Debug;
-//  childs[1].Debug;
-//end;
-//------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
 // TCubicBez methods ...
@@ -338,26 +307,6 @@ begin
   SegmentList.Free;
   inherited;
 end;
-//------------------------------------------------------------------------------
-
-//procedure TBezier.Debug;
-//var
-//  I: Integer;
-//  ZVal: Int64;
-//  CubicBez: TCubicBez;
-//begin
-//  if SegmentList.Count = 0 then Exit;
-//  CubicBez := TCubicBez(SegmentList[0]);
-//  with CubicBez do
-//  begin
-//    Int64Rec(ZVal).Lo := Index;
-//    Int64Rec(ZVal).Hi := Ref shl 16 or Segment;
-//    DebugUnit.Debug.LogFormatted('%1.0f, %1.0f, %16.16x',
-//      [ctrls[0].X, ctrls[0].Y, ZVal]);
-//  end;
-//  for I := 0 to SegmentList.Count -1 do
-//    TCubicBez(SegmentList[I]).Debug;
-//end;
 //------------------------------------------------------------------------------
 
 function TBezier.FlattenedPath: TPolygon;
