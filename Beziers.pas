@@ -3,8 +3,8 @@ unit Beziers;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.1e                                                            *
-* Date      :  13 June 2013                                                    *
+* Version   :  0.1i                                                            *
+* Date      :  14 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -20,7 +20,7 @@ unit Beziers;
 interface
 
 uses
-  Windows, Messages, SysUtils, Classes, Math, Clipper;
+  Windows, Messages, SysUtils, Classes, Math, clipper;
 
 type
 
@@ -77,7 +77,6 @@ type
     Index: Cardinal;
     Ctrls: array [0..3] of TDoublePoint;
     Childs: array [0..1] of TSegment;
-    //Next, Prev: TSegment;
     procedure GetFlattenedPath(var Path: TPolygon; var Cnt: Integer; Init: Boolean = False); virtual; abstract;
   public
     constructor Create(Ref, Seg, Idx: Cardinal); overload; virtual;
@@ -488,34 +487,19 @@ begin
 
 
   if (StartIdx = 1) then
-  begin
     //special case: ie goto the bottom left of the binary tree ...
-    N1 := 1 shl level;
-  end else
-  begin
+    N1 := 1 shl level
+  else
     //For any given Z value, its corresponding X & Y coords (created by
-    //FlattenPath using De Casteljau's algorithm) refer to the ctrl[3] coords of
-    //many tiny polybezier segments. Since ctrl[3] coords are duplicated in
+    //FlattenPath using De Casteljau's algorithm) refered to the ctrl[3] coords
+    //of many tiny polybezier segments. Since ctrl[3] coords are identical to
     //ctrl[0] coords in the following node, we can safely increment StartIdx ...
     N1 := StartIdx +1;
-    //if N1 is a right branch add it to IntList and increment N1 ...
-    if Odd(N1) then
-    begin
-      IntCurrent := InsertInt(IntCurrent, N1); //nb: updates IntCurrent
-      Inc(N1);
-    end;
-  end;
 
   //if N2 is a left branch add it to IntList and decrement N2 ...
   if (EndIdx = 1) then
     N2 := L2 else
     N2 := EndIdx;
-  if not Odd(N2) then
-  begin
-    InsertInt(IntCurrent, N2); //nb: doesn't update IntCurrent
-    Dec(N2);
-    Dec(L2);
-  end;
 
   //now get blocks of nodes from the LEFT ...
   J := 1;
