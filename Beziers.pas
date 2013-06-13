@@ -3,7 +3,7 @@ unit Beziers;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.1a                                                            *
+* Version   :  0.1c                                                            *
 * Date      :  13 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
@@ -32,12 +32,10 @@ type
     Prev: PIntNode;
   end;
 
-  //nb: Specifications of TBezier class ...
-  //Max. value for Ref (a user supplied TBezier identifier) = 32,000
-  //Max. number of TBezier segments = 32,000 (ie supports poly-beziers)
   TBezier = class
   private
     Reference: Word;
+    //supports poly-beziers with up to 65,535 segments (before flattening)
     SegmentList: TList;
     procedure GetSubBezierInternal(SegIdx: Integer;
       StartIdx, EndIdx: Int64; var IntList: PIntNode);
@@ -216,8 +214,8 @@ var
 begin
   //nb. The format (high to low) of the 64bit Z value returned in the path ...
   //Typ  (2): any one of CubicBezier, CubicSpline, QuadBezier, QuadSpline
-  //Ref (15): reference value passed to TBezier owner object
-  //Seg (15): segment index since a bezier may consist of multiple segments
+  //Seg (14): segment index since a bezier may consist of multiple segments
+  //Ref (16): reference value passed to TBezier owner object
   //Idx (32): binary index to sub-segment containing control points
   if Init then
   begin
@@ -226,7 +224,7 @@ begin
     Path[Len].X := Round(ctrls[0].X);
     Path[Len].Y := Round(ctrls[0].Y);
     Int64Rec(Z).Lo := Index;
-    Int64Rec(Z).Hi := ord(BezierType) shr 30 + Ref shl 15 or Segment;
+    Int64Rec(Z).Hi := ord(BezierType) shl 30 + Segment shl 16 + Ref;
     Path[Len].Z := Z;
     Exit;
   end;
@@ -238,7 +236,7 @@ begin
     Path[Len].X := Round(ctrls[3].X);
     Path[Len].Y := Round(ctrls[3].Y);
     Int64Rec(Z).Lo := Index;
-    Int64Rec(Z).Hi := ord(BezierType) shr 30 + Ref shl 15 or Segment;
+    Int64Rec(Z).Hi := ord(BezierType) shl 30 + Segment shl 16 + Ref;
     Path[Len].Z := Z;
     Exit;
   end;
@@ -320,12 +318,12 @@ begin
   result := nil;
 
   //first, make sure the reference IDs match ...
-  I := startZ shr 48;
-  J := endZ shr 48;
+  I := (startZ shr 32) and $FFFF; //bits 32..47
+  J := (endZ shr 32) and $FFFF;
   if (Reference <> Word(I)) or (I <> J) then Exit;
 
-  Seg1 := (startZ shr 32 and $FFFF) -1;
-  Seg2 := (endZ shr 32 and $FFFF) -1;
+  Seg1 := (startZ shr 48 and $3FFF) -1;  //bits 48..61 and also converts
+  Seg2 := (endZ shr 48 and $3FFF) -1;    //seg ID to a zero-base idx
   startZ := startZ and $FFFFFFFF;
   endZ := endZ and $FFFFFFFF;
 
