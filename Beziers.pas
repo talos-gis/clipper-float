@@ -3,8 +3,8 @@ unit Beziers;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.5a (alpha)                                                    *
-* Date      :  14 June 2013                                                    *
+* Version   :  0.6 (alpha)                                                     *
+* Date      :  15 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -66,6 +66,10 @@ type
 
 implementation
 
+resourcestring
+  rsInvalidBezierPointCount = 'TBezier: invalid number of control points.';
+  rsInvalidBezierType = 'TBezier: invalid type.';
+
 const
   half = 0.5;
 
@@ -89,25 +93,25 @@ type
   TCubicBez = class(TSegment)
   public
     constructor Create(const Pt1, Pt2, Pt3, Pt4: TDoublePoint;
-      Ref, Seg, Idx: Cardinal; Precision: Double); overload;
+      Ref, Seg, Idx: Cardinal; Precision: Double); overload; virtual;
   end;
 
-  TCubicSpline = class(TSegment)
+  TCubicSpline = class(TCubicBez)
   public
     constructor Create(const Pt1, Pt2, Pt3, Pt4: TDoublePoint;
-      Ref, Seg, Idx: Cardinal; Precision: Double); overload;
+      Ref, Seg, Idx: Cardinal; Precision: Double); override;
   end;
 
   TQuadBez = class(TSegment)
   public
     constructor Create(const Pt1, Pt2, Pt3: TDoublePoint;
-      Ref, Seg, Idx: Cardinal; Precision: Double); overload;
+      Ref, Seg, Idx: Cardinal; Precision: Double); overload; virtual;
   end;
 
-  TQuadSpline = class(TSegment)
+  TQuadSpline = class(TQuadBez)
   public
     constructor Create(const Pt1, Pt2, Pt3: TDoublePoint;
-      Ref, Seg, Idx: Cardinal; Precision: Double); overload;
+      Ref, Seg, Idx: Cardinal; Precision: Double); override;
   end;
 
 //------------------------------------------------------------------------------
@@ -305,26 +309,9 @@ end;
 
 constructor TQuadSpline.Create(const Pt1, Pt2, Pt3: TDoublePoint;
   Ref, Seg, Idx: Cardinal; Precision: Double);
-var
-  p12, p23, p123: TDoublePoint;
 begin
-  inherited Create(Ref, Seg, Idx);
+  inherited Create(Pt1, Pt2, Pt3, Ref, Seg, Idx, Precision);
   BezierType := QuadSpline;
-  ctrls[0] := Pt1; ctrls[1] := Pt2; ctrls[2] := Pt3;
-  //assess curve flatness:
-  if abs(pt1.x + pt3.x - 2*pt2.x) + abs(pt1.y + pt3.y - 2*pt2.y) < Precision then
-    Exit;
-
-  //if not at maximum precision then (recursively) create sub-segments ...
-  p12.X := (Pt1.X + Pt2.X) * half;
-  p12.Y := (Pt1.Y + Pt2.Y) * half;
-  p23.X := (Pt2.X + Pt3.X) * half;
-  p23.Y := (Pt2.Y + Pt3.Y) * half;
-  p123.X := (p12.X + p23.X) * half;
-  p123.Y := (p12.Y + p23.Y) * half;
-  Idx := Idx shl 1;
-  Childs[0] := TQuadSpline.Create(Pt1, p12, p123, Ref, Seg, Idx, Precision);
-  Childs[1] := TQuadSpline.Create(p123, p23, pt3, Ref, Seg, Idx +1, Precision);
 end;
 
 //------------------------------------------------------------------------------
@@ -369,34 +356,9 @@ end;
 
 constructor TCubicSpline.Create(const Pt1, Pt2, Pt3, Pt4: TDoublePoint;
   Ref, Seg, Idx: Cardinal; Precision: Double);
-var
-  p12, p23, p34, p123, p234, p1234: TDoublePoint;
 begin
-  inherited Create(Ref, Seg, Idx);
+  inherited Create(Pt1, Pt2, Pt3, Pt4, Ref, Seg, Idx, Precision);
   BezierType := CubicSpline;
-  ctrls[0] := Pt1; ctrls[1] := Pt2; ctrls[2] := Pt3; ctrls[3] := Pt4;
-  //assess curve flatness:
-  //http://groups.google.com/group/comp.graphics.algorithms/tree/browse_frm/thread/d85ca902fdbd746e
-  if abs(Pt1.x + Pt3.x - 2*Pt2.x) + abs(Pt2.x + Pt4.x - 2*Pt3.x) +
-    abs(Pt1.y + Pt3.y - 2*Pt2.y) + abs(Pt2.y + Pt4.y - 2*Pt3.y) < Precision then
-      Exit;
-
-  //if not at maximum precision then (recursively) create sub-segments ...
-  p12.X := (Pt1.X + Pt2.X) * half;
-  p12.Y := (Pt1.Y + Pt2.Y) * half;
-  p23.X := (Pt2.X + Pt3.X) * half;
-  p23.Y := (Pt2.Y + Pt3.Y) * half;
-  p34.X := (Pt3.X + Pt4.X) * half;
-  p34.Y := (Pt3.Y + Pt4.Y) * half;
-  p123.X := (p12.X + p23.X) * half;
-  p123.Y := (p12.Y + p23.Y) * half;
-  p234.X := (p23.X + p34.X) * half;
-  p234.Y := (p23.Y + p34.Y) * half;
-  p1234.X := (p123.X + p234.X) * half;
-  p1234.Y := (p123.Y + p234.Y) * half;
-  Idx := Idx shl 1;
-  Childs[0] := TCubicSpline.Create(Pt1, p12, p123, p1234, Ref, Seg, Idx, Precision);
-  Childs[1] := TCubicSpline.Create(p1234, p234, p34, Pt4, Ref, Seg, Idx +1, Precision);
 end;
 
 //------------------------------------------------------------------------------
@@ -415,18 +377,18 @@ begin
   BezierType := BezType;
   case BezType of
     CubicBezier:
-      if (HighPts < 3) then raise Exception.Create('TBezier: invalid number of control points.')
-      else if (HighPts mod 3 <> 0)  then Dec(HighPts, HighPts mod 3);
+      if (HighPts < 3) then raise Exception.Create(rsInvalidBezierPointCount)
+      else Dec(HighPts, HighPts mod 3);
     CubicSpline:
-      if (HighPts < 3) then raise Exception.Create('TBezier: invalid number of control points.')
+      if (HighPts < 3) then raise Exception.Create(rsInvalidBezierPointCount)
       else if not Odd(HighPts) then dec(HighPts);
     QuadBezier:
-      if (HighPts < 2) then raise Exception.Create('TBezier: invalid number of control points.')
+      if (HighPts < 2) then raise Exception.Create(rsInvalidBezierPointCount)
       else if Odd(HighPts) then dec(HighPts);
     QuadSpline:
-      if (HighPts < 2) then raise Exception.Create('TBezier: invalid number of control points.');
+      if (HighPts < 2) then raise Exception.Create(rsInvalidBezierPointCount);
 
-    else raise Exception.Create('TBezier: invalid type.');
+    else raise Exception.Create(rsInvalidBezierType);
   end;
 
   Reference  := Ref;
