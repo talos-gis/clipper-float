@@ -423,6 +423,8 @@ begin
     QuadBezier:
       if (HighPts < 2) then raise Exception.Create('TBezier: invalid number of control points.')
       else if Odd(HighPts) then dec(HighPts);
+    QuadSpline:
+      if (HighPts < 2) then raise Exception.Create('TBezier: invalid number of control points.');
 
     else raise Exception.Create('TBezier: invalid type.');
   end;
