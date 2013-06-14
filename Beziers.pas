@@ -3,7 +3,7 @@ unit Beziers;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.5 (alpha)                                                     *
+* Version   :  0.5a (alpha)                                                    *
 * Date      :  14 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
@@ -79,7 +79,8 @@ type
     Index: Cardinal;
     Ctrls: array [0..3] of TDoublePoint;
     Childs: array [0..1] of TSegment;
-    procedure GetFlattenedPath(var Path: TPolygon; var Cnt: Integer; Init: Boolean = False); virtual;
+    procedure GetFlattenedPath(var Path: TPolygon;
+      var Cnt: Integer; Init: Boolean = False); overload;
   public
     constructor Create(Ref, Seg, Idx: Cardinal); overload; virtual;
     destructor Destroy; override;
@@ -175,7 +176,8 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure AppendToPath(var Path: TPolygon; var Cnt: Integer; const Pt: TIntPoint);
+procedure AppendToPath(var Path: TPolygon;
+  var Cnt: Integer; const Pt: TIntPoint); overload;
 const
   buffSize = 128;
 begin
@@ -267,6 +269,7 @@ begin
     childs[1].GetFlattenedPath(Path, Cnt);
   end;
 end;
+//------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
 // TQuadBez methods ...
@@ -412,13 +415,16 @@ begin
   BezierType := BezType;
   case BezType of
     CubicBezier:
-      if (HighPts < 2) or (HighPts mod 3 <> 0) then
-        raise Exception.Create('TBezier: invalid number of control points.');
-    CubicSpline, QuadBezier:
-      if (HighPts < 2) or (HighPts mod 2 <> 1) then
-        raise Exception.Create('TBezier: invalid number of control points.');
-    else if (HighPts < 2) then
-      raise Exception.Create('TBezier: invalid number of control points.');
+      if (HighPts < 3) then raise Exception.Create('TBezier: invalid number of control points.')
+      else if (HighPts mod 3 <> 0)  then Dec(HighPts, HighPts mod 3);
+    CubicSpline:
+      if (HighPts < 3) then raise Exception.Create('TBezier: invalid number of control points.')
+      else if not Odd(HighPts) then dec(HighPts);
+    QuadBezier:
+      if (HighPts < 2) then raise Exception.Create('TBezier: invalid number of control points.')
+      else if Odd(HighPts) then dec(HighPts);
+
+    else raise Exception.Create('TBezier: invalid type.');
   end;
 
   Reference  := Ref;
@@ -445,7 +451,7 @@ begin
         Pt := DoublePoint(CtrlPts[0]);
         for I := 0 to (HighPts div 2) -2 do
         begin
-          Pt2 := MidPoint(CtrlPts[I+2], CtrlPts[I+3]);
+          Pt2 := MidPoint(CtrlPts[I*2+2], CtrlPts[I*2+3]);
           Segment := TCubicSpline.Create(
                       Pt,
                       DoublePoint(CtrlPts[I*2 +1]),
