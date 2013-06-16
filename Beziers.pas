@@ -3,8 +3,8 @@ unit Beziers;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.6 (alpha)                                                     *
-* Date      :  15 June 2013                                                    *
+* Version   :  0.8 (alpha)                                                     *
+* Date      :  17 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -17,12 +17,13 @@ unit Beziers;
 interface
 
 uses
-  Windows, Messages, SysUtils, Classes, Math, clipper;
+  Windows, Messages, SysUtils, Classes, Math, clipper,
+  DebugUnit;
 
 type
 
   //TBezierType: a parameter of TBezier's constructor
-  TBezierType = (CubicBezier, CubicSpline, QuadBezier, QuadSpline);
+  TBezierType = (CubicBezier, QuadBezier);
 
   //IntNode: used internally only
   PIntNode = ^TIntNode;
@@ -51,12 +52,17 @@ type
     procedure ReconstructInternal(SegIdx: Integer;
       StartIdx, EndIdx: Int64; var IntCurrent: PIntNode);
   public
+    constructor Create; overload;
     constructor Create(
       const CtrlPts: TPolygon;   //CtrlPts: Bezier control points
-      BezType: TBezierType;      //CubicBezier, QuadBezier, etc ...
+      BezType: TBezierType;      //CubicBezier or QuadBezier ...
       Ref: Word;                 //Ref: user supplied identifier;
-      Precision: Double = 0.5);  //Precision of flattened path
+      Precision: Double = 0.5  //Precision of flattened path
+      ); overload;
     destructor Destroy; override;
+    procedure Clear;
+    procedure SetCtrlPoints(const CtrlPts: TPolygon;
+      BezType: TBezierType; Ref: Word; Precision: Double = 0.5);
     function FlattenedPath: TPolygon;
     //Reconstruct: returns a list of Bezier control points using the
     //information provided in the startZ and endZ parameters (together with
@@ -96,22 +102,10 @@ type
       Ref, Seg, Idx: Cardinal; Precision: Double); overload; virtual;
   end;
 
-  TCubicSpline = class(TCubicBez)
-  public
-    constructor Create(const Pt1, Pt2, Pt3, Pt4: TDoublePoint;
-      Ref, Seg, Idx: Cardinal; Precision: Double); override;
-  end;
-
   TQuadBez = class(TSegment)
   public
     constructor Create(const Pt1, Pt2, Pt3: TDoublePoint;
-      Ref, Seg, Idx: Cardinal; Precision: Double); overload; virtual;
-  end;
-
-  TQuadSpline = class(TQuadBez)
-  public
-    constructor Create(const Pt1, Pt2, Pt3: TDoublePoint;
-      Ref, Seg, Idx: Cardinal; Precision: Double); override;
+      Ref, Seg, Idx: Cardinal; Precision: Double); overload;
   end;
 
 //------------------------------------------------------------------------------
@@ -119,7 +113,7 @@ type
 //------------------------------------------------------------------------------
 
 //nb. The format (high to low) of the 64bit Z value returned in the path ...
-//Typ  (2): any one of CubicBezier, CubicSpline, QuadBezier, QuadSpline
+//Typ  (2): either CubicBezier, QuadBezier
 //Seg (14): segment index since a bezier may consist of multiple segments
 //Ref (16): reference value passed to TBezier owner object
 //Idx (32): binary index to sub-segment containing control points
@@ -261,7 +255,7 @@ begin
   end else if not assigned(childs[0]) then
   begin
     case BezierType of
-      CubicBezier, CubicSpline: CtrlIdx := 3;
+      CubicBezier: CtrlIdx := 3;
       else CtrlIdx := 2;
     end;
     Z := MakeZ(BezierType, SegID, RefID, Index);
@@ -304,17 +298,6 @@ begin
 end;
 
 //------------------------------------------------------------------------------
-// TQuadSpline methods ...
-//------------------------------------------------------------------------------
-
-constructor TQuadSpline.Create(const Pt1, Pt2, Pt3: TDoublePoint;
-  Ref, Seg, Idx: Cardinal; Precision: Double);
-begin
-  inherited Create(Pt1, Pt2, Pt3, Ref, Seg, Idx, Precision);
-  BezierType := QuadSpline;
-end;
-
-//------------------------------------------------------------------------------
 // TCubicBez methods ...
 //------------------------------------------------------------------------------
 
@@ -351,27 +334,32 @@ begin
 end;
 
 //------------------------------------------------------------------------------
-// TCubicSpline methods ...
-//------------------------------------------------------------------------------
-
-constructor TCubicSpline.Create(const Pt1, Pt2, Pt3, Pt4: TDoublePoint;
-  Ref, Seg, Idx: Cardinal; Precision: Double);
-begin
-  inherited Create(Pt1, Pt2, Pt3, Pt4, Ref, Seg, Idx, Precision);
-  BezierType := CubicSpline;
-end;
-
-//------------------------------------------------------------------------------
 // TBezier methods ...
 //------------------------------------------------------------------------------
 
+constructor TBezier.Create;
+begin
+  SegmentList := TList.Create;
+end;
+//------------------------------------------------------------------------------
+
 constructor TBezier.Create(const CtrlPts: TPolygon;
+  BezType: TBezierType; Ref: Word; Precision: Double = 0.5);
+begin
+  Create;
+  SetCtrlPoints(CtrlPts, BezType, Ref, Precision);
+end;
+//------------------------------------------------------------------------------
+
+procedure TBezier.SetCtrlPoints(const CtrlPts: TPolygon;
   BezType: TBezierType; Ref: Word; Precision: Double = 0.5);
 var
   I, HighPts: Integer;
   Segment: TSegment;
   Pt, Pt2: TDoublePoint;
 begin
+  //clean up any existing data ...
+  Clear;
   HighPts := High(CtrlPts);
 
   BezierType := BezType;
@@ -379,22 +367,15 @@ begin
     CubicBezier:
       if (HighPts < 3) then raise Exception.Create(rsInvalidBezierPointCount)
       else Dec(HighPts, HighPts mod 3);
-    CubicSpline:
-      if (HighPts < 3) then raise Exception.Create(rsInvalidBezierPointCount)
-      else if not Odd(HighPts) then dec(HighPts);
     QuadBezier:
       if (HighPts < 2) then raise Exception.Create(rsInvalidBezierPointCount)
-      else if Odd(HighPts) then dec(HighPts);
-    QuadSpline:
-      if (HighPts < 2) then raise Exception.Create(rsInvalidBezierPointCount);
+      else Dec(HighPts, HighPts mod 2);
 
     else raise Exception.Create(rsInvalidBezierType);
   end;
 
   Reference  := Ref;
   if Precision <= 0.0 then Precision := 0.1;
-
-  SegmentList := TList.Create;
 
   //now for each segment in the poly-bezier create a binary tree structure
   //and add it to SegmentList ...
@@ -410,29 +391,6 @@ begin
                     Ref, I +1, 1, Precision);
         SegmentList.Add(Segment);
       end;
-    CubicSpline:
-      begin
-        Pt := DoublePoint(CtrlPts[0]);
-        for I := 0 to (HighPts div 2) -2 do
-        begin
-          Pt2 := MidPoint(CtrlPts[I*2+2], CtrlPts[I*2+3]);
-          Segment := TCubicSpline.Create(
-                      Pt,
-                      DoublePoint(CtrlPts[I*2 +1]),
-                      DoublePoint(CtrlPts[I*2 +2]),
-                      Pt2,
-                      Ref, I +1, 1, Precision);
-          SegmentList.Add(Segment);
-          Pt := Pt2;
-        end;
-        Segment := TCubicSpline.Create(
-                    Pt,
-                    DoublePoint(CtrlPts[HighPts -2]),
-                    DoublePoint(CtrlPts[HighPts -1]),
-                    DoublePoint(CtrlPts[HighPts]),
-                    Ref, (HighPts div 2), 1, Precision);
-        SegmentList.Add(Segment);
-      end;
     QuadBezier:
       for I := 0 to (HighPts div 2) -1 do
       begin
@@ -443,33 +401,23 @@ begin
                     Ref, I +1, 1, Precision);
         SegmentList.Add(Segment);
       end;
-    QuadSpline:
-      begin
-        Pt := DoublePoint(CtrlPts[0]);
-        for I := 1 to HighPts do
-        begin
-          if I < HighPts then
-            Pt2 := MidPoint(CtrlPts[I], CtrlPts[I+1]) else
-            Pt2 := DoublePoint(CtrlPts[I]);
-          Segment := TQuadSpline.Create(
-                      Pt,
-                      DoublePoint(CtrlPts[I]),
-                      Pt2,
-                      Ref, I, 1, Precision);
-          SegmentList.Add(Segment);
-          Pt := Pt2;
-        end;
-      end;
   end;
 end;
 //------------------------------------------------------------------------------
 
-destructor TBezier.Destroy;
+procedure TBezier.Clear;
 var
   I: Integer;
 begin
   for I := 0 to SegmentList.Count -1 do
     TObject(SegmentList[I]).Free;
+  SegmentList.Clear;
+end;
+//------------------------------------------------------------------------------
+
+destructor TBezier.Destroy;
+begin
+  Clear;
   SegmentList.Free;
   inherited;
 end;
@@ -492,10 +440,10 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure AddCtrlPoint(Segment: TSegment;
-  var CtrlPts: TPolygon; var currCnt: Integer; IsLast: Boolean);
+procedure AddCtrlPoint(Segment: TSegment; var CtrlPts: TPolygon;
+  var currCnt: Integer; IsLast: Boolean);
 var
-  I, Len: Integer;
+  I, Len, LastDelta: Integer;
 const
   buffSize = 128;
 begin
@@ -503,63 +451,23 @@ begin
   if currCnt + 4 >= Len then
     SetLength(CtrlPts, Len + buffSize);
 
+  if IsLast then LastDelta := 1 else LastDelta := 0;
   case Segment.BezierType of
 
     CubicBezier:
-      for I := 0 to 3 do
+      for I := 0 to (2 + LastDelta) do
       begin
         CtrlPts[currCnt].X := Round(Segment.ctrls[I].X);
         CtrlPts[currCnt].Y := Round(Segment.ctrls[I].Y);
         Inc(currCnt);
-      end;
-
-    CubicSpline:
-      begin
-        if (currCnt = 0) then
-        begin
-          CtrlPts[0].X := Round(Segment.ctrls[0].X);
-          CtrlPts[0].Y := Round(Segment.ctrls[0].Y);
-          Inc(currCnt);
-        end;
-        for I := 1 to 2 do
-        begin
-          CtrlPts[currCnt].X := Round(Segment.ctrls[I].X);
-          CtrlPts[currCnt].Y := Round(Segment.ctrls[I].Y);
-          Inc(currCnt);
-        end;
-        if IsLast then
-        begin
-          CtrlPts[currCnt].X := Round(Segment.ctrls[3].X);
-          CtrlPts[currCnt].Y := Round(Segment.ctrls[3].Y);
-          Inc(currCnt);
-        end;
       end;
 
     QuadBezier:
-      for I := 0 to 2 do
+      for I := 0 to (1 + LastDelta) do
       begin
         CtrlPts[currCnt].X := Round(Segment.ctrls[I].X);
         CtrlPts[currCnt].Y := Round(Segment.ctrls[I].Y);
         Inc(currCnt);
-      end;
-
-    QuadSpline:
-      begin
-        if currCnt = 0 then
-        begin
-          CtrlPts[0].X := Round(Segment.ctrls[0].X);
-          CtrlPts[0].Y := Round(Segment.ctrls[0].Y);
-          Inc(currCnt);
-        end;
-        CtrlPts[currCnt].X := Round(Segment.ctrls[1].X);
-        CtrlPts[currCnt].Y := Round(Segment.ctrls[1].Y);
-        Inc(currCnt);
-        if IsLast then
-        begin
-          CtrlPts[currCnt].X := Round(Segment.ctrls[2].X);
-          CtrlPts[currCnt].Y := Round(Segment.ctrls[2].Y);
-          Inc(currCnt);
-        end;
       end;
 
     else Exit;
@@ -573,7 +481,7 @@ var
   BezType1, BezType2: TBezierType;
   IntList, IntCurrent: PIntNode;
   Segment: TSegment;
-  Reversed, FlagAsLast: Boolean;
+  Reversed: Boolean;
 begin
   result := nil;
   startZ := UnMakeZ(startZ, BezType1, Seg1, I);
@@ -620,7 +528,6 @@ begin
   Cnt := 0;
   while Seg1 <= Seg2 do
   begin
-    FlagAsLast := (Seg1 = Seg2) and (BezierType in [CubicSpline, QuadSpline]);
     IntList := nil;
     try
       //create a dummy first IntNode for the Int List ...
@@ -647,25 +554,21 @@ begin
         Dec(K);
         while K >= 0 do
         begin
+          if not assigned(Segment.childs[0]) then break;
           if IsBitSet(J, K) then
             Segment := Segment.childs[1] else
             Segment := Segment.childs[0];
-          if not assigned(Segment) then
-          begin
-            Result := nil;
-            Exit; //oops - incorrect index value !!
-          end;
           Dec(K);
         end;
         AddCtrlPoint(Segment, Result, Cnt,
-          FlagAsLast and not assigned(IntCurrent.Next));
+          (Seg1 = Seg2) and not assigned(IntCurrent.Next)  //IsLast
+          );
         IntCurrent := IntCurrent.Next;
       end; //while assigned(IntCurrent);
 
     finally
       DisposeIntNodes(IntList);
     end;
-
     inc(Seg1);
     startZ := 1;
   end;
@@ -678,66 +581,81 @@ end;
 procedure TBezier.ReconstructInternal(SegIdx: Integer;
   StartIdx, EndIdx: Int64; var IntCurrent: PIntNode);
 var
-  Level, L1, L2: Cardinal;
-  I, J: Integer;
-  N1, N2: Cardinal;
+  Level, L1, L2, L, R, J: Cardinal;
 begin
   //get the maximum level ...
   L1 := GetMostSignificantBit(StartIdx);
   L2 := GetMostSignificantBit(EndIdx);
   Level := Max(L1, L2);
 
-  //reuse L2 as a marker projected onto the bottom level ...
-  J := Level - L2;
-  if J > 0 then
-    L2 := EndIdx shl J + (1 shl J) - 1 else
-    L2 := EndIdx;
+  if Level = 0 then
+  begin
+    IntCurrent := InsertInt(IntCurrent, 1);
+    Exit;
+  end;
 
+  //debug.log('========'); ///////////////////////////////////////////////////////////
+  //Right marker (R): EndIdx projected onto the bottom level ...
+  if (EndIdx = 1) then
+  begin
+    R := (1 shl Level) + (1 shl Level) - 1;
+    L2 := Level;
+  end else
+  begin
+    J := (Level - L2);
+    R := (EndIdx shl J) + (1 shl J) -1;
+  end;
 
-  if (StartIdx = 1) then
-    //special case: ie goto the bottom left of the binary tree ...
-    N1 := 1 shl level
-  else
+  if (StartIdx = 1) then //special case
+  begin
+    //Left marker (L) is bottom left of the binary tree ...
+    L := 1 shl Level;
+    L1 := Level;
+  end else
+  begin
     //For any given Z value, its corresponding X & Y coords (created by
     //FlattenPath using De Casteljau's algorithm) refered to the ctrl[3] coords
     //of many tiny polybezier segments. Since ctrl[3] coords are identical to
     //ctrl[0] coords in the following node, we can safely increment StartIdx ...
-    N1 := StartIdx +1;
+    L := StartIdx +1;
+    if L = 1 shl (Level +1) then Exit; //loops around tree so already at the end
+  end;
 
-  //if N2 is a left branch add it to IntList and decrement N2 ...
-  if (EndIdx = 1) then
-    N2 := L2 else
-    N2 := EndIdx;
+  //L ====> R; at Level = Max(L1, L2)
 
   //now get blocks of nodes from the LEFT ...
-  J := 1;
+  J := Level - L1;
   repeat
+    //while even(L) and (L shl J)  + (1 shl J)
     //while next level up then down-right doesn't exceed L2 do ...
-    while not Odd(N1) and (((((N1 shr 1) + 1) shl J) -1) <= L2) do
+    while not Odd(L) and ((L shl J) + (1 shl (J + 1)) - 1 <= R) do
     begin
-      N1 := N1 shr 1; //go up a level
+      L := L shr 1; //go up a level
       Inc(J);
     end;
-    IntCurrent := InsertInt(IntCurrent, N1); //nb: updates IntCurrent
-    Inc(N1);
-    I := GetMostSignificantBit(N1);
-  until IsBitSet(N1, I-1) or ((((N1 shr 1) + 1) shl J) -1 > L2);
+    IntCurrent := InsertInt(IntCurrent, L); //nb: updates IntCurrent
+    //debug.LogInt(L); /////////////////////////////////////////////////////////
+    Inc(L);
+  until (L = 3 shl (Level - J - 1)) or //ie crosses the ditch in the middle
+    ((L shl J) + (1 shl J) >= R);      //or L is now over or to the right of R
 
-  L1 := N1 shl (J -1); //nb: the L1 marker is now just beyond N1's coverage
+  L := (L shl J);
 
   //now get blocks of nodes from the RIGHT ...
-  J := 1;
-  if L1 < L2 then
+  J := 0;
+  if R >= L then
     repeat
-      while Odd(N2) and (((N2 shr 1) shl J) >= L1) do
+      while Odd(R) and (((R shr 1) shl (J + 1)) >= L) do
       begin
-        N2 := N2 shr 1; //go up a level
+        R := R shr 1; //go up a level
         Inc(J);
       end;
-      InsertInt(IntCurrent, N2); //nb: doesn't update IntCurrent
-      Dec(N2);
-      I := GetMostSignificantBit(N2);
-    until not IsBitSet(N2, I) or (N2 shl (J -1) < L1);
+      //debug.LogInt(R); /////////////////////////////////////////////////////////
+      InsertInt(IntCurrent, R); //nb: doesn't update IntCurrent
+      Dec(R);
+    until (Integer(R) = (3 shl (Level - J)) -1) or //ie crosses the ditch
+      (R shl J <= L);
+    //debug.log('========'); ///////////////////////////////////////////////////////////
 end;
 //------------------------------------------------------------------------------
 
