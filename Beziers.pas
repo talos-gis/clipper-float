@@ -17,8 +17,7 @@ unit Beziers;
 interface
 
 uses
-  Windows, Messages, SysUtils, Classes, Math, clipper,
-  DebugUnit;
+  Windows, Messages, SysUtils, Classes, Math, clipper;
 
 type
 
@@ -594,7 +593,6 @@ begin
     Exit;
   end;
 
-  //debug.log('========'); ///////////////////////////////////////////////////////////
   //Right marker (R): EndIdx projected onto the bottom level ...
   if (EndIdx = 1) then
   begin
@@ -634,7 +632,6 @@ begin
       Inc(J);
     end;
     IntCurrent := InsertInt(IntCurrent, L); //nb: updates IntCurrent
-    //debug.LogInt(L); /////////////////////////////////////////////////////////
     Inc(L);
   until (L = 3 shl (Level - J - 1)) or //ie crosses the ditch in the middle
     ((L shl J) + (1 shl J) >= R);      //or L is now over or to the right of R
@@ -650,12 +647,10 @@ begin
         R := R shr 1; //go up a level
         Inc(J);
       end;
-      //debug.LogInt(R); /////////////////////////////////////////////////////////
       InsertInt(IntCurrent, R); //nb: doesn't update IntCurrent
       Dec(R);
     until (Integer(R) = (3 shl (Level - J)) -1) or //ie crosses the ditch
       (R shl J <= L);
-    //debug.log('========'); ///////////////////////////////////////////////////////////
 end;
 //------------------------------------------------------------------------------
 
