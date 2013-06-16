@@ -3,7 +3,7 @@ unit Beziers;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.8 (alpha)                                                     *
+* Version   :  0.8a (alpha)                                                    *
 * Date      :  17 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
@@ -440,9 +440,9 @@ end;
 //------------------------------------------------------------------------------
 
 procedure AddCtrlPoint(Segment: TSegment; var CtrlPts: TPolygon;
-  var currCnt: Integer; IsLast: Boolean);
+  var currCnt: Integer);
 var
-  I, Len, LastDelta: Integer;
+  I, Len, FirstDelta: Integer;
 const
   buffSize = 128;
 begin
@@ -450,11 +450,14 @@ begin
   if currCnt + 4 >= Len then
     SetLength(CtrlPts, Len + buffSize);
 
-  if IsLast then LastDelta := 1 else LastDelta := 0;
+  if currCnt = 0 then
+    FirstDelta := 0 else
+    FirstDelta := 1;
+
   case Segment.BezierType of
 
     CubicBezier:
-      for I := 0 to (2 + LastDelta) do
+      for I := FirstDelta to 3 do
       begin
         CtrlPts[currCnt].X := Round(Segment.ctrls[I].X);
         CtrlPts[currCnt].Y := Round(Segment.ctrls[I].Y);
@@ -462,7 +465,7 @@ begin
       end;
 
     QuadBezier:
-      for I := 0 to (1 + LastDelta) do
+      for I := FirstDelta to 2 do
       begin
         CtrlPts[currCnt].X := Round(Segment.ctrls[I].X);
         CtrlPts[currCnt].Y := Round(Segment.ctrls[I].Y);
@@ -559,9 +562,7 @@ begin
             Segment := Segment.childs[0];
           Dec(K);
         end;
-        AddCtrlPoint(Segment, Result, Cnt,
-          (Seg1 = Seg2) and not assigned(IntCurrent.Next)  //IsLast
-          );
+        AddCtrlPoint(Segment, Result, Cnt);
         IntCurrent := IntCurrent.Next;
       end; //while assigned(IntCurrent);
 
