@@ -3,8 +3,8 @@ unit Beziers;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.8a (alpha)                                                    *
-* Date      :  17 June 2013                                                    *
+* Version   :  0.8c (alpha)                                                    *
+* Date      :  18 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -79,7 +79,6 @@ const
   half = 0.5;
 
 type
-  TSegmentClass = class of TSegment;
 
   TSegment = class
   protected
@@ -355,7 +354,6 @@ procedure TBezier.SetCtrlPoints(const CtrlPts: TPolygon;
 var
   I, HighPts: Integer;
   Segment: TSegment;
-  Pt, Pt2: TDoublePoint;
 begin
   //clean up any existing data ...
   Clear;
@@ -597,8 +595,7 @@ begin
   //Right marker (R): EndIdx projected onto the bottom level ...
   if (EndIdx = 1) then
   begin
-    R := (1 shl Level) + (1 shl Level) - 1;
-    L2 := Level;
+    R := 1 shl (Level +1) - 1;
   end else
   begin
     J := (Level - L2);
@@ -625,7 +622,6 @@ begin
   //now get blocks of nodes from the LEFT ...
   J := Level - L1;
   repeat
-    //while even(L) and (L shl J)  + (1 shl J)
     //while next level up then down-right doesn't exceed L2 do ...
     while not Odd(L) and ((L shl J) + (1 shl (J + 1)) - 1 <= R) do
     begin
@@ -643,7 +639,7 @@ begin
   J := 0;
   if R >= L then
     repeat
-      while Odd(R) and (((R shr 1) shl (J + 1)) >= L) do
+      while Odd(R) and ((R - 1) shl J >= L) do
       begin
         R := R shr 1; //go up a level
         Inc(J);
