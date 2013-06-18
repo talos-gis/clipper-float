@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.8c (alpha)                                                    *
-* Date      :  18 June 2013                                                    *
+* Version   :  0.8e (alpha)                                                    *
+* Date      :  19 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -55,7 +55,7 @@ namespace BezierLib {
   {
     unsigned vals = zval >> 32; //the top 32 bits => vals
     beziertype = BezierType(vals >> 30);
-    seg = BezierType(vals >> 16) & 0x3FFF -1; //convert segments to zero-base
+    seg = ((vals >> 16) & 0x3FFF) -1; //convert segments to zero-base
     ref = vals & 0xFFFF;
     return zval & 0xFFFFFFFF;
   };
@@ -188,9 +188,9 @@ namespace BezierLib {
   };
   //------------------------------------------------------------------------------
 
-  void AddCtrlPoint(Segment* segment, ClipperLib::Polygon& ctrlPts, bool first)
+  void AddCtrlPoint(Segment* segment, ClipperLib::Polygon& ctrlPts)
   {
-    int firstDelta = (first ? 0 : 1);
+    int firstDelta = (ctrlPts.empty() ? 0 : 1);
     switch (segment->beziertype )
     {
       case CubicBezier:
@@ -339,9 +339,9 @@ namespace BezierLib {
         for (int i = 0; i < ((int)highpts / 2); ++i)
         {
           Segment* s = new QuadBez(
-                      DoublePoint(ctrlPts[i*3]),
-                      DoublePoint(ctrlPts[i*3+1]),
-                      DoublePoint(ctrlPts[i*3+2]),
+                      DoublePoint(ctrlPts[i*2]),
+                      DoublePoint(ctrlPts[i*2+1]),
+                      DoublePoint(ctrlPts[i*2+2]),
                       ref, i+1, 1, precision);
           segments.push_back(s);
         }
@@ -447,20 +447,20 @@ namespace BezierLib {
           else
             s = s->Childs[0];
         }
-        AddCtrlPoint(s, out_poly, intCurr == intList->next);
+        AddCtrlPoint(s, out_poly);
         intCurr = intCurr->next;
       } //while 
 
       DisposeIntNodes(intList);
       seg1++;
-      startZ = 1;
+      startZu = 1;
     }
     if (reversed)
       ReversePolygon(out_poly);
   };
   //------------------------------------------------------------------------------
 
-  void Bezier::ReconstructInternal(unsigned short segIdx, unsigned startIdx, unsigned endIdx, IntNode*& intCurr)
+  void Bezier::ReconstructInternal(unsigned short segIdx, unsigned startIdx, unsigned endIdx, IntNode* intCurr)
   {
     //get the maximum level ...
     unsigned L1 = GetMostSignificantBit(startIdx);
@@ -469,7 +469,7 @@ namespace BezierLib {
 
     if (Level == 0) 
     {
-      intCurr = InsertInt(intCurr, 1);
+      InsertInt(intCurr, 1);
       return;
     }
 

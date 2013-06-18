@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.8c (alpha)                                                    *
-* Date      :  18 June 2013                                                    *
+* Version   :  0.8e (alpha)                                                    *
+* Date      :  19 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -34,7 +34,7 @@ namespace BezierLib {
     BezierType beziertype;
     //segments: ie supports poly-beziers (ie before flattening) with up to 16,383 segments 
     std::vector< Segment* > segments;
-    void ReconstructInternal(unsigned short segIdx, unsigned startIdx, unsigned endIdx, IntNode*& intCurr);
+    void ReconstructInternal(unsigned short segIdx, unsigned startIdx, unsigned endIdx, IntNode* intCurr);
   public:
     Bezier(){};
     Bezier(
