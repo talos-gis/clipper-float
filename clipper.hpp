@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  5.1.7 (XYZ - a)                                                 *
-* Date      :  9 June 2013                                                     *
+* Version   :  5.1.7 (XYZ - c)                                                 *
+* Date      :  20 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -60,6 +60,8 @@ struct IntPoint {
   IntPoint(long64 x = 0, long64 y = 0, long64 z = 0): X(x), Y(y), Z(z) {};
   friend std::ostream& operator <<(std::ostream &s, const IntPoint &p);
 };
+
+typedef void (*ZFillFunc)(long64, long64, IntPoint&);
 
 typedef std::vector< IntPoint > Polygon;
 typedef std::vector< Polygon > Polygons;
@@ -188,6 +190,8 @@ public:
   void ReverseSolution(bool value) {m_ReverseOutput = value;};
   bool ForceSimple() {return m_ForceSimple;};
   void ForceSimple(bool value) {m_ForceSimple = value;};
+  //set the callback function for z value filling on intersections (otherwise Z is 0)
+  void ZFillFunction(ZFillFunc zFillFunc);
 protected:
   void Reset();
   virtual bool ExecuteInternal();
@@ -206,6 +210,7 @@ private:
   bool              m_ReverseOutput;
   bool              m_UsingPolyTree; 
   bool              m_ForceSimple;
+  ZFillFunc         m_ZFill; //custom callback 
   void DisposeScanbeamList();
   void SetWindingCount(TEdge& edge);
   bool IsEvenOddFillType(const TEdge& edge) const;
@@ -259,6 +264,7 @@ private:
   void DoSimplePolygons();
   void FixupFirstLefts1(OutRec* OldOutRec, OutRec* NewOutRec);
   void FixupFirstLefts2(OutRec* OldOutRec, OutRec* NewOutRec);
+  void SetZ(IntPoint& pt, TEdge& e, TEdge& eNext);
 };
 //------------------------------------------------------------------------------
 

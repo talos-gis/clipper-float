@@ -3,8 +3,8 @@ unit clipper;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  5.1.7 (XYZ - a)                                                 *
-* Date      :  9 June 2013                                                     *
+* Version   :  5.1.7 (XYZ - c)                                                 *
+* Date      :  20 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -42,6 +42,9 @@ type
   PIntPoint = ^TIntPoint;
   TIntPoint = record X, Y, Z: Int64; end;
   TIntRect = record Left, Top, Right, Bottom: Int64; end;
+
+  TDoublePoint = record X, Y: Double; end;
+  TArrayOfDoublePoint = array of TDoublePoint;
 
   TClipType = (ctIntersection, ctUnion, ctDifference, ctXor);
   TPolyType = (ptSubject, ptClip);
@@ -189,6 +192,8 @@ type
     Prev     : PHorzRec;
   end;
 
+  TZFillCallback = procedure (const Z1, Z2: Int64; var Pt: TIntPoint);
+
   TClipperBase = class
   private
     FEdgeList      : TList;
@@ -223,7 +228,8 @@ type
     FHorizJoins     : PHorzRec;
     FReverseOutput  : Boolean;
     FForceSimple    : Boolean;
-    FUsingPolyTree: Boolean;
+    FUsingPolyTree  : Boolean;
+    FZFillCallback  : TZFillCallback;
     procedure DisposeScanbeamList;
     procedure InsertScanbeam(const Y: Int64);
     function PopScanbeam: Int64;
@@ -296,6 +302,7 @@ type
     property ReverseSolution: Boolean read FReverseOutput write FReverseOutput;
     property ForceSimple: Boolean
       read FForceSimple write FForceSimple;
+    property ZFillFunction: TZFillCallback read FZFillCallback write FZFillCallback;
   end;
 
 function Orientation(const Pts: TPolygon): Boolean; overload;
@@ -325,10 +332,6 @@ function CleanPolygons(const Polys: TPolygons; Distance: double = 1.415): TPolyg
 function PolyTreeToPolygons(PolyTree: TPolyTree): TPolygons;
 
 implementation
-
-type
-  TDoublePoint = record X, Y: Double; end;
-  TArrayOfDoublePoint = array of TDoublePoint;
 
 const
   Horizontal: Double = -3.4e+38;
@@ -956,6 +959,29 @@ begin
   if currentY = Edge.Top.Y then Result := Edge.Top.X
   else if Edge.Top.X = Edge.Bot.X then Result := Edge.Bot.X
   else Result := Edge.Bot.X + round(Edge.Dx*(currentY - Edge.Bot.Y));
+end;
+//------------------------------------------------------------------------------
+
+function GetZ(const Pt: TIntPoint; E: PEdge): Int64; {$IFDEF INLINING} inline; {$ENDIF}
+begin
+  if PointsEqual(Pt, E.Bot) then Result := E.Bot.Z
+  else if PointsEqual(Pt, E.Top) then Result := E.Top.Z
+  else if E.WindDelta > 0 then Result := E.Bot.Z
+  else Result := E.Top.Z;
+end;
+//------------------------------------------------------------------------------
+
+Procedure SetZ(var Pt: TIntPoint; E, eNext: PEdge; ZFillFunc: TZFillCallback);
+var
+  Z1, Z2: Int64;
+begin
+  Pt.Z := 0;
+  if assigned(ZFillFunc) then
+  begin
+    Z1 := GetZ(Pt, E);
+    Z2 := GetZ(Pt, eNext);
+    ZFillFunc(Z1, Z2, Pt);
+  end;
 end;
 //------------------------------------------------------------------------------
 
@@ -2034,7 +2060,7 @@ begin
 
       E := Lb.NextInAEL;
       Pt := Lb.Curr;
-      Pt.Z := 0;
+      SetZ(Pt, Rb, E, FZFillCallback);
       while E <> Rb do
       begin
         if not Assigned(E) then raise exception.Create(rsMissingRightbound);
@@ -2672,6 +2698,7 @@ var
   E, eNext, eMaxPair: PEdge;
   HorzLeft, HorzRight: Int64;
   Direction: TDirection;
+  Pt: TIntPoint;
 const
   ProtectLeft: array[Boolean] of TIntersectProtects = ([ipRight], [ipLeft,ipRight]);
   ProtectRight: array[Boolean] of TIntersectProtects = ([ipLeft], [ipLeft,ipRight]);
@@ -2744,27 +2771,17 @@ begin
         if (eMaxPair.OutIdx >= 0) then raise exception.Create(rsHorizontal);
         Exit;
       end
-      else if (E.Dx = Horizontal) and not IsMinima(E) and not (E.Curr.X > E.Top.X) then
-      begin
-        //An overlapping horizontal Edge. Overlapping horizontal edges are
-        //processed as if layered with the current horizontal Edge (horizEdge)
-        //being infinitesimally lower that the Next (E). Therfore, we
-        //intersect with E only if E.Curr.X is within the bounds of HorzEdge ...
-        if Direction = dLeftToRight then
-          IntersectEdges(HorzEdge, E, IntPoint(E.Curr.X, HorzEdge.Curr.Y),
-            ProtectRight[not IsTopHorz(E.Curr.X)])
-        else
-          IntersectEdges(E, HorzEdge, IntPoint(E.Curr.X, HorzEdge.Curr.Y),
-            ProtectLeft[not IsTopHorz(E.Curr.X)]);
-      end
       else if (Direction = dLeftToRight) then
-        IntersectEdges(HorzEdge, E,
-          IntPoint(E.Curr.X, HorzEdge.Curr.Y),
-          ProtectRight[not IsTopHorz(E.Curr.X)])
-      else
-        IntersectEdges(E, HorzEdge,
-          IntPoint(E.Curr.X, HorzEdge.Curr.Y),
-          ProtectLeft[not IsTopHorz(E.Curr.X)]);
+      begin
+        Pt := IntPoint(E.Curr.X, HorzEdge.Curr.Y);
+        SetZ(Pt, E, HorzEdge, FZFillCallback);
+        IntersectEdges(HorzEdge, E, Pt, ProtectRight[not IsTopHorz(E.Curr.X)])
+      end else
+      begin
+        Pt := IntPoint(E.Curr.X, HorzEdge.Curr.Y);
+        SetZ(Pt, E, HorzEdge, FZFillCallback);
+        IntersectEdges(E, HorzEdge, Pt, ProtectLeft[not IsTopHorz(E.Curr.X)]);
+      end;
       SwapPositionsInAEL(HorzEdge, E);
     end
     else if ((Direction = dLeftToRight) and (E.Curr.X >= HorzRight)) or
@@ -2884,6 +2901,7 @@ begin
           Pt.Y := BotY;
           Pt.X := TopX(E, Pt.Y);
         end;
+        SetZ(Pt, E, eNext, FZFillCallback);
         InsertIntersectNode(E, eNext, Pt);
         SwapPositionsInSEL(E, eNext);
         IsModified := True;
@@ -2945,6 +2963,7 @@ procedure TClipper.DoMaxima(E: PEdge; const TopY: Int64);
 var
   ENext, EMaxPair: PEdge;
   X: Int64;
+  Pt: TIntPoint;
 begin
   EMaxPair := GetMaximaPair(E);
   X := E.Top.X;
@@ -2952,7 +2971,9 @@ begin
   while ENext <> EMaxPair do
   begin
     if not Assigned(ENext) then raise exception.Create(rsDoMaxima);
-    IntersectEdges(E, ENext, IntPoint(X, TopY), [ipLeft, ipRight]);
+    Pt := IntPoint(X, TopY);
+    SetZ(Pt, E, ENext, FZFillCallback);
+    IntersectEdges(E, ENext, Pt, [ipLeft, ipRight]);
     SwapPositionsInAEL(E, ENext);
     ENext := E.NextInAEL;
   end;
@@ -2963,7 +2984,7 @@ begin
   end
   else if (E.OutIdx >= 0) and (EMaxPair.OutIdx >= 0) then
   begin
-    IntersectEdges(E, EMaxPair, IntPoint(X, TopY));
+    IntersectEdges(E, EMaxPair, E.Top);
   end
   else raise exception.Create(rsDoMaxima);
 end;

@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  5.1.7 (XYZ - a)                                                 *
-* Date      :  9 June 2013                                                     *
+* Version   :  5.1.7 (XYZ - c)                                                 *
+* Date      :  20 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -250,11 +250,11 @@ class Int128
 
     Int128(const long64& _hi, const ulong64& _lo): lo(_lo), hi(_hi){}
     
-    long64 operator = (const long64 &val)
+    Int128& operator = (const long64 &val)
     {
       lo = (ulong64)val;
       if (val < 0) hi = -1; else hi = 0;
-      return val;
+      return *this;
     }
 
     bool operator == (const Int128 &val) const
@@ -923,7 +923,7 @@ ClipperBase::ClipperBase() //constructor
 {
   m_MinimaList = 0;
   m_CurrentLM = 0;
-  m_UseFullRange = true;
+  m_UseFullRange = false;
 }
 //------------------------------------------------------------------------------
 
@@ -1232,6 +1232,7 @@ Clipper::Clipper() : ClipperBase() //constructor
   m_UseFullRange = false;
   m_ReverseOutput = false;
   m_ForceSimple = false;
+  m_ZFill = 0;
 }
 //------------------------------------------------------------------------------
 
@@ -1239,6 +1240,12 @@ Clipper::~Clipper() //destructor
 {
   Clear();
   DisposeScanbeamList();
+}
+//------------------------------------------------------------------------------
+
+void Clipper::ZFillFunction(ZFillFunc zFillFunc)
+{  
+  m_ZFill = zFillFunc;
 }
 //------------------------------------------------------------------------------
 
@@ -1761,7 +1768,7 @@ void Clipper::InsertLocalMinimaIntoAEL(const long64 botY)
 
       TEdge* e = lb->nextInAEL;
       IntPoint pt = lb->curr;
-      pt.Z = 0;
+      SetZ(pt, *rb, *e);
       while( e != rb )
       {
         if(!e) throw clipperException("InsertLocalMinimaIntoAEL: missing rightbound!");
@@ -1799,6 +1806,29 @@ void Clipper::DeleteFromSEL(TEdge *e)
   if( SelNext ) SelNext->prevInSEL = SelPrev;
   e->nextInSEL = 0;
   e->prevInSEL = 0;
+}
+//------------------------------------------------------------------------------
+
+inline void SetZInt(IntPoint& pt, TEdge& e)
+{
+  if (PointsEqual(pt, e.bot)) pt.Z = e.bot.Z;
+  else if (PointsEqual(pt, e.top)) pt.Z = e.top.Z;
+  else if (e.windDelta > 0) pt.Z = e.bot.Z;
+  else pt.Z = e.top.Z;
+}
+//------------------------------------------------------------------------------
+
+void Clipper::SetZ(IntPoint& pt, TEdge& e, TEdge& eNext)
+{
+  pt.Z = 0;
+  if (m_ZFill) 
+  {
+    IntPoint pt1 = pt;
+    SetZInt(pt1, e);
+    IntPoint pt2 = pt;
+    SetZInt(pt2, eNext);
+    (*m_ZFill)(pt1.Z, pt2.Z, pt);
+  }
 }
 //------------------------------------------------------------------------------
 
@@ -2364,28 +2394,17 @@ void Clipper::ProcessHorizontal(TEdge *horzEdge)
         if (eMaxPair->outIdx >= 0) throw clipperException("ProcessHorizontal error");
         return;
       }
-      else if( NEAR_EQUAL(e->dx, HORIZONTAL) &&  !IsMinima(e) && !(e->curr.X > e->top.X) )
-      {
-        //An overlapping horizontal edge. Overlapping horizontal edges are
-        //processed as if layered with the current horizontal edge (horizEdge)
-        //being infinitesimally lower that the next (e). Therfore, we
-        //intersect with e only if e.curr.X is within the bounds of horzEdge ...
-        if( dir == dLeftToRight )
-          IntersectEdges( horzEdge , e, IntPoint(e->curr.X, horzEdge->curr.Y, 0),
-            (IsTopHorz( e->curr.X ))? ipLeft : ipBoth );
-        else
-          IntersectEdges( e, horzEdge, IntPoint(e->curr.X, horzEdge->curr.Y, 0),
-            (IsTopHorz( e->curr.X ))? ipRight : ipBoth );
-      }
       else if( dir == dLeftToRight )
       {
-        IntersectEdges( horzEdge, e, IntPoint(e->curr.X, horzEdge->curr.Y, 0),
-          (IsTopHorz( e->curr.X ))? ipLeft : ipBoth );
+        IntPoint pt = IntPoint(e->curr.X, horzEdge->curr.Y);
+        SetZ(pt, *e, *horzEdge);
+        IntersectEdges( horzEdge, e, pt, (IsTopHorz( e->curr.X ))? ipLeft : ipBoth );
       }
       else
       {
-        IntersectEdges( e, horzEdge, IntPoint(e->curr.X, horzEdge->curr.Y, 0),
-          (IsTopHorz( e->curr.X ))? ipRight : ipBoth );
+        IntPoint pt = IntPoint(e->curr.X, horzEdge->curr.Y);
+        SetZ(pt, *e, *horzEdge);
+        IntersectEdges( e, horzEdge, pt, (IsTopHorz( e->curr.X ))? ipRight : ipBoth );
       }
       SwapPositionsInAEL( horzEdge, e );
     }
@@ -2500,6 +2519,7 @@ void Clipper::BuildIntersectList(const long64 botY, const long64 topY)
             pt.Y = botY;
             pt.X = TopX(*e, pt.Y);
         }
+        SetZ(pt, *e, *eNext);
         InsertIntersectNode( e, eNext, pt );
         SwapPositionsInSEL(e, eNext);
         isModified = true;
@@ -2563,6 +2583,8 @@ void Clipper::DoMaxima(TEdge *e, long64 topY)
   while( eNext != eMaxPair )
   {
     if (!eNext) throw clipperException("DoMaxima error");
+    IntPoint pt = IntPoint(X, topY);
+    SetZ(pt, *e, *eNext);
     IntersectEdges( e, eNext, IntPoint(X, topY), ipBoth );
     SwapPositionsInAEL(e, eNext);
     eNext = e->nextInAEL;

@@ -1,8 +1,8 @@
 ﻿/*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  5.1.7 (XYZ - a)                                                 *
-* Date      :  9 June 2013                                                     *
+* Version   :  5.1.7 (XYZ - c)                                                 *
+* Date      :  20 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -48,7 +48,7 @@ namespace ClipperLib
    
     using Polygon = List<IntPoint>;
     using Polygons = List<List<IntPoint>>;
-
+  
     //------------------------------------------------------------------------------
     // PolyTree & PolyNode classes
     //------------------------------------------------------------------------------
@@ -984,6 +984,9 @@ namespace ClipperLib
         private bool m_ForceSimple;
         private bool m_UsingPolyTree;
 
+        public delegate void ZFillFunc(Int64 Z1, Int64 Z2, ref IntPoint pt);
+        public ZFillFunc ZFillFunction { get; set; }
+
         public Clipper()
         {
             m_Scanbeam = null;
@@ -1022,6 +1025,27 @@ namespace ClipperLib
           Scanbeam sb2 = m_Scanbeam.next;
           m_Scanbeam = null;
           m_Scanbeam = sb2;
+          }
+        }
+        //------------------------------------------------------------------------------
+
+        Int64 GetZ(IntPoint pt, TEdge e)
+        {
+          if (PointsEqual(pt, e.bot)) return e.bot.Z;
+          else if (PointsEqual(pt, e.top)) return e.top.Z;
+          else if (e.windDelta > 0) return e.bot.Z;
+          else return e.top.Z;
+        }
+        //------------------------------------------------------------------------------
+
+        internal void SetZ(ref IntPoint pt, TEdge e1, TEdge e2)
+        {
+          pt.Z = 0;
+          if (ZFillFunction != null)
+          {
+            Int64 z1 = GetZ(pt, e1);
+            Int64 z2 = GetZ(pt, e2);
+            ZFillFunction(z1, z2, ref pt);
           }
         }
         //------------------------------------------------------------------------------
@@ -1154,6 +1178,7 @@ namespace ClipperLib
             {
                 Reset();
                 if (m_CurrentLM == null) return true;
+
                 Int64 botY = PopScanbeam();
                 do
                 {
@@ -1312,13 +1337,15 @@ namespace ClipperLib
                     AddJoin(rb, rb.prevInAEL, -1, -1);
 
               TEdge e = lb.nextInAEL;
+              IntPoint pt = lb.bot;
+              SetZ(ref pt, rb, e);
               while( e != rb )
               {
                 if(e == null) 
                     throw new ClipperException("InsertLocalMinimaIntoAEL: missing rightbound!");
                 //nb: For calculating winding counts etc, IntersectEdges() assumes
                 //that param1 will be to the right of param2 ABOVE the intersection ...
-                IntersectEdges(rb, e, lb.bot, Protects.ipNone); //order important here
+                IntersectEdges(rb, e, pt, Protects.ipNone); //order important here
                 e = e.nextInAEL;
               }
             }
@@ -2395,23 +2422,18 @@ namespace ClipperLib
                         if (eMaxPair.outIdx >= 0) throw new ClipperException("ProcessHorizontal error");
                         return;
                     }
-                    else if (e.dx == horizontal && !IsMinima(e) && !(e.curr.X > e.top.X))
-                    {
-                        if (Direction == Direction.dLeftToRight)
-                            IntersectEdges(horzEdge, e, new IntPoint(e.curr.X, horzEdge.curr.Y),
-                              (IsTopHorz(horzEdge, e.curr.X)) ? Protects.ipLeft : Protects.ipBoth);
-                        else
-                            IntersectEdges(e, horzEdge, new IntPoint(e.curr.X, horzEdge.curr.Y),
-                              (IsTopHorz(horzEdge, e.curr.X)) ? Protects.ipRight : Protects.ipBoth);
-                    }
                     else if (Direction == Direction.dLeftToRight)
                     {
+                        IntPoint pt = new IntPoint(e.curr.X, horzEdge.curr.Y);
+                        SetZ(ref pt, e, horzEdge);
                         IntersectEdges(horzEdge, e, 
                           new IntPoint(e.curr.X, horzEdge.curr.Y),
                           (IsTopHorz(horzEdge, e.curr.X)) ? Protects.ipLeft : Protects.ipBoth);
                     }
                     else
                     {
+                        IntPoint pt = new IntPoint(e.curr.X, horzEdge.curr.Y);
+                        SetZ(ref pt, e, horzEdge);
                         IntersectEdges(e, horzEdge, 
                           new IntPoint(e.curr.X, horzEdge.curr.Y),
                           (IsTopHorz(horzEdge, e.curr.X)) ? Protects.ipRight : Protects.ipBoth);
@@ -2543,6 +2565,7 @@ namespace ClipperLib
                       pt.Y = botY;
                       pt.X = TopX(e, pt.Y);
                   }
+                  SetZ(ref pt, e, eNext);
                   InsertIntersectNode(e, eNext, pt);
                   SwapPositionsInSEL(e, eNext);
                   isModified = true;
@@ -2837,7 +2860,9 @@ namespace ClipperLib
           while( eNext != eMaxPair )
           {
             if (eNext == null) throw new ClipperException("DoMaxima error");
-            IntersectEdges( e, eNext, new IntPoint(X, topY), Protects.ipBoth );
+            IntPoint pt = new IntPoint(X, topY);
+            SetZ(ref pt, e, eNext);
+            IntersectEdges(e, eNext, pt, Protects.ipBoth);
             SwapPositionsInAEL(e, eNext);
             eNext = e.nextInAEL;
           }
