@@ -3,8 +3,8 @@ unit clipper;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0z                                                          *
-* Date      :  20 July 2013                                                    *
+* Version   :  6.0.0 (beta1)                                                   *
+* Date      :  21 July 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -1268,6 +1268,48 @@ begin
   end else
     Result := (Edge.Next.Top.Y < Edge.Top.Y);
 end;
+//------------------------------------------------------------------------------
+
+function SharedVertIsTop(Edge: PEdge): Boolean;
+var
+  E: PEdge;
+begin
+  Result := True;
+  E := Edge;
+  while E.Prev <> Edge do
+  begin
+    if PointsEqual(E.Top, E.Prev.Top) then
+    begin
+      if PointsEqual(E.Bot, E.Prev.Bot) then
+      begin E := E.Prev; Continue; end
+      else Result := True;
+    end else
+      Result := False;
+     Break;
+  end;
+  while E <> Edge do
+  begin
+    Result := not Result;
+    E := E.Next;
+  end;
+end;
+//------------------------------------------------------------------------------
+
+function AllHorizontal(Edge: PEdge): Boolean;
+var
+  E: PEdge;
+begin
+  Result := Edge.Dx = Horizontal;
+  if not Result then Exit;
+  E := Edge.Next;
+  while (E <> Edge) do
+    if E.Dx <> Horizontal then
+    begin
+      Result := False;
+      Exit;
+    end else
+      E := E.Next;
+end;
 
 //------------------------------------------------------------------------------
 // TClipperBase methods ...
@@ -1619,30 +1661,27 @@ begin
   E := EStart.Prev; //SkipEdge if IsOpen
   if IsOpen and not IsSemiOpen and (E.Top.Y = EHighest.Top.Y) then
   begin
-    if (E.Dx = Horizontal) then EHighest := E.Next
-    else if PointsEqual(E.Top, E.Prev.Top) then
-    begin
-      if not PointsEqual(E.Top, E.Next.Top) then EHighest := E
-      else if PointsEqual(E.Bot, E.Next.Bot) then EHighest := E
-      else EHighest := E.Next;
-    end
+    if (E.Dx = Horizontal) or
+      (E.Next.Dx = Horizontal) and (E.Next.Bot.Y = eHighest.Top.Y) then
+        EHighest := E.Next
+    else if SharedVertIsTop(E) then EHighest := E
+    else if PointsEqual(E.Top, E.Prev.Top) then EHighest := E.Prev
     else EHighest := E.Next;
   end else
   begin
-    E := EHighest.Prev; //marker to avoid endless loop on horiz polyline ...
-    while (EHighest <> E) and ((EHighest.Dx = Horizontal) or
+    while ((EHighest.Dx = Horizontal) or
       PointsEqual(EHighest.top, EHighest.next.top) or
       PointsEqual(EHighest.top, EHighest.next.bot)) do {next is high horizontal}
         EHighest := EHighest.Next;
   end;
   //4. build the local minima list ...
-  I := 0;
   E := EHighest;
-  repeat
-    E := AddBoundsToLML(E);
-    inc(I);
-    assert(I < 100, 'Oops');
-  until (E = EHighest);
+  if AllHorizontal(E) then
+    AscendToMax(E, false)
+  else
+    repeat
+      E := AddBoundsToLML(E);
+    until (E = EHighest);
 end;
 //------------------------------------------------------------------------------
 
