@@ -3,8 +3,8 @@ unit clipper;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0 (beta1)                                                   *
-* Date      :  21 July 2013                                                    *
+* Version   :  6.0.0 (beta2)                                                   *
+* Date      :  23 July 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -69,6 +69,9 @@ type
 {$IFDEF UseXYZ}
   TZFillCallback = procedure (const Z1, Z2: Int64; var Pt: TIntPoint);
 {$ENDIF}
+
+  TInitOption = (ioReverseSolution, ioStrictlySimple, ioPreserveColinear);
+  TInitOptions = set of TInitOption;
 
   TClipType = (ctIntersection, ctUnion, ctDifference, ctXor);
   TPolyType = (ptSubject, ptClip);
@@ -234,8 +237,8 @@ type
     destructor Destroy; override;
     procedure Clear; virtual;
 
-    function AddPath(const Path: TPath; PolyType: TPolyType; IsOpen: Boolean): Boolean;
-    function AddPaths(const Paths: TPaths; PolyType: TPolyType; IsOpen: Boolean): Boolean;
+    function AddPath(const Path: TPath; PolyType: TPolyType; Closed: Boolean): Boolean;
+    function AddPaths(const Paths: TPaths; PolyType: TPolyType; Closed: Boolean): Boolean;
 
     ////////////////////////////////////////////////////////////////////////////
     // DEPRECATED METHODS - USE AddPath(s) /////////////////////////////////////
@@ -328,7 +331,7 @@ type
       var PolyTree: TPolyTree;
       subjFillType: TPolyFillType = pftEvenOdd;
       clipFillType: TPolyFillType = pftEvenOdd): Boolean; overload;
-    constructor Create; override;
+    constructor Create(InitOptions: TInitOptions = []); reintroduce; overload;
     destructor Destroy; override;
     procedure Clear; override;
     //ReverseSolution: reverses the default orientation
@@ -379,8 +382,8 @@ implementation
 const
   Horizontal: Double = -3.4e+38;
 
-  Unassigned     : Integer = -1;
-  SkipEdge       : Integer = -2; //edge that would otherwise close a path
+  Unassigned : Integer = -1;
+  Skip       : Integer = -2; //flag for the edge that closes an open path
 
   //The SlopesEqual function places the most limits on coordinate values
   //So, to avoid overflow errors, they must not exceed the following values...
@@ -1207,70 +1210,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function GetLastHorz(Edge: PEdge): PEdge; {$IFDEF INLINING} inline; {$ENDIF}
-begin
-  Result := Edge;
-  while (Result.OutIdx <> SkipEdge) and
-    (Result.Next <> Edge) and (Result.Next.Dx = Horizontal) do
-      Result := Result.Next;
-end;
-//------------------------------------------------------------------------------
-
-function MoreBelow(Edge: PEdge): Boolean; {$IFDEF INLINING} inline; {$ENDIF}
-var
-  E: PEdge;
-begin
-  //Edge is SkipEdge heading down.
-  E := Edge;
-  if E.Dx = Horizontal then
-  begin
-    while E.Next.Dx = Horizontal do E := E.Next;
-    Result := E.Next.Bot.Y > E.Bot.Y;
-  end else if E.Next.Dx = Horizontal then
-  begin
-    while E.Next.Dx = Horizontal do E := E.Next;
-    Result := E.Next.Bot.Y > E.Bot.Y;
-  end else
-    //Result := (E.Next.Bot.Y > E.Bot.Y;
-    Result := PointsEqual(E.Bot, E.Next.Top);
-end;
-//------------------------------------------------------------------------------
-
-function AtLocMin(Edge: PEdge): Boolean; {$IFDEF INLINING} inline; {$ENDIF}
-var
-  E: PEdge;
-begin
-  //Edge is SkipEdge and heading down.
-  E := Edge;
-  if E.Dx = Horizontal then
-  begin
-    while E.Next.Dx = Horizontal do E := E.Next;
-    Result := E.Next.Top.Y < E.Bot.Y;
-  end else
-  if PointsEqual(E.Prev.Bot, E.Bot) and PointsEqual(E.Prev.top, E.Top) then
-    Result := PointsEqual(E.Next.Bot, E.Bot)
-  else
-    Result := PointsEqual(E.Next.Bot, E.Bot) and
-      not PointsEqual(E.Prev.Bot, E.Bot);
-end;
-//------------------------------------------------------------------------------
-
-function MoreAbove(Edge: PEdge): Boolean; {$IFDEF INLINING} inline; {$ENDIF}
-begin
-  if (Edge.Dx = Horizontal)  then
-  begin
-    Edge := GetLastHorz(Edge);
-    Result := (Edge.Next.Top.Y < Edge.Top.Y);
-  end else if (Edge.Next.Dx = Horizontal) then
-  begin
-    Edge := GetLastHorz(Edge.Next);
-    Result := (Edge.Next.Top.Y < Edge.Top.Y);
-  end else
-    Result := (Edge.Next.Top.Y < Edge.Top.Y);
-end;
-//------------------------------------------------------------------------------
-
-function SharedVertIsTop(Edge: PEdge): Boolean;
+function SharedVertWithPrevAtTop(Edge: PEdge): Boolean;
 var
   E: PEdge;
 begin
@@ -1292,6 +1232,97 @@ begin
     Result := not Result;
     E := E.Next;
   end;
+end;
+//------------------------------------------------------------------------------
+
+function SharedVertWithNextIsBot(Edge: PEdge): Boolean;
+var
+  E: PEdge;
+  A,B: Boolean;
+begin
+  Result := True;
+  E := Edge;
+  while E.Prev <> Edge do
+  begin
+    A := PointsEqual(E.Next.Bot, E.Bot);
+    B := PointsEqual(E.Prev.Bot, E.Bot);
+    if A <> B then
+    begin
+      Result := A;
+      Break;
+    end;
+    A := PointsEqual(E.Next.Top, E.Top);
+    B := PointsEqual(E.Prev.Top, E.Top);
+    if A <> B then
+    begin
+      Result := B;
+      Break;
+    end;
+    E := E.Prev;
+  end;
+  while E <> Edge do
+  begin
+    Result := not Result;
+    E := E.Next;
+  end;
+end;
+//------------------------------------------------------------------------------
+
+function GetLastHorz(Edge: PEdge): PEdge; {$IFDEF INLINING} inline; {$ENDIF}
+begin
+  Result := Edge;
+  while (Result.OutIdx <> Skip) and
+    (Result.Next <> Edge) and (Result.Next.Dx = Horizontal) do
+      Result := Result.Next;
+end;
+//------------------------------------------------------------------------------
+
+function MoreBelow(Edge: PEdge): Boolean; {$IFDEF INLINING} inline; {$ENDIF}
+var
+  E: PEdge;
+begin
+  //Edge is Skip heading down.
+  E := Edge;
+  if E.Dx = Horizontal then
+  begin
+    while E.Next.Dx = Horizontal do E := E.Next;
+    Result := E.Next.Bot.Y > E.Bot.Y;
+  end else if E.Next.Dx = Horizontal then
+  begin
+    while E.Next.Dx = Horizontal do E := E.Next;
+    Result := E.Next.Bot.Y > E.Bot.Y;
+  end else
+    Result := PointsEqual(E.Bot, E.Next.Top);
+end;
+//------------------------------------------------------------------------------
+
+function JustBeforeLocMin(Edge: PEdge): Boolean;
+var
+  E: PEdge;
+begin
+  //Edge is Skip and was heading down.
+  E := Edge;
+  if E.Dx = Horizontal then
+  begin
+    while E.Next.Dx = Horizontal do E := E.Next;
+    Result := E.Next.Top.Y < E.Bot.Y;
+  end else
+    result := SharedVertWithNextIsBot(E);
+end;
+//------------------------------------------------------------------------------
+
+function MoreAbove(Edge: PEdge): Boolean; {$IFDEF INLINING} inline; {$ENDIF}
+begin
+  if (Edge.Dx = Horizontal)  then
+  begin
+    Edge := GetLastHorz(Edge);
+    Result := (Edge.Next.Top.Y < Edge.Top.Y);
+  end else if (Edge.Next.Dx = Horizontal) then
+  begin
+    Edge := GetLastHorz(Edge.Next);
+    Result := (Edge.Next.Top.Y < Edge.Top.Y);
+  end else
+    Result := (Edge.Next.Top.Y < Edge.Top.Y);
 end;
 //------------------------------------------------------------------------------
 
@@ -1333,7 +1364,7 @@ end;
 //------------------------------------------------------------------------------
 
 function TClipperBase.AddPath(const Path: TPath;
-  PolyType: TPolyType; IsOpen: Boolean): Boolean;
+  PolyType: TPolyType; Closed: Boolean): Boolean;
 
   //----------------------------------------------------------------------
 
@@ -1400,7 +1431,7 @@ function TClipperBase.AddPath(const Path: TPath;
       //(it'll be copied to subsequent edges in the bound) ...
       with NewLm^ do
       begin
-        if IsOpen then LeftBound.WindDelta := 0
+        if not Closed then LeftBound.WindDelta := 0
         else if (LeftBound.Next = RightBound) then LeftBound.WindDelta := -1
         else LeftBound.WindDelta := 1;
         RightBound.WindDelta := -LeftBound.WindDelta;
@@ -1429,7 +1460,7 @@ function TClipperBase.AddPath(const Path: TPath;
     while true do
     begin
       E := E.Next;
-      if (E.OutIdx = SkipEdge) then Break
+      if (E.OutIdx = Skip) then Break
       else if E.Dx = Horizontal then
       begin
         //nb: proceed through horizontals when approaching from their right,
@@ -1439,12 +1470,17 @@ function TClipperBase.AddPath(const Path: TPath;
         //look ahead is required in case of multiple consec. horizontals
         EHorz := GetLastHorz(E);
         if (EHorz = E.Prev) or                    //horizontal polyline OR
-           (EHorz.OutIdx = SkipEdge) or
           ((EHorz.Next.Top.Y < E.Top.Y) and       //bottom horizontal
           (EHorz.Next.Bot.X > E.Prev.Bot.X)) then //approaching from the left
             Break;
-        if (E.Prev = E.Next) then Break; //open single line
         if (E.Top.X <> E.Prev.Bot.X) then ReverseHorizontal(E);
+        if EHorz.OutIdx = Skip then EHorz := EHorz.Prev;
+        while E <> EHorz do
+        begin
+          E.NextInLML := E.Prev;
+          E := E.Next;
+          if (E.Top.X <> E.Prev.Bot.X) then ReverseHorizontal(E);
+        end;
       end
       else if (E.Bot.Y = E.Prev.Bot.Y) then Break;
       E.NextInLML := E.Prev;
@@ -1457,7 +1493,7 @@ function TClipperBase.AddPath(const Path: TPath;
   var
     EStart: PEdge;
   begin
-    if (E.OutIdx = SkipEdge) then
+    if (E.OutIdx = Skip) then
     begin
       E := E.Next;
       if not MoreAbove(E.Prev) then Exit;
@@ -1470,7 +1506,7 @@ function TClipperBase.AddPath(const Path: TPath;
     EStart := E;
     while True do
     begin
-      if (E.Next.OutIdx = SkipEdge) or
+      if (E.Next.OutIdx = Skip) or
         ((E.Next.Top.Y = E.Top.Y) and (E.Next.Dx <> Horizontal)) then Break;
       E.NextInLML := E.Next;
       E := E.Next;
@@ -1480,7 +1516,7 @@ function TClipperBase.AddPath(const Path: TPath;
 
     if not Appending then
     begin
-      if EStart.OutIdx = SkipEdge then EStart := EStart.Next;
+      if EStart.OutIdx = Skip then EStart := EStart.Next;
       if (EStart <> E.Next) then
         DoMinimaLML(nil, EStart);
     end;
@@ -1498,7 +1534,7 @@ function TClipperBase.AddPath(const Path: TPath;
     //form the left and right (or right and left) bounds of the local minima.
 
     //do minima ...
-    if E.OutIdx = SkipEdge then
+    if E.OutIdx = Skip then
     begin
       if MoreBelow(E) then
       begin
@@ -1509,9 +1545,9 @@ function TClipperBase.AddPath(const Path: TPath;
     end else
       B := DescendToMin(E);
 
-    if (E.OutIdx = SkipEdge) then    //nb: may be BEFORE, AT or just THRU LM
+    if (E.OutIdx = Skip) then    //nb: may be BEFORE, AT or just THRU LM
     begin
-      //do minima before SkipEdge...
+      //do minima before Skip...
       DoMinimaLML(nil, B);      //store what we've got so far (if anything)
       AppendMaxima := False;
       //finish off any minima ...
@@ -1522,7 +1558,7 @@ function TClipperBase.AddPath(const Path: TPath;
         DoMinimaLML(B, E);
         AppendMaxima := True;
       end
-      else if AtLocMin(E) then
+      else if JustBeforeLocMin(E) then
         E := E.Next;
     end else
     begin
@@ -1533,7 +1569,7 @@ function TClipperBase.AddPath(const Path: TPath;
     //now do maxima ...
     AscendToMax(E, AppendMaxima);
 
-    if (E.OutIdx = SkipEdge) then     //may be BEFORE, AT or just AFTER maxima
+    if (E.OutIdx = Skip) then     //may be BEFORE, AT or just AFTER maxima
     begin
       //finish off any maxima ...
       if PointsEqual(E.Top, E.Prev.Top) then
@@ -1555,7 +1591,7 @@ var
   I, HighI: Integer;
   Edges: PEdgeArray;
   E, EStart, ELoopStop, EHighest: PEdge;
-  IsSemiOpen: Boolean;
+  ClosedOrSemiClosed: Boolean;
 begin
   {AddPath}
   Result := False; //ie assume nothing added
@@ -1563,17 +1599,16 @@ begin
   if HighI < 1 then Exit;
 
 {$IFDEF UseLines}
-  if IsOpen and (polyType = ptClip) then
+  if not Closed and (polyType = ptClip) then
     raise exception.Create(rsOpenPath);
 {$ELSE}
-   IsOpen := False;
+   Closed := True;
 {$ENDIF}
 
-  if IsOpen and PointsEqual(Path[0],Path[HighI]) then IsSemiOpen := True
-  else IsSemiOpen := False;
+  ClosedOrSemiClosed := Closed or PointsEqual(Path[0],Path[HighI]);
   while (HighI > 0) and PointsEqual(Path[HighI],Path[HighI -1]) do Dec(HighI);
   if (highI > 0) and PointsEqual(Path[0],Path[highI]) then Dec(HighI);
-  if (IsOpen and (HighI < 1)) or (not IsOpen and (HighI < 2)) then Exit;
+  if (Closed and (HighI < 2)) or (not Closed and (HighI < 1)) then Exit;
 
   //1. Basic initialization of Edges ...
   GetMem(Edges, sizeof(TEdge)*(HighI +1));
@@ -1594,18 +1629,17 @@ begin
     raise; //Range test fails
   end;
 
-  //2. Remove duplicates vertices and co-linear edges ...
   EStart := @Edges[0];
-  if IsOpen and not IsSemiOpen then
-    EStart.Prev.OutIdx := SkipEdge;
+  if not ClosedOrSemiClosed then EStart.Prev.OutIdx := Skip;
 
+  //2. Remove duplicate vertices, and co-linear edges (when closed) ...
   E := EStart;
   ELoopStop := EStart;
   while (E <> E.Next) do //ie in case loop reduces to a single vertex
   begin
     if PointsEqual(E.Curr, E.Next.Curr) then
     begin
-      //nb if E.OutIdx == SkipEdge then would be semiOpen
+      //nb E.OutIdx never equals Skip here because it would then be SemiClosed
       if E = EStart then EStart := E.Next;
       E := RemoveEdge(E);
       ELoopStop := E;
@@ -1613,13 +1647,17 @@ begin
     end;
     if (E.Prev = E.Next) then
       Break //only two vertices
-    else if (E.Prev.OutIdx <> SkipEdge) and (E.OutIdx <> SkipEdge) and
-      (E.Next.OutIdx <> SkipEdge) and
+    else if (ClosedOrSemiClosed or
+      ((E.Prev.OutIdx <> Skip) and (E.OutIdx <> Skip) and
+      (E.Next.OutIdx <> Skip))) and
       SlopesEqual(E.Prev.Curr, E.Curr, E.Next.Curr, FUse64BitRange) then
     begin
-      //allow 'sensible' (non-overlapping) co-linear orientations ...
-      if not (FPreserveColinear or IsOpen) and not
-        Pt2IsBetweenPt1AndPt3(E.Prev.Curr, E.Curr, E.Next.Curr) then
+      //All co-linear edges are allowed for open paths but in closed paths
+      //inner vertices of adjacent co-linear edges are removed. However if the
+      //PreserveColinear property has been enabled, only overlapping co-linear
+      //edges (ie spikes) are removed from closed paths.
+      if Closed and (not FPreserveColinear or
+        not Pt2IsBetweenPt1AndPt3(E.Prev.Curr, E.Curr, E.Next.Curr)) then
       begin
         if E = EStart then EStart := E.Next;
         E := RemoveEdge(E);
@@ -1632,13 +1670,13 @@ begin
     if E = ELoopStop then Break;
   end;
 
-  if (IsOpen and (E = E.Next)) or (not IsOpen and (E.Prev = E.Next)) then
+  if (not Closed and (E = E.Next)) or (Closed and (E.Prev = E.Next)) then
   begin
     FreeMem(Edges);
     Exit;
   end;
 
-  if IsOpen then
+  if not Closed then
     FHasOpenPaths := True;
 
   //3. Do the final Init and also find the 'highest' Edge.
@@ -1655,56 +1693,74 @@ begin
   Result := True;
   FEdgeList.Add(Edges);
 
-  //if eHighest is also the SkipEdge then it's a natural break, otherwise
+  //4. build the local minima list ...
+  if AllHorizontal(E) then
+  begin
+    if ClosedOrSemiClosed then
+      E.Prev.OutIdx := Skip;
+    AscendToMax(E, false);
+    Exit;
+  end;
+
+  //if eHighest is also the Skip then it's a natural break, otherwise
   //make sure eHighest is positioned so we're either at a top horizontal or
   //just starting to head down one edge of the polygon
-  E := EStart.Prev; //SkipEdge if IsOpen
-  if IsOpen and not IsSemiOpen and (E.Top.Y = EHighest.Top.Y) then
+  E := EStart.Prev; //EStart.Prev == Skip edge
+  if (E.Prev = E.Next) then
+    EHighest := E.Next
+  else if not ClosedOrSemiClosed and (E.Top.Y = EHighest.Top.Y) then
   begin
-    if (E.Dx = Horizontal) or
-      (E.Next.Dx = Horizontal) and (E.Next.Bot.Y = eHighest.Top.Y) then
+    if ((E.Dx = Horizontal) or (E.Next.Dx = Horizontal)) and
+      (E.Next.Bot.Y = eHighest.Top.Y) then
         EHighest := E.Next
-    else if SharedVertIsTop(E) then EHighest := E
+    else if SharedVertWithPrevAtTop(E) then EHighest := E
     else if PointsEqual(E.Top, E.Prev.Top) then EHighest := E.Prev
     else EHighest := E.Next;
   end else
   begin
-    while ((EHighest.Dx = Horizontal) or
-      PointsEqual(EHighest.top, EHighest.next.top) or
+    E := EHighest;
+    while (EHighest.Dx = Horizontal) or
+      (PointsEqual(EHighest.top, EHighest.next.top) or
       PointsEqual(EHighest.top, EHighest.next.bot)) do {next is high horizontal}
-        EHighest := EHighest.Next;
+    begin
+      EHighest := EHighest.Next;
+      if EHighest = E then
+      begin
+        while (EHighest.Dx = Horizontal) or
+          not SharedVertWithPrevAtTop(EHighest) do
+            EHighest := EHighest.Next;
+        Break; //ie avoids potential endless loop
+      end;
+    end;
   end;
-  //4. build the local minima list ...
+
   E := EHighest;
-  if AllHorizontal(E) then
-    AscendToMax(E, false)
-  else
-    repeat
-      E := AddBoundsToLML(E);
-    until (E = EHighest);
+  repeat
+    E := AddBoundsToLML(E);
+  until (E = EHighest);
 end;
 //------------------------------------------------------------------------------
 
 function TClipperBase.AddPaths(const Paths: TPaths;
-  PolyType: TPolyType; IsOpen: Boolean): Boolean;
+  PolyType: TPolyType; Closed: Boolean): Boolean;
 var
   I: Integer;
 begin
   Result := False;
   for I := 0 to high(Paths) do
-    if AddPath(Paths[I], PolyType, IsOpen) then Result := True;
+    if AddPath(Paths[I], PolyType, Closed) then Result := True;
 end;
 //------------------------------------------------------------------------------
 
 function TClipperBase.AddPolygons(const Paths: TPaths; PolyType: TPolyType): Boolean;
 begin
-  Result := AddPaths(Paths, PolyType, False);
+  Result := AddPaths(Paths, PolyType, True);
 end;
 //------------------------------------------------------------------------------
 
 function TClipperBase.AddPolygon(const Path: TPath; PolyType: TPolyType): Boolean;
 begin
-  Result := AddPath(Path, PolyType, False);
+  Result := AddPath(Path, PolyType, True);
 end;
 //------------------------------------------------------------------------------
 
@@ -1739,14 +1795,14 @@ begin
       begin
         Curr := Bot;
         Side := esLeft;
-        if OutIdx <> SkipEdge then
+        if OutIdx <> Skip then
           OutIdx := Unassigned;
       end;
     with Lm.RightBound^ do
     begin
       Curr := Bot;
       Side := esRight;
-      if OutIdx <> SkipEdge then
+      if OutIdx <> Skip then
         OutIdx := Unassigned;
     end;
     Lm := Lm.Next;
@@ -1790,12 +1846,18 @@ end;
 // TClipper methods ...
 //------------------------------------------------------------------------------
 
-constructor TClipper.Create;
+constructor TClipper.Create(InitOptions: TInitOptions = []);
 begin
   inherited Create;
   FJoinList := TList.Create;
   FGhostJoinList := TList.Create;
   FPolyOutList := TList.Create;
+  if ioReverseSolution in InitOptions then
+    FReverseOutput := true;
+  if ioStrictlySimple in InitOptions then
+    FStrictSimple := true;
+  if ioPreserveColinear in InitOptions then
+    FPreserveColinear := true;
 end;
 //------------------------------------------------------------------------------
 
@@ -1852,9 +1914,9 @@ function TClipper.Execute(clipType: TClipType;
 begin
   Result := False;
   solution := nil;
+  if FExecuteLocked then Exit;
   //nb: Open paths can only be returned via the PolyTree structure ...
   if HasOpenPaths then raise Exception.Create(rsOpenPath2);
-  if FExecuteLocked then Exit;
   try try
     FExecuteLocked := True;
     FSubjFillType := subjFillType;
@@ -1919,20 +1981,17 @@ var
   OutRec: POutRec;
   BotY, TopY: cInt;
 begin
-  Result := False;
   try
     Reset;
-    if not Assigned(fScanbeam) then
-    begin
-      Result := True;
-      Exit;
-    end;
+    Result := Assigned(fScanbeam);
+    if not Result then Exit;
 
     BotY := PopScanbeam;
     repeat
       InsertLocalMinimaIntoAEL(BotY);
       ClearGhostJoins;
       ProcessHorizontals(False);
+      if not assigned(FScanbeam) then Break;
       TopY := PopScanbeam;
       if not ProcessIntersections(BotY, TopY) then Exit;
       ProcessEdgesAtTopOfScanbeam(TopY);
@@ -2376,24 +2435,14 @@ begin
     Rb := CurrentLm.RightBound;
     PopLocalMinima;
 
-    if not assigned(Lb) or (Lb.Dx = Horizontal) then
+    Op1 := nil;
+    if not assigned(Lb) then
     begin
       //nb: don't insert LB into either AEL or SEL
       InsertEdgeIntoAEL(Rb, nil);
       SetWindingCount(Rb);
-      if assigned(Lb) then
-      begin
-        Lb.WindCnt := Rb.WindCnt;
-        Lb.WindCnt2 := Rb.WindCnt2;
-        if IsContributing(Rb) then
-          Op1 := AddLocalMinPoly(Rb, Lb, Rb.Bot) else
-          Op1 := nil;
-      end else
-      begin
-        if IsContributing(Rb) then
-          Op1 := AddOutPt(Rb, Rb.Bot) else
-          Op1 := nil;
-      end;
+      if IsContributing(Rb) then
+        Op1 := AddOutPt(Rb, Rb.Bot);
     end else
     begin
       InsertEdgeIntoAEL(Lb, nil);
@@ -2402,8 +2451,7 @@ begin
       Rb.WindCnt := Lb.WindCnt;
       Rb.WindCnt2 := Lb.WindCnt2;
       if IsContributing(Lb) then
-        Op1 := AddLocalMinPoly(Lb, Rb, Lb.Bot) else
-        Op1 := nil;
+        Op1 := AddLocalMinPoly(Lb, Rb, Lb.Bot);
       InsertScanbeam(Lb.Top.Y);
     end;
 
@@ -2429,8 +2477,7 @@ begin
       end;
     end;
 
-    //nb: the only time Lb is horizontal is when it's a solo open line
-    if (Lb.NextInAEL <> Rb) and not (Lb.Dx = Horizontal) then
+    if (Lb.NextInAEL <> Rb) then
     begin
       if (Rb.OutIdx >= 0) and (Rb.PrevInAEL.OutIdx >= 0) and
         SlopesEqual(Rb.PrevInAEL, Rb, FUse64BitRange) and
@@ -3018,8 +3065,8 @@ begin
     Result := E.Prev
   else
     Result := nil;
-  if assigned(Result) and ((Result.OutIdx = SkipEdge) or
-    //result is false if both NextInAEL are nil and not horizontal ...
+  if assigned(Result) and ((Result.OutIdx = Skip) or
+    //result is false if both NextInAEL & PrevInAEL are nil & not horizontal ...
     ((Result.NextInAEL = Result.PrevInAEL) and (Result.Dx <> Horizontal))) then
       Result := nil;
 end;
@@ -3221,8 +3268,7 @@ begin
           Break;
       eNext := GetNextInAEL(E, Direction); //saves eNext for later
 
-      if //((HorzEdge.WindDelta <> 0) and Assigned(eMaxPair)) or
-         ((Direction = dLeftToRight) and (E.Curr.X <= HorzRight)) or
+      if ((Direction = dLeftToRight) and (E.Curr.X <= HorzRight)) or
         ((Direction = dRightToLeft) and (E.Curr.X >= HorzLeft)) then
       begin
         //so far we're still in range of the horizontal Edge  but make sure
@@ -3240,16 +3286,16 @@ begin
         else if (Direction = dLeftToRight) then
         begin
           Pt := IntPoint(E.Curr.X, HorzEdge.Curr.Y);
-  {$IFDEF UseXYZ}
+{$IFDEF UseXYZ}
           SetZ(Pt, HorzEdge, E, FZFillCallback);
-  {$ENDIF}
+{$ENDIF}
           IntersectEdges(HorzEdge, E, Pt, True);
         end else
         begin
           Pt := IntPoint(E.Curr.X, HorzEdge.Curr.Y);
-  {$IFDEF UseXYZ}
+{$IFDEF UseXYZ}
           SetZ(Pt, E, HorzEdge, FZFillCallback);
-  {$ENDIF}
+{$ENDIF}
           IntersectEdges(E, HorzEdge, Pt, True);
         end;
         SwapPositionsInAEL(HorzEdge, E);
@@ -3267,6 +3313,7 @@ begin
       (HorzEdge.NextInLML.Dx = Horizontal) then
     begin
       UpdateEdgeIntoAEL(HorzEdge);
+      if (HorzEdge.OutIdx >= 0) then AddOutPt(HorzEdge, HorzEdge.Bot);
       GetHorzDirection(HorzEdge, Direction, HorzLeft, HorzRight);
     end else
       Break;
@@ -3591,12 +3638,9 @@ begin
       //2. promote horizontal edges, otherwise update Curr.X and Curr.Y ...
       if IsIntermediate(E, TopY) and (E.NextInLML.Dx = Horizontal) then
       begin
+        UpdateEdgeIntoAEL(E);
         if (E.OutIdx >= 0) then
-        begin
-          UpdateEdgeIntoAEL(E);
           AddOutPt(E, E.Bot);
-        end else
-          UpdateEdgeIntoAEL(E);
         AddEdgeToSEL(E);
       end else
       begin
@@ -4675,7 +4719,7 @@ begin
   //now clean up untidy corners ...
   with TClipper.Create do
   try
-    AddPaths(FSolution, ptSubject, False);
+    AddPaths(FSolution, ptSubject, True);
     if Delta > 0 then
     begin
       Execute(ctUnion, FSolution, pftPositive, pftPositive);
@@ -4687,7 +4731,7 @@ begin
       Outer[1] := IntPoint(Bounds.right+10, Bounds.bottom+10);
       Outer[2] := IntPoint(Bounds.right+10, Bounds.top-10);
       Outer[3] := IntPoint(Bounds.left-10, Bounds.top-10);
-      AddPath(Outer, ptSubject, False);
+      AddPath(Outer, ptSubject, True);
       ReverseSolution := True;
       Execute(ctUnion, FSolution, pftNegative, pftNegative);
       //delete the outer rectangle ...
@@ -4822,7 +4866,7 @@ begin
   with TClipper.Create do
   try
     StrictlySimple := True;
-    AddPath(Poly, ptSubject, False);
+    AddPath(Poly, ptSubject, True);
     Execute(ctUnion, Result, FillType, FillType);
   finally
     free;
@@ -4835,7 +4879,7 @@ begin
   with TClipper.Create do
   try
     StrictlySimple := True;
-    AddPaths(Polys, ptSubject, False);
+    AddPaths(Polys, ptSubject, True);
     Execute(ctUnion, Result, FillType, FillType);
   finally
     free;
