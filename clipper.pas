@@ -4,7 +4,7 @@ unit clipper;
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (beta2)                                                   *
-* Date      :  23 July 2013                                                    *
+* Date      :  27 July 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -1569,12 +1569,11 @@ function TClipperBase.AddPath(const Path: TPath;
     //now do maxima ...
     AscendToMax(E, AppendMaxima);
 
-    if (E.OutIdx = Skip) then     //may be BEFORE, AT or just AFTER maxima
+    if (E.OutIdx = Skip) and not PointsEqual(E.Top, E.Prev.Top) then
     begin
+      //may be BEFORE, AT or just AFTER maxima
       //finish off any maxima ...
-      if PointsEqual(E.Top, E.Prev.Top) then
-        //do nothing as just AFTER maxima
-      else if MoreAbove(E) then
+      if MoreAbove(E) then
       begin
         E := E.Next;
         AscendToMax(E, false);
@@ -2467,12 +2466,10 @@ begin
     begin
       for I := 0 to FGhostJoinList.Count -1 do
       begin
-        Jr := PJoin(FGhostJoinList[I]);
         //if the horizontal Rb and a 'ghost' horizontal overlap, then convert
         //the 'ghost' join to a real join ready for later ...
+        Jr := PJoin(FGhostJoinList[I]);
         if HorzSegmentsOverlap(Jr.OutPt1.Pt, Jr.OffPt, Rb.Bot, Rb.Top) then
-          AddJoin(Jr.OutPt1, Op1, Jr.OffPt)
-        else if HorzSegmentsOverlap(Jr.OutPt1.Pt, Jr.OffPt, Lb.Bot, Lb.Top) then
           AddJoin(Jr.OutPt1, Op1, Jr.OffPt);
       end;
     end;
@@ -4029,7 +4026,6 @@ begin
   //location at the bottom of the overlapping segment (& Join.OffPt is above).
   //3. StrictSimple joins where edges touch but are not co-linear and where
   //Join.OutPt1, Join.OutPt2 & Join.OffPt all share the same point.
-  //share the same location but .
   IsHorizontal := (Jr.OutPt1.Pt.Y = Jr.OffPt.Y);
 
   if IsHorizontal and PointsEqual(Jr.OffPt, Jr.OutPt1.Pt) and

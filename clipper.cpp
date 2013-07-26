@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (beta2)                                                   *
-* Date      :  25 July 2013                                                    *
+* Date      :  27 July 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -1512,12 +1512,11 @@ TEdge* ClipperBase::AddBoundsToLML(TEdge* E, bool IsClosed)
   //now do maxima ...
   AscendToMax(E, AppendMaxima, IsClosed);
 
-  if (E->OutIdx == Skip)     //may be BEFORE, AT or just AFTER maxima
+  if (E->OutIdx == Skip && !PointsEqual(E->Top, E->Prev->Top))     
   {
+    //may be BEFORE, AT or just AFTER maxima
     //finish off any maxima ...
-    if (PointsEqual(E->Top, E->Prev->Top))      
-      ;//do nothing as just AFTER maxima
-    else if (MoreAbove(E)) 
+    if (MoreAbove(E)) 
     {
       E = E->Next;
       AscendToMax(E, false, IsClosed);
@@ -2190,8 +2189,6 @@ void Clipper::InsertLocalMinimaIntoAEL(const cInt botY)
         //if the horizontal Rb and a 'ghost' horizontal overlap, then convert
         //the 'ghost' join to a real join ready for later ...
         if (HorzSegmentsOverlap(jr->OutPt1->Pt, jr->OffPt, rb->Bot, rb->Top))
-          AddJoin(jr->OutPt1, Op1, jr->OffPt);
-        else if (HorzSegmentsOverlap(jr->OutPt1->Pt, jr->OffPt, lb->Bot, lb->Top))
           AddJoin(jr->OutPt1, Op1, jr->OffPt);
       }
     }
@@ -3683,7 +3680,6 @@ bool Clipper::JoinPoints(const Join *j, OutPt *&p1, OutPt *&p2)
   //location at the Bottom of the overlapping segment (& Join.OffPt is above).
   //3. StrictSimple joins where edges touch but are not co-linear and where
   //Join.OutPt1, Join.OutPt2 & Join.OffPt all share the same point.
-  //share the same location but .
   bool isHorizontal = (j->OutPt1->Pt.Y == j->OffPt.Y);
 
   if (isHorizontal  && PointsEqual(j->OffPt, j->OutPt1->Pt) &&
