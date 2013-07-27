@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (beta2)                                                   *
-* Date      :  27 July 2013                                                    *
+* Date      :  28 July 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -1577,7 +1577,7 @@ namespace ClipperLib
           if (StrictlySimple) DoSimplePolygons();
           return true;
         }
-        catch { return false; }
+        //catch { return false; }
         finally 
         {
           m_Joins.Clear();
@@ -2524,10 +2524,46 @@ namespace ClipperLib
           bool e2stops = !protect && e2.NextInLML == null &&
             e2.Top.X == pt.X && e2.Top.Y == pt.Y;
           bool e1Contributing = (e1.OutIdx >= 0);
-          bool e2contributing = (e2.OutIdx >= 0);
+          bool e2Contributing = (e2.OutIdx >= 0);
 
-          //update winding counts...
-          //assumes that e1 will be to the right of e2 ABOVE the intersection
+#if use_lines
+          //if either edge is on an OPEN path ...
+          if (e1.WindDelta == 0 || e2.WindDelta == 0)
+          {
+            //ignore subject-subject open path intersections UNLESS they
+            //are both open paths, AND they are both 'contributing maximas' ...
+            if (e1.WindDelta == 0 && e2.WindDelta == 0 && (e1stops || e2stops))
+            {
+              if (e1Contributing && e2Contributing)
+                AddLocalMaxPoly(e1, e2, pt);
+            } 
+            else if (e1.PolyTyp != e2.PolyTyp)
+            {
+              //toggle subj open path OutIdx on/off when Abs(clip.WndCnt) = 1 ...
+              if ((e1.WindDelta == 0) && Math.Abs(e2.WindCnt) == 1)
+              {
+                AddOutPt(e1, pt);
+                if (e1Contributing) e1.OutIdx = Unassigned;
+              }
+              else if ((e2.WindDelta == 0) && (Math.Abs(e1.WindCnt) == 1))
+              {
+                AddOutPt(e2, pt);
+                if (e2Contributing) e2.OutIdx = Unassigned;
+              }
+            }
+
+            if (e1stops)
+              if (e1.OutIdx < 0) DeleteFromAEL(e1);
+              else throw new ClipperException("Error intersecting polylines");
+            if (e2stops) 
+              if (e2.OutIdx < 0) DeleteFromAEL(e2);
+              else throw new ClipperException("Error intersecting polylines");
+            return;
+          }
+#endif
+
+  //update winding counts...
+  //assumes that e1 will be to the Right of e2 ABOVE the intersection
           if (e1.PolyTyp == e2.PolyTyp)
           {
               if (IsEvenOddFillType(e1))
@@ -2588,7 +2624,7 @@ namespace ClipperLib
               default: e2Wc = Math.Abs(e2.WindCnt); break;
           }
 
-          if (e1Contributing && e2contributing)
+          if (e1Contributing && e2Contributing)
           {
               if ( e1stops || e2stops || 
                 (e1Wc != 0 && e1Wc != 1) || (e2Wc != 0 && e2Wc != 1) ||
@@ -2612,7 +2648,7 @@ namespace ClipperLib
               }
 
           }
-          else if (e2contributing)
+          else if (e2Contributing)
           {
               if (e1Wc == 0 || e1Wc == 1)
               {
