@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (beta2)                                                   *
-* Date      :  28 July 2013                                                    *
+* Date      :  29 July 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -740,7 +740,8 @@ namespace ClipperLib
         if (!Closed && polyType == PolyType.ptClip)
           throw new ClipperException("AddPath: Open paths must be subject.");
 #else
-        Closed = true;
+        if (!Closed)
+          throw new ClipperException("AddPath: Open paths have been disabled.");
 #endif
 
         bool ClosedOrSemiClosed = (Closed || PointsEqual(pg[0], pg[highI]));
@@ -911,9 +912,9 @@ namespace ClipperLib
         //removes e from double_linked_list (but without removing from memory)
         e.Prev.Next = e.Next;
         e.Next.Prev = e.Prev;
-        TEdge ePrev = e.Prev;
+        TEdge result = e.Next;
         e.Prev = null; //flag as removed (see ClipperBase.Clear)
-        return ePrev;
+        return result;
       }
       //------------------------------------------------------------------------------
 
@@ -1719,6 +1720,14 @@ namespace ClipperLib
             }
           }
 
+          if (lb.OutIdx >= 0 && lb.PrevInAEL != null &&
+            lb.PrevInAEL.OutIdx >= 0 &&
+            SlopesEqual(lb.PrevInAEL, lb, m_UseFullRange) &&
+            lb.WindDelta != 0 && lb.PrevInAEL.WindDelta != 0)
+          {
+            OutPt Op2 = AddOutPt(lb.PrevInAEL, lb.Bot);
+            AddJoin(Op1, Op2, lb.Top);
+          }
 
           if( lb.NextInAEL != rb )
           {
@@ -1729,14 +1738,6 @@ namespace ClipperLib
             {
               OutPt Op2 = AddOutPt(rb.PrevInAEL, rb.Bot);
               AddJoin(Op1, Op2, rb.Top);
-            }
-            else if (lb.OutIdx >= 0 && lb.PrevInAEL != null &&
-              lb.PrevInAEL.OutIdx >= 0 &&
-              SlopesEqual(lb.PrevInAEL, lb, m_UseFullRange) &&
-              lb.WindDelta != 0 && lb.PrevInAEL.WindDelta != 0)
-            {
-              OutPt Op2 = AddOutPt(lb.PrevInAEL, lb.Bot);
-              AddJoin(Op1, Op2, lb.Top);
             }
 
             TEdge e = lb.NextInAEL;
@@ -3768,24 +3769,24 @@ namespace ClipperLib
 
           //make sure the polygons are correctly oriented ...
           op1b = op1.Next;
-          while ((op1b.Pt.Y == op1.Pt.Y) && (op1b != op1)) op1b = op1b.Next;
+          while (PointsEqual(op1b.Pt, op1.Pt) && (op1b != op1)) op1b = op1b.Next;
           bool Reverse1 = ((op1b.Pt.Y > op1.Pt.Y) ||
             !SlopesEqual(op1.Pt, op1b.Pt, j.OffPt, m_UseFullRange));
           if (Reverse1)
           {
             op1b = op1.Prev;
-            while ((op1b.Pt.Y == op1.Pt.Y) && (op1b != op1)) op1b = op1b.Prev;
+            while (PointsEqual(op1b.Pt, op1.Pt) && (op1b != op1)) op1b = op1b.Prev;
             if ((op1b.Pt.Y > op1.Pt.Y) ||
               !SlopesEqual(op1.Pt, op1b.Pt, j.OffPt, m_UseFullRange)) return false;
           };
           op2b = op2.Next;
-          while ((op2b.Pt.Y == op2.Pt.Y) && (op2b != op2))op2b = op2b.Next;
+          while (PointsEqual(op2b.Pt, op2.Pt) && (op2b != op2)) op2b = op2b.Next;
           bool Reverse2 = ((op2b.Pt.Y > op2.Pt.Y) ||
             !SlopesEqual(op2.Pt, op2b.Pt, j.OffPt, m_UseFullRange));
           if (Reverse2)
           {
             op2b = op2.Prev;
-            while ((op2b.Pt.Y == op2.Pt.Y) && (op2b != op2)) op2b = op2b.Prev;
+            while (PointsEqual(op2b.Pt, op2.Pt) && (op2b != op2)) op2b = op2b.Prev;
             if ((op2b.Pt.Y > op2.Pt.Y) ||
               !SlopesEqual(op2.Pt, op2b.Pt, j.OffPt, m_UseFullRange)) return false;
           }

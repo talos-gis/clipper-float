@@ -4,7 +4,7 @@ unit clipper;
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (beta2)                                                   *
-* Date      :  27 July 2013                                                    *
+* Date      :  29 July 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -404,7 +404,8 @@ resourcestring
   rsInvalidInt = 'Coordinate exceeds range bounds';
   rsIntersect = 'Intersection error';
   rsOpenPath  = 'AddPath: Open paths must be subject.';
-  rsOpenPath2  = 'Error: TPolyTree struct is need for open path clipping.';
+  rsOpenPath2  = 'AddPath: Open paths have been disabled.';
+  rsOpenPath3  = 'Error: TPolyTree struct is need for open path clipping.';
   rsPolylines = 'Error intersecting polylines';
 
 {$IFDEF FPC}
@@ -1601,7 +1602,7 @@ begin
   if not Closed and (polyType = ptClip) then
     raise exception.Create(rsOpenPath);
 {$ELSE}
-   Closed := True;
+  if not Closed then raise exception.Create(rsOpenPath2);
 {$ENDIF}
 
   ClosedOrSemiClosed := Closed or PointsEqual(Path[0],Path[HighI]);
@@ -1915,7 +1916,7 @@ begin
   solution := nil;
   if FExecuteLocked then Exit;
   //nb: Open paths can only be returned via the PolyTree structure ...
-  if HasOpenPaths then raise Exception.Create(rsOpenPath2);
+  if HasOpenPaths then raise Exception.Create(rsOpenPath3);
   try try
     FExecuteLocked := True;
     FSubjFillType := subjFillType;
@@ -2474,22 +2475,24 @@ begin
       end;
     end;
 
+    if (Lb.OutIdx >= 0) and assigned(Lb.PrevInAEL) and
+      (Lb.PrevInAEL.OutIdx >= 0) and
+      SlopesEqual(Lb.PrevInAEL, Lb, FUse64BitRange) and
+      (Lb.WindDelta <> 0) and (Lb.PrevInAEL.WindDelta <> 0) then
+    begin
+        Op2 := AddOutPt(Lb.PrevInAEL, Lb.Bot);
+        AddJoin(Op1, Op2, Lb.Top);
+    end;
+
     if (Lb.NextInAEL <> Rb) then
     begin
+
       if (Rb.OutIdx >= 0) and (Rb.PrevInAEL.OutIdx >= 0) and
         SlopesEqual(Rb.PrevInAEL, Rb, FUse64BitRange) and
         (Rb.WindDelta <> 0) and (Rb.PrevInAEL.WindDelta <> 0) then
       begin
           Op2 := AddOutPt(Rb.PrevInAEL, Rb.Bot);
           AddJoin(Op1, Op2, Rb.Top);
-      end
-      else if (Lb.OutIdx >= 0) and assigned(Lb.PrevInAEL) and
-        (Lb.PrevInAEL.OutIdx >= 0) and
-        SlopesEqual(Lb.PrevInAEL, Lb, FUse64BitRange) and
-        (Lb.WindDelta <> 0) and (Lb.PrevInAEL.WindDelta <> 0) then
-      begin
-          Op2 := AddOutPt(Lb.PrevInAEL, Lb.Bot);
-          AddJoin(Op1, Op2, Lb.Top);
       end;
 
       E := Lb.NextInAEL;
@@ -4112,24 +4115,24 @@ begin
   begin
     //make sure the polygons are correctly oriented ...
     Op1b := Op1.Next;
-    while (Op1b.Pt.Y = Op1.Pt.Y) and (Op1b <> Op1) do Op1b := Op1b.Next;
+    while PointsEqual(Op1b.Pt, Op1.Pt) and (Op1b <> Op1) do Op1b := Op1b.Next;
     Reverse1 := (Op1b.Pt.Y > Op1.Pt.Y) or
       not SlopesEqual(Op1.Pt, Op1b.Pt, Jr.OffPt, FUse64BitRange);
     if Reverse1 then
     begin
       Op1b := Op1.Prev;
-      while (Op1b.Pt.Y = Op1.Pt.Y) and (Op1b <> Op1) do Op1b := Op1b.Prev;
+      while PointsEqual(Op1b.Pt, Op1.Pt) and (Op1b <> Op1) do Op1b := Op1b.Prev;
       if (Op1b.Pt.Y > Op1.Pt.Y) or
         not SlopesEqual(Op1.Pt, Op1b.Pt, Jr.OffPt, FUse64BitRange) then Exit;
     end;
     Op2b := Op2.Next;
-    while (Op2b.Pt.Y = Op2.Pt.Y) and (Op2b <> Op2) do Op2b := Op2b.Next;
+    while PointsEqual(Op2b.Pt, Op2.Pt) and (Op2b <> Op2) do Op2b := Op2b.Next;
     Reverse2 := (Op2b.Pt.Y > Op2.Pt.Y) or
       not SlopesEqual(Op2.Pt, Op2b.Pt, Jr.OffPt, FUse64BitRange);
     if Reverse2 then
     begin
       Op2b := Op2.Prev;
-      while (Op2b.Pt.Y = Op2.Pt.Y) and (Op2b <> Op2) do Op2b := Op2b.Prev;
+      while PointsEqual(Op2b.Pt, Op2.Pt) and (Op2b <> Op2) do Op2b := Op2b.Prev;
       if (Op2b.Pt.Y > Op2.Pt.Y) or
         not SlopesEqual(Op2.Pt, Op2b.Pt, Jr.OffPt, FUse64BitRange) then Exit;
     end;
