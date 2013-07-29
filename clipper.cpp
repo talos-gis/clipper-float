@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (beta2)                                                   *
-* Date      :  29 July 2013                                                    *
+* Date      :  30 July 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -1180,7 +1180,8 @@ bool ClipperBase::AddPath(const Path &pg, PolyType PolyTyp, bool Closed)
   if (!Closed && PolyTyp == ptClip)
     throw clipperException("AddPath: Open paths must be subject.");
 #else
-  Closed = true;
+  if (!Closed)
+    throw clipperException("AddPath: Open paths have been disabled.");
 #endif
 
   bool ClosedOrSemiClosed = (Closed || PointsEqual(pg[0], pg[highI]));
@@ -1192,15 +1193,23 @@ bool ClipperBase::AddPath(const Path &pg, PolyType PolyTyp, bool Closed)
   TEdge *edges = new TEdge [highI +1];
 
   //1. Basic initialization of Edges ...
-  edges[1].Curr = pg[1];
-  RangeTest(pg[0], m_UseFullRange);
-  RangeTest(pg[highI], m_UseFullRange);
-  InitEdge(&edges[0], &edges[1], &edges[highI], pg[0]);
-  InitEdge(&edges[highI], &edges[0], &edges[highI-1], pg[highI]);
-  for (int i = highI - 1; i >= 1; --i)
+  try
   {
-    RangeTest(pg[i], m_UseFullRange);
-    InitEdge(&edges[i], &edges[i+1], &edges[i-1], pg[i]);
+    edges[1].Curr = pg[1];
+    RangeTest(pg[0], m_UseFullRange);
+    RangeTest(pg[highI], m_UseFullRange);
+    InitEdge(&edges[0], &edges[1], &edges[highI], pg[0]);
+    InitEdge(&edges[highI], &edges[0], &edges[highI-1], pg[highI]);
+    for (int i = highI - 1; i >= 1; --i)
+    {
+      RangeTest(pg[i], m_UseFullRange);
+      InitEdge(&edges[i], &edges[i+1], &edges[i-1], pg[i]);
+    }
+  }
+  catch(...)
+  {
+    delete [] edges;
+    return false; //almost certainly a vertex has exceeded range
   }
 
   TEdge *eStart = &edges[0];
@@ -1773,7 +1782,8 @@ bool Clipper::ExecuteInternal()
       botY = topY;
     } while(m_Scanbeam || m_CurrentLM);
   }
-  catch(...) {
+  catch(...) 
+  {
     succeeded = false;
   }
 
@@ -2194,6 +2204,7 @@ void Clipper::InsertLocalMinimaIntoAEL(const cInt botY)
     }
 
     if (lb->OutIdx >= 0 && lb->PrevInAEL && 
+      lb->PrevInAEL->Curr.X == lb->Bot.X &&
       lb->PrevInAEL->OutIdx >= 0 &&
       SlopesEqual(*lb->PrevInAEL, *lb, m_UseFullRange) &&
       (lb->WindDelta != 0) && (lb->PrevInAEL->WindDelta != 0))
@@ -3052,7 +3063,8 @@ bool Clipper::ProcessIntersections(const cInt botY, const cInt topY)
     if (!m_IntersectNodes->Next || FixupIntersectionOrder()) ProcessIntersectList();
     else return false;
   }
-  catch(...) {
+  catch(...) 
+  {
     m_SortedEdges = 0;
     DisposeIntersectNodes();
     throw clipperException("ProcessIntersections error");

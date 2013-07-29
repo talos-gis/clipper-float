@@ -4,7 +4,7 @@ unit clipper;
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (beta2)                                                   *
-* Date      :  29 July 2013                                                    *
+* Date      :  30 July 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -2476,6 +2476,7 @@ begin
     end;
 
     if (Lb.OutIdx >= 0) and assigned(Lb.PrevInAEL) and
+      (Lb.PrevInAEL.Curr.X = Lb.Bot.X) and
       (Lb.PrevInAEL.OutIdx >= 0) and
       SlopesEqual(Lb.PrevInAEL, Lb, FUse64BitRange) and
       (Lb.WindDelta <> 0) and (Lb.PrevInAEL.WindDelta <> 0) then
@@ -2486,7 +2487,6 @@ begin
 
     if (Lb.NextInAEL <> Rb) then
     begin
-
       if (Rb.OutIdx >= 0) and (Rb.PrevInAEL.OutIdx >= 0) and
         SlopesEqual(Rb.PrevInAEL, Rb, FUse64BitRange) and
         (Rb.WindDelta <> 0) and (Rb.PrevInAEL.WindDelta <> 0) then

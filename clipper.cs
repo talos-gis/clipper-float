@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (beta2)                                                   *
-* Date      :  29 July 2013                                                    *
+* Date      :  30 July 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -754,16 +754,23 @@ namespace ClipperLib
           for (int i = 0; i <= highI; i++) edges.Add(new TEdge());
           
           //1. Basic initialization of Edges ...
-          edges[1].Curr = pg[1];
-          RangeTest(pg[0], ref m_UseFullRange);
-          RangeTest(pg[highI], ref m_UseFullRange);
-          InitEdge(edges[0], edges[1], edges[highI], pg[0]);
-          InitEdge(edges[highI], edges[0], edges[highI-1], pg[highI]);
-          for (int i = highI - 1; i >= 1; --i)
+          try
           {
-            RangeTest(pg[i], ref m_UseFullRange);
-            InitEdge(edges[i], edges[i+1], edges[i-1], pg[i]);
+            edges[1].Curr = pg[1];
+            RangeTest(pg[0], ref m_UseFullRange);
+            RangeTest(pg[highI], ref m_UseFullRange);
+            InitEdge(edges[0], edges[1], edges[highI], pg[0]);
+            InitEdge(edges[highI], edges[0], edges[highI - 1], pg[highI]);
+            for (int i = highI - 1; i >= 1; --i)
+            {
+              RangeTest(pg[i], ref m_UseFullRange);
+              InitEdge(edges[i], edges[i + 1], edges[i - 1], pg[i]);
+            }
           }
+          catch 
+          {
+            return false; //almost certainly a vertex has exceeded range
+          };
 
           TEdge eStart = edges[0];
           if (!ClosedOrSemiClosed) eStart.Prev.OutIdx = Skip;
@@ -1721,6 +1728,7 @@ namespace ClipperLib
           }
 
           if (lb.OutIdx >= 0 && lb.PrevInAEL != null &&
+            lb.PrevInAEL.Curr.X == lb.Bot.X &&
             lb.PrevInAEL.OutIdx >= 0 &&
             SlopesEqual(lb.PrevInAEL, lb, m_UseFullRange) &&
             lb.WindDelta != 0 && lb.PrevInAEL.WindDelta != 0)
