@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0 (beta2)                                                   *
-* Date      :  30 July 2013                                                    *
+* Version   :  6.0.0 (beta3)                                                   *
+* Date      :  1 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -79,21 +79,15 @@ struct IntPoint {
   IntPoint(cInt x = 0, cInt y = 0): X(x), Y(y) {};
 #endif
 
-  friend bool operator== (const IntPoint& a, const IntPoint& b);
-  friend bool operator!= (const IntPoint& a, const IntPoint& b);
+  friend inline bool operator== (const IntPoint& a, const IntPoint& b)
+  {
+    return a.X == b.X && a.Y == b.Y;
+  }
+  friend inline bool operator!= (const IntPoint& a, const IntPoint& b)
+  {
+    return a.X != b.X  || a.Y != b.Y; 
+  }
 };
-//------------------------------------------------------------------------------
-
-inline bool operator ==(const IntPoint& a, const IntPoint& b) 
-{
-  return a.X == b.X && a.Y == b.Y; 
-}
-//------------------------------------------------------------------------------
-
-inline bool operator !=(const IntPoint& a, const IntPoint& b) 
-{
-  return a.X != b.X  || a.Y != b.Y; 
-}
 //------------------------------------------------------------------------------
 
 typedef std::vector< IntPoint > Path;
@@ -104,11 +98,12 @@ typedef Path Polygon;
 typedef Paths Polygons;
 ///////////////////////////////////////////
 
-std::ostream& operator <<(std::ostream &s, const Path &p);
-std::ostream& operator <<(std::ostream &s, const Paths &p);
-
 inline Path& operator <<(Path& poly, const IntPoint& p) {poly.push_back(p); return poly;}
 inline Paths& operator <<(Paths& polys, const Path& p) {polys.push_back(p); return polys;}
+
+std::ostream& operator <<(std::ostream &s, const IntPoint &p);
+std::ostream& operator <<(std::ostream &s, const Path &p);
+std::ostream& operator <<(std::ostream &s, const Paths &p);
 
 struct DoublePoint
 {
@@ -118,17 +113,17 @@ struct DoublePoint
 };
 //------------------------------------------------------------------------------
 
+//ClipperConvert: converts IntPoint to and from DoublePoint based on "scaling_factor"
 class ClipperConvert
 {
 private:
   const double scale;
 public:
-IntPoint operator()(const DoublePoint& v);
-void ToIntPoints(const std::vector<DoublePoint>& dps, std::vector<IntPoint>& ips);
-DoublePoint operator()(const IntPoint& v);
-
-void ToDoublePoints(const std::vector<IntPoint>& ips, std::vector<DoublePoint>& dps);
-ClipperConvert(const int scaling_factor): scale((double)scaling_factor){}
+  IntPoint operator()(const DoublePoint& v);
+  void ToIntPoints(const std::vector<DoublePoint>& dps, std::vector<IntPoint>& ips);
+  DoublePoint operator()(const IntPoint& v);
+  void ToDoublePoints(const std::vector<IntPoint>& ips, std::vector<DoublePoint>& dps);
+  ClipperConvert(const double scaling_factor);
 };
 
 

@@ -3,8 +3,8 @@ unit clipper;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0 (beta2)                                                   *
-* Date      :  30 July 2013                                                    *
+* Version   :  6.0.0 (beta3)                                                   *
+* Date      :  1 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -1029,7 +1029,7 @@ begin
     Result := False;
     Exit;
   end;
-  if Edge1.Dx = 0 then
+  if Edge1.Delta.X = 0 then
   begin
     ip.X := Edge1.Bot.X;
     if Edge2.Dx = Horizontal then
@@ -1040,7 +1040,7 @@ begin
       ip.Y := round(ip.X/Edge2.Dx + B2);
     end;
   end
-  else if Edge2.Dx = 0 then
+  else if Edge2.Delta.X = 0 then
   begin
     ip.X := Edge2.Bot.X;
     if Edge1.Dx = Horizontal then
@@ -2215,6 +2215,13 @@ begin
           pftPositive: Result := (Edge.WindCnt2 > 0);
           pftNegative: Result := (Edge.WindCnt2 < 0);
         end;
+      ctXor:
+        if Edge.WindDelta = 0 then //XOr always contributing unless open
+          case Pft2 of
+            pftEvenOdd, pftNonZero: Result := (Edge.WindCnt2 = 0);
+            pftPositive: Result := (Edge.WindCnt2 <= 0);
+            pftNegative: Result := (Edge.WindCnt2 >= 0);
+          end;
   end;
 end;
 //------------------------------------------------------------------------------
@@ -3461,11 +3468,14 @@ begin
         if not IntersectPoint(E, eNext, Pt, FUse64BitRange) and
           (E.Curr.X > eNext.Curr.X +1) then
             raise Exception.Create(rsIntersect);
-        if Pt.Y > BotY then
+        if (Pt.Y > botY) then
         begin
-          Pt.Y := BotY;
-          Pt.X := TopX(E, Pt.Y);
+          Pt.Y := botY;
+          if (abs(E.Dx) > abs(eNext.Dx)) then
+            Pt.X := TopX(eNext, botY) else
+            Pt.X := TopX(e, botY);
         end;
+
 {$IFDEF UseXYZ}
         SetZ(Pt, E, eNext, FZFillCallback);
 {$ENDIF}
