@@ -3,8 +3,8 @@ unit clipper;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0 (beta3)                                                   *
-* Date      :  1 August 2013                                                   *
+* Version   :  6.0.0 (rc1)                                                     *
+* Date      :  3 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -33,14 +33,20 @@ unit clipper;
 *                                                                              *
 *******************************************************************************)
 
-{.$DEFINE UseInt32}       //UseInt32: Significantly improves performance when
-                          //enabled but limits coordinate values to +/- 46340.
+//use_int32: When enabled 32bit ints are used instead of 64bit ints. This
+//improve performance but coordinate values are limited to the range +/- 46340
+{.$DEFINE use_int32}
 
-{.$DEFINE UseXYZ}         //UseXYZ: Adds a Z member to IntPoint when enabled.
-                          //Add a minor cost to perfomance
+//use_xyz: adds a Z member to IntPoint (with only a minor cost to perfomance)
+{.$DEFINE use_xyz}
 
-{$DEFINE UseLines}        //UseLines: Enables line clipping. Adds a very minor
-                          //cost to performance when enabled.
+//use_lines: Enables line clipping. Adds a very minor cost to performance.
+{$DEFINE use_lines}
+
+//When enabled, code developed with earlier versions of Clipper
+//(ie prior to ver 6) should compile without changes.
+//In a future update, this compatability code will be removed.
+{$DEFINE use_deprecated}
 
 interface
 
@@ -48,7 +54,7 @@ uses
   SysUtils, Types, Classes, Math;
 
 type
-{$IFDEF UseInt32}
+{$IFDEF use_int32}
   cInt = Int32;
 {$ELSE}
   cInt = Int64;
@@ -81,20 +87,17 @@ type
   //see http://glprogramming.com/red/chapter11.html
   TPolyFillType = (pftEvenOdd, pftNonZero, pftPositive, pftNegative);
 
-  //TJoinType & TEndType are used by OffsetPolygons()
+  //TJoinType & TEndType are used by OffsetPaths()
   TJoinType = (jtSquare, jtRound, jtMiter);
   TEndType = (etClosed, etButt, etSquare, etRound);
 
   TPath = array of TIntPoint;
   TPaths = array of TPath;
 
-  //////////////////////////////////////////////////////////////////////////////
-  // TPolygon and TPolygons:
-  // These structures are deprecated since they now used to define polylines too
-  // and these old names would otherwise be confusing. Use TPath and TPaths.
+{$IFDEF use_deprecated}
   TPolygon = TPath;
   TPolygons = TPaths;
-  //////////////////////////////////////////////////////////////////////////////
+{$ENDIF}
 
   TPolyNode = class;
   TArrayOfPolyNode = array of TPolyNode;
@@ -240,11 +243,10 @@ type
     function AddPath(const Path: TPath; PolyType: TPolyType; Closed: Boolean): Boolean;
     function AddPaths(const Paths: TPaths; PolyType: TPolyType; Closed: Boolean): Boolean;
 
-    ////////////////////////////////////////////////////////////////////////////
-    // DEPRECATED METHODS - USE AddPath(s) /////////////////////////////////////
+{$IFDEF use_deprecated}
     function AddPolygon(const Path: TPath; PolyType: TPolyType): Boolean;
     function AddPolygons(const Paths: TPaths; PolyType: TPolyType): Boolean;
-    ////////////////////////////////////////////////////////////////////////////
+{$ENDIF}
 
     //PreserveColinear: Prevents removal of 'inner' vertices when three or
     //more vertices are co-linear in solution polygons.
@@ -355,15 +357,15 @@ function IntPoint(const X, Y: cInt): TIntPoint;
 function ReversePath(const Pts: TPath): TPath;
 function ReversePaths(const Pts: TPaths): TPaths;
 
-//OffsetPolygons precondition: outer polygons MUST be oriented clockwise,
-//and inner 'hole' polygons must be oriented counter-clockwise ...
+function OffsetPaths(const Polys: TPaths; const Delta: Double;
+  JoinType: TJoinType = jtSquare; EndType: TEndType = etClosed;
+  Limit: Double = 0): TPaths;
+
+{$IFDEF use_deprecated}
 function OffsetPolygons(const Polys: TPaths; const Delta: Double;
   JoinType: TJoinType = jtSquare; Limit: Double = 0;
   AutoFix: Boolean = True): TPaths;
-
-function OffsetPolyLines(const Lines: TPaths; Delta: Double;
-  JoinType: TJoinType = jtSquare; EndType: TEndType = etSquare;
-  Limit: Double = 0): TPaths;
+{$ENDIF}
 
 //SimplifyPolygon converts a self-intersecting polygon into a simple polygon.
 function SimplifyPolygon(const Poly: TPath; FillType: TPolyFillType = pftEvenOdd): TPaths;
@@ -389,7 +391,7 @@ const
   //So, to avoid overflow errors, they must not exceed the following values...
   //Also, if all coordinates are within +/-LoRange, then calculations will be
   //faster. Otherwise using Int128 math will render the library ~10-15% slower.
-{$IFDEF UseInt32}
+{$IFDEF use_int32}
   LoRange: cInt = 46340;
   HiRange: cInt = 46340;
 {$ELSE}
@@ -510,7 +512,7 @@ begin
   Result := length(FAllNodes);
 end;
 
-{$IFNDEF UseInt32}
+{$IFNDEF use_int32}
 
 //------------------------------------------------------------------------------
 // Int128 Functions ...
@@ -832,7 +834,7 @@ end;
 function PointOnLineSegment(const Pt, LinePt1, LinePt2: TIntPoint;
   UseFullInt64Range: Boolean): Boolean;
 begin
-{$IFNDEF UseInt32}
+{$IFNDEF use_int32}
   if UseFullInt64Range then
     Result :=
       ((Pt.X = LinePt1.X) and (Pt.Y = LinePt1.Y)) or
@@ -875,13 +877,13 @@ function PointInPolygon(const Pt: TIntPoint;
   PP: POutPt; UseFullInt64Range: Boolean): Boolean;
 var
   Pp2: POutPt;
-{$IFNDEF UseInt32}
+{$IFNDEF use_int32}
   A, B: TInt128;
 {$ENDIF}
 begin
   Result := False;
   Pp2 := PP;
-{$IFNDEF UseInt32}
+{$IFNDEF use_int32}
   if UseFullInt64Range then
   begin
     repeat
@@ -910,7 +912,7 @@ end;
 function SlopesEqual(E1, E2: PEdge;
   UseFullInt64Range: Boolean): Boolean; overload;
 begin
-{$IFNDEF UseInt32}
+{$IFNDEF use_int32}
   if UseFullInt64Range then
     Result := Int128Equal(Int128Mul(E1.Delta.Y, E2.Delta.X),
       Int128Mul(E1.Delta.X, E2.Delta.Y))
@@ -923,7 +925,7 @@ end;
 function SlopesEqual(const Pt1, Pt2, Pt3: TIntPoint;
   UseFullInt64Range: Boolean): Boolean; overload;
 begin
-{$IFNDEF UseInt32}
+{$IFNDEF use_int32}
   if UseFullInt64Range then
     Result := Int128Equal(
       Int128Mul(Pt1.Y-Pt2.Y, Pt2.X-Pt3.X), Int128Mul(Pt1.X-Pt2.X, Pt2.Y-Pt3.Y))
@@ -1598,7 +1600,7 @@ begin
   HighI := High(Path);
   if HighI < 1 then Exit;
 
-{$IFDEF UseLines}
+{$IFDEF use_lines}
   if not Closed and (polyType = ptClip) then
     raise exception.Create(rsOpenPath);
 {$ELSE}
@@ -1752,6 +1754,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
+{$IFDEF use_deprecated}
 function TClipperBase.AddPolygons(const Paths: TPaths; PolyType: TPolyType): Boolean;
 begin
   Result := AddPaths(Paths, PolyType, True);
@@ -1763,6 +1766,7 @@ begin
   Result := AddPath(Path, PolyType, True);
 end;
 //------------------------------------------------------------------------------
+{$ENDIF}
 
 procedure TClipperBase.Clear;
 var
@@ -2571,7 +2575,7 @@ begin
   E1Contributing := (E1.OutIdx >= 0);
   E2contributing := (E2.OutIdx >= 0);
 
-{$IFDEF UseLines}
+{$IFDEF use_lines}
   //if either edge is on an OPEN path ...
   if (E1.WindDelta = 0) or (E2.WindDelta = 0) then
   begin
@@ -3572,7 +3576,7 @@ begin
   begin
     IntersectEdges(E, EMaxPair, E.Top);
   end
-{$IFDEF UseLines}
+{$IFDEF use_lines}
   else if E.WindDelta = 0 then
   begin
     if (E.OutIdx >= 0) then
@@ -4385,7 +4389,7 @@ begin
 end;
 
 //------------------------------------------------------------------------------
-// OffsetPolygons ...
+// OffsetPaths ...
 //------------------------------------------------------------------------------
 
 function GetUnitNormal(const Pt1, Pt2: TIntPoint): TDoublePoint;
@@ -4453,7 +4457,7 @@ type
       var K: Integer; JoinType: TJoinType);
   public
     constructor Create(const Pts: TPaths; Delta: Double;
-      IsPolygon: Boolean; JoinType: TJoinType; EndType: TEndType;
+      JoinType: TJoinType; EndType: TEndType;
       Limit: Double = 0);
     property Solution: TPaths read FSolution;
   end;
@@ -4556,19 +4560,17 @@ end;
 //------------------------------------------------------------------------------
 
 constructor TOffsetBuilder.Create(const Pts: TPaths; Delta: Double;
-  IsPolygon: Boolean; JoinType: TJoinType; EndType: TEndType; Limit: Double = 0);
+  JoinType: TJoinType; EndType: TEndType; Limit: Double = 0);
 var
   I, J, K, Len: Integer;
   Outer: TPath;
   Bounds: TIntRect;
-  ForceClose: Boolean;
   X,X2,Y: Double;
 begin
   FSolution := nil;
 
-  if not IsPolygon and (Delta < 0) then Delta := -Delta;
+  if (EndType <> etClosed) and (Delta < 0) then Delta := -Delta;
   FDelta := Delta;
-
   if JoinType = jtMiter then
   begin
     //FMiterConst: see offset_triginometry3.svg in the documentation folder ...
@@ -4595,8 +4597,7 @@ begin
     FInP := Pts[I];
     Len := length(FInP);
 
-    if (Len = 0) or ((Len < 3) and (FDelta <= 0)) then
-      Continue;
+    if (Len = 0) or ((Len < 3) and (FDelta <= 0)) then Continue;
 
     //if a single vertex then build circle or a square ...
     if (Len = 1) then
@@ -4630,14 +4631,11 @@ begin
       Continue;
     end;
 
-    ForceClose := PointsEqual(FInP[0], FInP[Len -1]);
-    if ForceClose then dec(Len);
-
     //build Normals ...
     SetLength(FNorms, Len);
     for J := 0 to Len-2 do
       FNorms[J] := GetUnitNormal(FInP[J], FInP[J+1]);
-    if IsPolygon or ForceClose then
+    if (EndType = etClosed) then
       FNorms[Len-1] := GetUnitNormal(FInP[Len-1], FInP[0])
     else
       FNorms[Len-1] := FNorms[Len-2];
@@ -4645,30 +4643,13 @@ begin
     FOutPos := 0;
     FOutP := nil;
 
-    if IsPolygon or ForceClose then
+    if (EndType = etClosed)  then
     begin
       K := Len -1;
       for J := 0 to Len-1 do
         OffsetPoint(J, K, JoinType);
       SetLength(FOutP, FOutPos);
       FSolution[I] := FOutP;
-
-      if not IsPolygon then
-      begin
-        FOutPos := 0;
-        FOutP := nil;
-        FDelta := -FDelta;
-
-        K := Len -1;
-        for J := 0 to Len-1 do
-          OffsetPoint(J, K, JoinType);
-
-        FDelta := -FDelta;
-        SetLength(FOutP, FOutPos);
-        J := Length(FSolution);
-        setLength(FSolution, J +1);
-        FSolution[J] := ReversePath(FOutP);
-      end;
     end else //is polyline
     begin
       K := 0;
@@ -4690,8 +4671,13 @@ begin
         K := Len - 2;
         FNorms[J].X := -FNorms[J].X;
         FNorms[J].Y := -FNorms[J].Y;
-        if EndType = etSquare then DoSquare(J, K)
-        else DoRound(J, K);
+        if EndType = etSquare then
+          DoSquare(J, K)
+        else
+        begin
+          FSinA := 0;
+          DoRound(J, K);
+        end;
       end;
 
       //re-build Normals ...
@@ -4717,8 +4703,13 @@ begin
           round(FInP[0].Y + FNorms[0].Y * FDelta)));
       end else
       begin
-        if EndType = etSquare then DoSquare(0, 1)
-        else DoRound(0, 1);
+        if EndType = etSquare then
+          DoSquare(0, 1)
+        else
+        begin
+          FSinA := 0;
+          DoRound(0, 1);
+        end;
       end;
       SetLength(FOutP, FOutPos);
       FSolution[I] := FOutP;
@@ -4754,119 +4745,82 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function BuildOffset(const Pts: TPaths; Delta: Double; IsPolygon: Boolean;
-  JoinType: TJoinType; EndType: TEndType; Limit: Double = 0): TPaths;
-begin
-  with TOffsetBuilder.Create(Pts, Delta, IsPolygon, JoinType, EndType, Limit) do
-  try
-    result := Solution;
-  finally
-    Free;
-  end;
-end;
-//------------------------------------------------------------------------------
-
-function UpdateBotPt(const Pt: TIntPoint; var BotPt: TIntPoint): Boolean;
-begin
-  if (pt.Y > BotPt.Y) or ((pt.Y = BotPt.Y) and (Pt.X < BotPt.X)) then
-  begin
-    BotPt := Pt;
-    Result := True;
-  end
-  else Result := False;
-end;
-//------------------------------------------------------------------------------
-
-function OffsetPolygons(const Polys: TPaths; const Delta: Double;
-  JoinType: TJoinType = jtSquare; Limit: Double = 0;
-  AutoFix: Boolean = True): TPaths;
-var
-  I, J, K, Len, BotI: Integer;
-  Pts: TPaths;
-  BotPt: TIntPoint;
-begin
-  Pts := Polys;
-  Result := nil;
-  //AutoFix - fixes polygon orientation if necessary and removes
-  //duplicate vertices. Can be set False when you're sure that polygon
-  //orientation is correct and that there are no duplicate vertices.
-  if AutoFix then
-  begin
-    Len := Length(Polys);
-    SetLength(Pts, Len);
-    BotI := 0; //index of outermost polygon
-    while (BotI < Len) and (Length(Polys[BotI]) = 0) do Inc(BotI);
-    if (BotI = Len) then Exit;
-    BotPt := Polys[BotI][0];
-    for I := BotI to Len - 1 do
-    begin
-      Len := Length(Polys[I]);
-      SetLength(Pts[I], Len);
-      if Len = 0 then Continue;
-      Pts[I][0] := Polys[I][0];
-      if UpdateBotPt(Pts[I][0], BotPt) then BotI := I;
-      K := 0;
-      for J := 1 to Len - 1 do
-        if not PointsEqual(Pts[I][K], Polys[I][J]) then
-        begin
-          Inc(K);
-          Pts[I][K] := Polys[I][J];
-          if UpdateBotPt(Pts[I][K], BotPt) then BotI := I;
-        end;
-      if K + 1 < Len then
-        SetLength(Pts[I], K + 1);
-    end;
-    if not Orientation(Pts[BotI]) then
-      Pts := ReversePaths(Pts);
-  end;
-  Result := BuildOffset(Pts, Delta, True, JoinType, etButt, Limit);
-end;
-//------------------------------------------------------------------------------
-
-function StripDups(const Poly: TPath): TPath;
+function StripDupsAndGetBotPt(const Poly: TPath; Closed: Boolean;
+  out BotPt: PIntPoint): TPath;
 var
   I, J, Len: Integer;
 begin
+  Result := nil;
+  BotPt := nil;
   Len := Length(Poly);
-  SetLength(Result, Len);
+  if Closed then
+    while (Len > 0) and PointsEqual(Poly[0], Poly[Len -1]) do Dec(Len);
   if Len = 0 then Exit;
+  SetLength(Result, Len);
   J := 0;
   Result[0] := Poly[0];
+  BotPt := @Result[0];
   for I := 1 to Len - 1 do
     if not PointsEqual(Poly[I], Result[J]) then
     begin
       Inc(J);
       Result[J] := Poly[I];
+      if Result[J].Y > BotPt.Y then
+        BotPt := @Result[J]
+      else if (Result[J].Y = BotPt.Y) and (Result[J].X < BotPt.X)  then
+        BotPt := @Result[J];
     end;
   Inc(J);
-  if J < Len then SetLength(Result, J);
+  if (J < 2) or (Closed and (J = 2)) then J := 0;
+  SetLength(Result, J);
 end;
 //------------------------------------------------------------------------------
 
-function OffsetPolyLines(const Lines: TPaths; Delta: Double;
-  JoinType: TJoinType = jtSquare; EndType: TEndType = etSquare;
+{$IFDEF use_deprecated}
+function OffsetPolygons(const Polys: TPaths; const Delta: Double;
+  JoinType: TJoinType = jtSquare; Limit: Double = 0;
+  AutoFix: Boolean = True): TPaths;
+begin
+  result := OffsetPaths(Polys, Delta, JoinType, etClosed, Limit);
+end;
+//------------------------------------------------------------------------------
+{$ENDIF}
+
+function OffsetPaths(const Polys: TPaths; const Delta: Double;
+  JoinType: TJoinType = jtSquare; EndType: TEndType = etClosed;
   Limit: Double = 0): TPaths;
 var
-  I, Len: Integer;
+  I, Len, BotI: Integer;
   Pts: TPaths;
+  BotPt, Pt: PIntPoint;
 begin
-  //automatically strip duplicate points because it gets complicated with
-  //open and closed lines and when to strip duplicates across begin-end ...
-  Pts := Lines;
-  Len := Length(Pts);
+  Result := nil;
+  Len := Length(Polys);
   SetLength(Pts, Len);
+  BotPt :=  nil;
+  BotI := -1;
+  //BotPt => lower most and left most point which must be an outer polygon
   for I := 0 to Len -1 do
-    Pts[I] := StripDups(Lines[I]);
-
-  if EndType = etClosed then
   begin
-    SetLength(Pts, Len *2);
-    for I := 0 to Len -1 do
-      Pts[Len + I] := ReversePath(Pts[I]);
-    Result := BuildOffset(Pts, Delta, True, JoinType, EndType, Limit);
-  end
-  else
-    Result := BuildOffset(Pts, Delta, False, JoinType, EndType, Limit);
+    Pts[I] := StripDupsAndGetBotPt(Polys[I], EndType = etClosed, Pt);
+    if assigned(Pt) then
+      if not assigned(BotPt) or (Pt.Y > BotPt.Y) or
+        ((Pt.Y = BotPt.Y) and (Pt.X < BotPt.X)) then
+      begin
+        BotPt := Pt;
+        BotI := I;
+      end;
+  end;
+
+  if (EndType = etClosed) and (BotI >= 0) and not Orientation(Pts[BotI]) then
+    Pts := ReversePaths(Pts);
+
+  with TOffsetBuilder.Create(Pts, Delta, JoinType, EndType, Limit) do
+  try
+    result := Solution;
+  finally
+    Free;
+  end;
 end;
 //------------------------------------------------------------------------------
 

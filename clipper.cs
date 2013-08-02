@@ -1,8 +1,8 @@
 ﻿/*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0 (beta3)                                                   *
-* Date      :  1 August 2013                                                   *
+* Version   :  6.0.0 (rc1)                                                     *
+* Date      :  3 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -38,14 +38,20 @@
 *                                                                              *
 *******************************************************************************/
 
-//UseInt32: improves performance but limits coordinate values to +/- 46340 
+//use_int32: When enabled 32bit ints are used instead of 64bit ints. This
+//improve performance but coordinate values are limited to the range +/- 46340
 //#define use_int32
 
-//use_xyz: adds a Z member to IntPoint (with a minor cost to perfomance)
+//use_xyz: adds a Z member to IntPoint. Adds a minor cost to perfomance.
 //#define use_xyz
 
 //UseLines: Enables line clipping. Adds a very minor cost to performance.
 #define use_lines
+
+//When enabled, code developed with earlier versions of Clipper 
+//(ie prior to ver 6) should compile without changes. 
+//In a future update, this compatability code will be removed.
+#define use_deprecated
 
 
 using System;
@@ -779,24 +785,6 @@ namespace ClipperLib
       }
       //------------------------------------------------------------------------------
 
-      public bool AddPaths(Paths ppg, PolyType polyType, bool closed)
-      {
-        bool result = false;
-        for (int i = 0; i < ppg.Count; ++i)
-          if (AddPath(ppg[i], polyType, closed)) result = true;
-        return result;
-      }
-      //------------------------------------------------------------------------------
-
-      public bool AddPolygons(Paths ppg, PolyType polyType)
-      {
-        bool result = false;
-        for (int i = 0; i < ppg.Count; ++i)
-          if (AddPath(ppg[i], polyType, true)) result = true;
-        return result;
-      }
-      //------------------------------------------------------------------------------
-
       void RangeTest(IntPoint Pt, ref bool useFullRange)
       {
         if (useFullRange)
@@ -812,9 +800,30 @@ namespace ClipperLib
       }
       //------------------------------------------------------------------------------
 
-      public bool AddPolygon(Path pg, PolyType polyType) 
+      private void InitEdge(TEdge e, TEdge eNext,
+        TEdge ePrev, IntPoint pt)
       {
-        return AddPath(pg, polyType, true);
+        e.Next = eNext;
+        e.Prev = ePrev;
+        e.Curr = pt;
+        e.OutIdx = Unassigned;
+      }
+      //------------------------------------------------------------------------------
+
+      private void InitEdge2(TEdge e, PolyType polyType)
+      {
+        if (e.Curr.Y >= e.Next.Curr.Y)
+        {
+          e.Bot = e.Curr;
+          e.Top = e.Next.Curr;
+        }
+        else
+        {
+          e.Top = e.Curr;
+          e.Bot = e.Next.Curr;
+        }
+        SetDx(e);
+        e.PolyTyp = polyType;
       }
       //------------------------------------------------------------------------------
 
@@ -967,31 +976,31 @@ namespace ClipperLib
       }
       //------------------------------------------------------------------------------
 
-      private void InitEdge(TEdge e, TEdge eNext,
-        TEdge ePrev, IntPoint pt)
+      public bool AddPaths(Paths ppg, PolyType polyType, bool closed)
       {
-        e.Next = eNext;
-        e.Prev = ePrev;
-        e.Curr = pt;
-        e.OutIdx = Unassigned;
+        bool result = false;
+        for (int i = 0; i < ppg.Count; ++i)
+          if (AddPath(ppg[i], polyType, closed)) result = true;
+        return result;
       }
       //------------------------------------------------------------------------------
 
-      private void InitEdge2(TEdge e, PolyType polyType)
+#if use_deprecated
+      public bool AddPolygon(Path pg, PolyType polyType)
       {
-        if (e.Curr.Y >= e.Next.Curr.Y)
-        {
-          e.Bot = e.Curr;
-          e.Top = e.Next.Curr;
-        } else
-        {
-          e.Top = e.Curr;
-          e.Bot = e.Next.Curr;
-        }
-        SetDx(e);
-        e.PolyTyp = polyType;
+        return AddPath(pg, polyType, true);
       }
       //------------------------------------------------------------------------------
+
+      public bool AddPolygons(Paths ppg, PolyType polyType)
+      {
+        bool result = false;
+        for (int i = 0; i < ppg.Count; ++i)
+          if (AddPath(ppg[i], polyType, true)) result = true;
+        return result;
+      }
+      //------------------------------------------------------------------------------
+#endif
 
       internal bool Pt2IsBetweenPt1AndPt3(IntPoint pt1, IntPoint pt2, IntPoint pt3)
       {
@@ -4208,14 +4217,14 @@ namespace ClipperLib
           }
           //------------------------------------------------------------------------------
 
-          public PolyOffsetBuilder(Paths pts, out Paths solution, bool isPolygon, double delta,
+          public PolyOffsetBuilder(Paths pts, out Paths solution, double delta,
               JoinType jointype, EndType endtype, double limit = 0)
           {
               //precondition: solution != pts
               solution = new Paths();
               if (ClipperBase.near_zero(delta)) {solution = pts; return; }
               m_p = pts;
-              if (!isPolygon && delta < 0) delta = -delta;
+              if (endtype != EndType.etClosed && delta < 0) delta = -delta;
               m_delta = delta;
 
               if (jointype == JoinType.jtMiter)
@@ -4273,38 +4282,24 @@ namespace ClipperLib
                       }
                       continue;
                   }
-
-                  bool forceClose = (pts[m_i][0] == pts[m_i][len - 1]);
-                  if (forceClose) len--;
                     
                   //build normals ...
                   normals.Clear();
                   normals.Capacity = len;
                   for (int j = 0; j < len -1; ++j)
                       normals.Add(GetUnitNormal(pts[m_i][j], pts[m_i][j+1]));
-                  if (isPolygon || forceClose)
+                  if (endtype == EndType.etClosed)
                       normals.Add(GetUnitNormal(pts[m_i][len - 1], pts[m_i][0]));
                   else
                       normals.Add(new DoublePoint(normals[len - 2]));
 
                   currentPoly = new Path();
-                  if (isPolygon || forceClose)
+                  if (endtype == EndType.etClosed)
                   {
                       m_k = len - 1;
                       for (m_j = 0; m_j < len; ++m_j)
                           OffsetPoint(jointype);
                       solution.Add(currentPoly); 
-                      if (!isPolygon)
-                      {
-                        currentPoly = new Path();
-                          m_delta = -m_delta;
-                          m_k = len - 1;
-                          for (m_j = 0; m_j < len; ++m_j)
-                              OffsetPoint(jointype);
-                          m_delta = -m_delta;
-                          currentPoly.Reverse();
-                          solution.Add(currentPoly);
-                      }
                   }
                   else
                   {
@@ -4329,8 +4324,13 @@ namespace ClipperLib
                           m_k = len - 2;
                           normals[m_j].X = -normals[m_j].X;
                           normals[m_j].Y = -normals[m_j].Y;
-                          if (endtype == EndType.etSquare) DoSquare();
-                          else DoRound();
+                          if (endtype == EndType.etSquare)
+                            DoSquare();
+                          else
+                          {
+                            m_sinA = 0;
+                            DoRound();
+                          }
                       }
 
                       //re-build Normals ...
@@ -4358,8 +4358,13 @@ namespace ClipperLib
                       else
                       {
                           m_k = 1;
-                          if (endtype == EndType.etSquare) DoSquare();
-                          else DoRound();
+                          if (endtype == EndType.etSquare) 
+                            DoSquare();
+                          else
+                          {
+                            m_sinA = 0;
+                            DoRound();
+                          }
                       }
                       solution.Add(currentPoly);
                   }
@@ -4455,56 +4460,79 @@ namespace ClipperLib
       }
       //------------------------------------------------------------------------------
 
+      internal static bool StripDupsAndGetBotPt(Path in_path, 
+        Path out_path, bool closed, out IntPoint botPt)
+      {
+        botPt = new IntPoint(0, 0);
+        int len = in_path.Count;
+        if (closed)    
+          while (len > 0 && (in_path[0] == in_path[len -1])) len--;
+        if (len == 0) return false;
+        out_path.Capacity = len;
+        int j = 0;
+        out_path.Add(in_path[0]);
+        botPt = in_path[0];
+        for (int i = 1; i < len; ++i)
+          if (in_path[i] != out_path[j])
+          {
+            out_path.Add(in_path[i]);
+            j++;
+            if (out_path[j].Y > botPt.Y ||
+              ((out_path[j].Y == botPt.Y) && out_path[j].X < botPt.X))
+                botPt = out_path[j];
+          }
+        j++;
+        if (j < 2 || (closed && (j == 2))) j = 0;
+        while (out_path.Count > j) out_path.RemoveAt(j);
+        return j > 0;
+      }
+      //------------------------------------------------------------------------------
+
+      public static Paths OffsetPaths(Paths polys, double delta,
+          JoinType jointype, EndType endtype, double MiterLimit)
+      {
+        Paths out_polys = new Paths(polys.Count);
+        IntPoint botPt = new IntPoint();
+        IntPoint pt;
+        int botIdx = -1;
+        for (int i = 0; i < polys.Count; ++i)
+        {
+          Path p = new Path();
+          if (StripDupsAndGetBotPt(polys[i], p, endtype == EndType.etClosed, out pt))
+            if (botIdx < 0 || pt.Y > botPt.Y || (pt.Y == botPt.Y && pt.X < botPt.X))
+            {
+              botPt = pt;
+              botIdx = i;
+              out_polys.Add(p); 
+            }
+        }
+        if (endtype == EndType.etClosed && botIdx >= 0 && !Orientation(out_polys[botIdx]))
+          ReversePolygons(out_polys);
+
+        Paths result;
+        new PolyOffsetBuilder(out_polys, out result, delta, jointype, endtype, MiterLimit);
+        return result;
+      }
+      //------------------------------------------------------------------------------
+
+#if use_deprecated
       public static Paths OffsetPolygons(Paths poly, double delta,
           JoinType jointype, double MiterLimit, bool AutoFix)
       {
-
-          //AutoFix - fixes polygon orientation if necessary and removes 
-          //duplicate vertices. Can be set false when you're sure that polygon
-          //orientation is correct and that there are no duplicate vertices.
-          if (AutoFix)
-          {
-              int Len = poly.Count, botI = 0;
-              while (botI < Len && poly[botI].Count == 0) botI++;
-              if (botI == Len) return new Paths();
-
-              //botPt: used to find the lowermost (in inverted Y-axis) & leftmost point
-              //This point (on pts[botI]) must be on an outer polygon ring and if 
-              //its orientation is false (counterclockwise) then assume all polygons 
-              //need reversing ...
-              IntPoint botPt = poly[botI][0];
-              for (int i = botI; i < Len; ++i)
-              {
-                  if (poly[i].Count == 0) continue;
-                  if (UpdateBotPt(poly[i][0], ref botPt)) botI = i;
-                  for (int j = poly[i].Count - 1; j > 0; j--)
-                  {
-                      if (poly[i][j] == poly[i][j - 1])
-                          poly[i].RemoveAt(j);
-                      else if (UpdateBotPt(poly[i][j], ref botPt))
-                          botI = i;
-                  }
-              }
-              if (!Orientation(poly[botI]))
-                  ReversePolygons(poly);
-          }
-
-          Paths result;
-          new PolyOffsetBuilder(poly, out result, true, delta, jointype, EndType.etClosed, MiterLimit);
-          return result;
+        return OffsetPaths(poly, delta, jointype, EndType.etClosed, MiterLimit);
       }
       //------------------------------------------------------------------------------
 
       public static Paths OffsetPolygons(Paths poly, double delta,
           JoinType jointype, double MiterLimit)
       {
-          return OffsetPolygons(poly, delta, jointype, MiterLimit, true);
+        return OffsetPaths(poly, delta, jointype, EndType.etClosed, MiterLimit);
       }
       //------------------------------------------------------------------------------
 
       public static Paths OffsetPolygons(Paths poly, double delta, JoinType jointype)
       {
-          return OffsetPolygons(poly, delta, jointype, 0, true);
+        return OffsetPaths(poly, delta, jointype, EndType.etClosed, 0);
       }
       //------------------------------------------------------------------------------
 
@@ -4513,42 +4541,9 @@ namespace ClipperLib
           return OffsetPolygons(poly, delta, JoinType.jtSquare, 0, true);
       }
       //------------------------------------------------------------------------------
+#endif
 
-      public static Paths OffsetPolyLines(Paths lines,
-        double delta, JoinType jointype, EndType endtype, 
-        double limit)
-      {
-          //automatically strip duplicate points because it gets complicated with
-          //open and closed lines and when to strip duplicates across begin-end ...
-        Paths pts = new Paths(lines);
-          for (int i = 0; i < pts.Count; ++i)
-          {
-              for (int j = pts[i].Count - 1; j > 0; j--)
-                  if (pts[i][j] == pts[i][j - 1])
-                      pts[i].RemoveAt(j);
-          }
-
-          Paths result;
-          if (endtype == EndType.etClosed)
-          {
-              int sz = pts.Count;
-              pts.Capacity = sz * 2;
-              for (int i = 0; i < sz; ++i)
-              {
-                Path line = new Path(pts[i]);
-                  line.Reverse();
-                  pts.Add(line);
-              }
-              new PolyOffsetBuilder(pts, out result, true, delta, jointype, endtype, limit);
-          } 
-          else
-              new PolyOffsetBuilder(pts, out result, false, delta, jointype, endtype, limit);
-
-        return result;
-      }
-      //------------------------------------------------------------------------------
-
-      //------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------
       // SimplifyPolygon functions ...
       // Convert self-intersecting polygons into simple polygons
       //------------------------------------------------------------------------------

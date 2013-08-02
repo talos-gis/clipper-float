@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0 (beta3)                                                   *
-* Date      :  1 August 2013                                                   *
+* Version   :  6.0.0 (rc1)                                                     *
+* Date      :  3 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -34,15 +34,21 @@
 #ifndef clipper_hpp
 #define clipper_hpp
 
-//use_int32: improves performance but limits coordinate values to +/- 46340 range
+//use_int32: When enabled 32bit ints are used instead of 64bit ints. This
+//improve performance but coordinate values are limited to the range +/- 46340
 //#define use_int32
 
-//use_xyz: adds a Z member to IntPoint (with only a minor cost to perfomance)
+//use_xyz: adds a Z member to IntPoint. Adds a minor cost to perfomance.
 //#define use_xyz
 
-//use_lines: Enables line clipping. Adds a very minor cost to performance when enabled.
+//use_lines: Enables line clipping. Adds a very minor cost to performance.
 #define use_lines
-                          
+  
+//When enabled, code developed with earlier versions of Clipper 
+//(ie prior to ver 6) should compile without changes. 
+//In a future update, this compatability code will be removed.
+#define use_deprecated
+  
 
 #include <vector>
 #include <stdexcept>
@@ -64,7 +70,6 @@ enum PolyFillType { pftEvenOdd, pftNonZero, pftPositive, pftNegative };
 typedef int cInt;
 typedef unsigned int cUInt;
 #else
-typedef signed long long long64; //backward compatibility only
 typedef signed long long cInt;
 typedef unsigned long long cUInt;
 #endif
@@ -93,17 +98,18 @@ struct IntPoint {
 typedef std::vector< IntPoint > Path;
 typedef std::vector< Path > Paths;
 
-// DEPRECATED /////////////////////////////
-typedef Path Polygon;
-typedef Paths Polygons;
-///////////////////////////////////////////
-
 inline Path& operator <<(Path& poly, const IntPoint& p) {poly.push_back(p); return poly;}
 inline Paths& operator <<(Paths& polys, const Path& p) {polys.push_back(p); return polys;}
 
 std::ostream& operator <<(std::ostream &s, const IntPoint &p);
 std::ostream& operator <<(std::ostream &s, const Path &p);
 std::ostream& operator <<(std::ostream &s, const Paths &p);
+
+#ifdef use_deprecated
+typedef signed long long long64; //backward compatibility only
+typedef Path Polygon;
+typedef Paths Polygons;
+#endif
 
 struct DoublePoint
 {
@@ -172,11 +178,13 @@ enum EndType {etClosed, etButt, etSquare, etRound};
 bool Orientation(const Path &poly);
 double Area(const Path &poly);
 
-void OffsetPolygons(const Paths &in_polys, Paths &out_polys,
-  double delta, JoinType jointype = jtSquare, double limit = 0, bool autoFix = true);
+#ifdef use_deprecated
+  void OffsetPolygons(const Polygons &in_polys, Polygons &out_polys,
+    double delta, JoinType jointype = jtSquare, double limit = 0, bool autoFix = true);
+#endif
 
-void OffsetPolyLines(const Paths &in_lines, Paths &out_lines,
-  double delta, JoinType jointype = jtSquare, EndType endtype = etSquare, double limit = 0, bool autoFix = true);
+void OffsetPaths(const Paths &in_polys, Paths &out_polys,
+  double delta, JoinType jointype, EndType endtype, double limit);
 
 void SimplifyPolygon(const Path &in_poly, Paths &out_polys, PolyFillType fillType = pftEvenOdd);
 void SimplifyPolygons(const Paths &in_polys, Paths &out_polys, PolyFillType fillType = pftEvenOdd);
@@ -190,7 +198,7 @@ void PolyTreeToPolygons(const PolyTree& polytree, Paths& paths);
 void ReversePolygon(Path& p);
 void ReversePolygons(Paths& p);
 
-struct IntRect { cInt Left; cInt Top; cInt Right; cInt Bottom; };
+struct IntRect { cInt left; cInt top; cInt right; cInt bottom; };
 
 //enums that are used internally ...
 enum EdgeSide { esLeft = 1, esRight = 2};
@@ -221,10 +229,10 @@ public:
   bool AddPath(const Path &pg, PolyType PolyTyp, bool Closed);
   bool AddPaths(const Paths &ppg, PolyType PolyTyp, bool Closed);
 
-  //OBSOLETE - USE AddPath OR AddPaths ////////////////////////
+#ifdef use_deprecated
   bool AddPolygon(const Path &pg, PolyType PolyTyp);
   bool AddPolygons(const Paths &ppg, PolyType PolyTyp);
-  /////////////////////////////////////////////////////////////
+#endif
 
   virtual void Clear();
   IntRect GetBounds();

@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0 (beta3)                                                   *
-* Date      :  1 August 2013                                                   *
+* Version   :  6.0.0 (rc1)                                                     *
+* Date      :  3 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -578,8 +578,8 @@ bool PointInPolygon(const IntPoint &Pt, OutPt *pp, bool UseFullInt64Range)
   if (UseFullInt64Range) {
     do
     {
-      if ((((pp2->Pt.Y <= Pt.Y) && (Pt.Y < pp2->Prev->Pt.Y)) ||
-          ((pp2->Prev->Pt.Y <= Pt.Y) && (Pt.Y < pp2->Pt.Y))) &&
+      if ((((Pt.Y >= pp2->Pt.Y) && (Pt.Y < pp2->Prev->Pt.Y)) ||
+          ((Pt.Y >= pp2->Prev->Pt.Y) && (Pt.Y < pp2->Pt.Y))) &&
           Int128(Pt.X - pp2->Pt.X) < 
           Int128Mul(pp2->Prev->Pt.X - pp2->Pt.X, Pt.Y - pp2->Pt.Y) / 
           Int128(pp2->Prev->Pt.Y - pp2->Pt.Y))
@@ -1142,14 +1142,13 @@ void RangeTest(const IntPoint& Pt, bool& useFullRange)
 }
 //------------------------------------------------------------------------------
 
-// OBSOLETE - Use AddPath
+#ifdef use_deprecated
 bool ClipperBase::AddPolygon(const Path &pg, PolyType PolyTyp)
 {
   return AddPath(pg, PolyTyp, true);
 }
 //------------------------------------------------------------------------------
 
-// OBSOLETE - Use AddPaths
 bool ClipperBase::AddPolygons(const Paths &ppg, PolyType PolyTyp)
 {
   bool result = false;
@@ -1158,6 +1157,7 @@ bool ClipperBase::AddPolygons(const Paths &ppg, PolyType PolyTyp)
   return result;
 }
 //------------------------------------------------------------------------------
+#endif
 
 bool ClipperBase::AddPath(const Path &pg, PolyType PolyTyp, bool Closed)
 {
@@ -1595,31 +1595,31 @@ IntRect ClipperBase::GetBounds()
   LocalMinima* lm = m_MinimaList;
   if (!lm)
   {
-    result.Left = result.Top = result.Right = result.Bottom = 0;
+    result.left = result.top = result.right = result.bottom = 0;
     return result;
   }
-  result.Left = lm->LeftBound->Bot.X;
-  result.Top = lm->LeftBound->Bot.Y;
-  result.Right = lm->LeftBound->Bot.X;
-  result.Bottom = lm->LeftBound->Bot.Y;
+  result.left = lm->LeftBound->Bot.X;
+  result.top = lm->LeftBound->Bot.Y;
+  result.right = lm->LeftBound->Bot.X;
+  result.bottom = lm->LeftBound->Bot.Y;
   while (lm)
   {
-    if (lm->LeftBound->Bot.Y > result.Bottom)
-      result.Bottom = lm->LeftBound->Bot.Y;
+    if (lm->LeftBound->Bot.Y > result.bottom)
+      result.bottom = lm->LeftBound->Bot.Y;
     TEdge* e = lm->LeftBound;
     for (;;) {
       TEdge* bottomE = e;
       while (e->NextInLML)
       {
-        if (e->Bot.X < result.Left) result.Left = e->Bot.X;
-        if (e->Bot.X > result.Right) result.Right = e->Bot.X;
+        if (e->Bot.X < result.left) result.left = e->Bot.X;
+        if (e->Bot.X > result.right) result.right = e->Bot.X;
         e = e->NextInLML;
       }
-      if (e->Bot.X < result.Left) result.Left = e->Bot.X;
-      if (e->Bot.X > result.Right) result.Right = e->Bot.X;
-      if (e->Top.X < result.Left) result.Left = e->Top.X;
-      if (e->Top.X > result.Right) result.Right = e->Top.X;
-      if (e->Top.Y < result.Top) result.Top = e->Top.Y;
+      if (e->Bot.X < result.left) result.left = e->Bot.X;
+      if (e->Bot.X > result.right) result.right = e->Bot.X;
+      if (e->Top.X < result.left) result.left = e->Top.X;
+      if (e->Top.X > result.right) result.right = e->Top.X;
+      if (e->Top.Y < result.top) result.top = e->Top.Y;
 
       if (bottomE == lm->LeftBound) e = lm->RightBound;
       else break;
@@ -1628,7 +1628,6 @@ IntRect ClipperBase::GetBounds()
   }
   return result;
 }
-
 
 //------------------------------------------------------------------------------
 // TClipper methods ...
@@ -4076,12 +4075,13 @@ private:
 public:
 
 OffsetBuilder(const Paths& in_polys, Paths& out_polys,
-  bool isPolygon, double Delta, JoinType jointype, EndType endtype, double limit): m_p(in_polys)
+  double Delta, JoinType jointype, EndType endtype, double limit): m_p(in_polys)
 {
     //precondition: &out_polys != &in_polys
 
     if (NEAR_ZERO(Delta)) {out_polys = in_polys; return;}
-    if (!isPolygon && Delta < 0) Delta = -Delta;
+    //we can't shrink a polyline so ...
+    if (endtype != etClosed && Delta < 0) Delta = -Delta;
     m_delta = Delta;
 
   if (jointype == jtMiter) 
@@ -4141,15 +4141,12 @@ OffsetBuilder(const Paths& in_polys, Paths& out_polys,
         continue;
       }
 
-      bool forceClose = (m_p[m_i][0] == m_p[m_i][len -1]);
-      if (forceClose) len--;
-
       //build normals ...
       normals.clear();
       normals.resize(len);
       for (m_j = 0; m_j < len -1; ++m_j)
           normals[m_j] = GetUnitNormal(m_p[m_i][m_j], m_p[m_i][m_j +1]);
-      if (isPolygon || forceClose) 
+      if (endtype == etClosed) 
         normals[len-1] = GetUnitNormal(m_p[m_i][len-1], m_p[m_i][0]);
       else //is open polyline
         normals[len-1] = normals[len-2];
@@ -4157,26 +4154,11 @@ OffsetBuilder(const Paths& in_polys, Paths& out_polys,
       m_curr_poly = &out_polys[m_i];
       m_curr_poly->reserve(len);
 
-      if (isPolygon || forceClose) 
+      if (endtype == etClosed)
       {
         m_k = len -1;
         for (m_j = 0; m_j < len; ++m_j)
           OffsetPoint(jointype);
-
-        if (!isPolygon)
-        {
-          size_t j = out_polys.size();
-          out_polys.resize(j+1);
-          m_curr_poly = &out_polys[j];
-          m_curr_poly->reserve(len);
-          m_delta = -m_delta;
-
-          m_k = len -1;
-          for (m_j = 0; m_j < len; ++m_j)
-            OffsetPoint(jointype);
-          m_delta = -m_delta;
-          ReversePolygon(*m_curr_poly);
-        }
       }
       else //is open polyline
       {
@@ -4203,8 +4185,13 @@ OffsetBuilder(const Paths& in_polys, Paths& out_polys,
           m_k = len - 2;
           normals[m_j].X = -normals[m_j].X;
           normals[m_j].Y = -normals[m_j].Y;
-          if (endtype == etSquare) DoSquare();
-          else DoRound();
+          if (endtype == etSquare) 
+            DoSquare();
+          else 
+          {
+            m_sinA = 0;
+            DoRound();
+          }
         }
 
         //re-build Normals ...
@@ -4233,8 +4220,13 @@ OffsetBuilder(const Paths& in_polys, Paths& out_polys,
         } else
         {
           m_k = 1;
-          if (endtype == etSquare) DoSquare(); 
-          else DoRound();
+          if (endtype == etSquare) 
+            DoSquare(); 
+          else 
+          {
+            m_sinA = 0;
+            DoRound();
+          }
         }
       }
     }
@@ -4251,10 +4243,10 @@ OffsetBuilder(const Paths& in_polys, Paths& out_polys,
     {
         IntRect r = clpr.GetBounds();
         Path outer(4);
-        outer[0] = IntPoint(r.Left - 10, r.Bottom + 10);
-        outer[1] = IntPoint(r.Right + 10, r.Bottom + 10);
-        outer[2] = IntPoint(r.Right + 10, r.Top - 10);
-        outer[3] = IntPoint(r.Left - 10, r.Top - 10);
+        outer[0] = IntPoint(r.left - 10, r.bottom + 10);
+        outer[1] = IntPoint(r.right + 10, r.bottom + 10);
+        outer[2] = IntPoint(r.right + 10, r.top - 10);
+        outer[3] = IntPoint(r.left - 10, r.top - 10);
 
         clpr.AddPath(outer, ptSubject, true);
         clpr.ReverseSolution(true);
@@ -4354,114 +4346,77 @@ void DoRound()
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
 
-bool UpdateBotPt(const IntPoint &Pt, IntPoint &botPt)
+void StripDupsAndGetBotPt(Path& in_path, Path& out_path, bool closed, IntPoint* botPt)
 {
-    if (Pt.Y > botPt.Y || (Pt.Y == botPt.Y && Pt.X < botPt.X))
+  botPt = 0;
+  size_t len = in_path.size();
+  if (closed)    
+    while (len > 0 && (in_path[0] == in_path[len -1])) len--;
+  if (len == 0) return;
+  out_path.resize(len);
+  int j = 0;
+  out_path[0] = in_path[0];
+  botPt = &out_path[0];
+  for (size_t i = 1; i < len; ++i)
+    if (in_path[i] != out_path[j])
     {
-        botPt = Pt;
-        return true;
+      j++;
+      out_path[j] = in_path[i];
+      if (out_path[j].Y > botPt->Y)
+        botPt = &out_path[j];
+      else if ((out_path[j].Y == botPt->Y) && out_path[j].X < botPt->X) 
+        botPt = &out_path[j];
     }
-    else return false;
+  j++;
+  if (j < 2 || (closed && (j == 2))) j = 0;
+  out_path.resize(j);
 }
-//--------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
-void OffsetPolygons(const Paths &in_polys, Paths &out_polys,
-  double Delta, JoinType jointype, double limit, bool autoFix)
+void OffsetPaths(const Paths &in_polys, Paths &out_polys,
+  double delta, JoinType jointype, EndType endtype, double limit)
 {
-  if (!autoFix && &in_polys != &out_polys)
-  {
-    OffsetBuilder(in_polys, out_polys, true, Delta, jointype, etClosed, limit);
-    return;
-  }
-
+  //just in case in_polys == &out_polys ...
   Paths inPolys = Paths(in_polys);
   out_polys.clear();
+  out_polys.resize(inPolys.size());
 
-  //ChecksInput - fixes polygon orientation if necessary and removes 
-  //duplicate vertices. Can be set false when you're sure that polygon
-  //orientation is correct and that there are no duplicate vertices.
-  if (autoFix) 
+  IntPoint *botPt = 0, *pt = 0;
+  int botIdx = -1;
+  for (size_t i = 0; i < in_polys.size(); ++i)
   {
-    size_t polyCount = inPolys.size(), botPoly = 0;
-    while (botPoly < polyCount && inPolys[botPoly].empty()) botPoly++;
-    if (botPoly == polyCount) return;
-      
-    //botPt: used to find the lowermost (in inverted Y-axis) & leftmost point
-    //This point (on m_p[botPoly]) must be on an outer polygon ring and if 
-    //its orientation is false (counterclockwise) then assume all polygons 
-    //need reversing ...
-    IntPoint botPt = inPolys[botPoly][0];      
-    for (size_t i = botPoly; i < polyCount; ++i)
-    {
-      if (inPolys[i].size() < 3) { inPolys[i].clear(); continue; }
-      if (UpdateBotPt(inPolys[i][0], botPt)) botPoly = i;
-      Path::iterator it = inPolys[i].begin() +1;
-      while (it != inPolys[i].end())
+    StripDupsAndGetBotPt(inPolys[i], out_polys[i], endtype == etClosed, pt);
+    if (botPt) 
+      if (!botPt || pt->Y > botPt->Y || (pt->Y == botPt->Y && pt->X < botPt->X))
       {
-        if (*it == *(it -1))
-          it = inPolys[i].erase(it);
-        else 
-        {
-          if (UpdateBotPt(*it, botPt)) botPoly = i;
-          ++it;
-        }
+        botPt = pt;
+        botIdx = i;
       }
-    }
-    if (!Orientation(inPolys[botPoly]))
+
+  }
+  if (endtype == etClosed && botIdx >= 0 && !Orientation(inPolys[botIdx]))
       ReversePolygons(inPolys);
-  }
-  OffsetBuilder(inPolys, out_polys, true, Delta, jointype, etClosed, limit);
+
+  OffsetBuilder(inPolys, out_polys, delta, jointype, endtype, limit);
 }
 //------------------------------------------------------------------------------
 
-void OffsetPolyLines(const Paths &in_lines, Paths &out_lines,
-  double Delta, JoinType jointype, EndType endtype, 
-  double limit, bool autoFix)
+#ifdef use_deprecated
+void OffsetPolygons(const Polygons &in_polys, Polygons &out_polys,
+  double delta, JoinType jointype, double limit, bool autoFix)
 {
-  if (!autoFix && endtype != etClosed && &in_lines != &out_lines)
-  {
-    OffsetBuilder(in_lines, out_lines, false, Delta, jointype, endtype, limit);
-    return;
-  }
-
-  Paths inLines = Paths(in_lines);
-  if (autoFix) 
-    for (size_t i = 0; i < inLines.size(); ++i)
-    {
-      if (inLines[i].size() < 2) { inLines[i].clear(); continue; }
-      Path::iterator it = inLines[i].begin() +1;
-      while (it != inLines[i].end())
-      {
-        if (*it == *(it -1))
-          it = inLines[i].erase(it);
-        else
-          ++it;
-      }
-    }
-
-  if (endtype == etClosed)
-  {
-    size_t sz = inLines.size();
-    inLines.resize(sz * 2);
-    for (size_t i = 0; i < sz; ++i)
-    {
-      inLines[sz+i] = inLines[i];
-      ReversePolygon(inLines[sz+i]);
-    }
-    OffsetBuilder(inLines, out_lines, true, Delta, jointype, endtype, limit);
-  } 
-  else
-    OffsetBuilder(inLines, out_lines, false, Delta, jointype, endtype, limit);
+  OffsetPaths(in_polys, out_polys, delta, jointype, etClosed, limit);
 }
 //------------------------------------------------------------------------------
+#endif
 
-void SimplifyPolygon(const Path &in_poly, Paths &out_polys, PolyFillType fillType)
-{
-  Clipper c;
-  c.StrictlySimple(true);
-  c.AddPath(in_poly, ptSubject, true);
-  c.Execute(ctUnion, out_polys, fillType, fillType);
-}
+//void SimplifyPolygon(const Path &in_poly, Paths &out_polys, PolyFillType fillType)
+//{
+//  Clipper c;
+//  c.StrictlySimple(true);
+//  c.AddPath(in_poly, ptSubject, true);
+//  c.Execute(ctUnion, out_polys, fillType, fillType);
+//}
 //------------------------------------------------------------------------------
 
 void SimplifyPolygons(const Paths &in_polys, Paths &out_polys, PolyFillType fillType)
