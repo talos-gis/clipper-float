@@ -4,7 +4,7 @@ unit clipper;
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (rc1)                                                     *
-* Date      :  3 August 2013                                                   *
+* Date      :  4 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -362,9 +362,12 @@ function OffsetPaths(const Polys: TPaths; const Delta: Double;
   Limit: Double = 0): TPaths;
 
 {$IFDEF use_deprecated}
-function OffsetPolygons(const Polys: TPaths; const Delta: Double;
+function ReversePolygon(const Pts: TPolygon): TPolygon;
+function ReversePolygons(const Pts: TPolygons): TPolygons;
+function OffsetPolygons(const Polys: TPolygons; const Delta: Double;
   JoinType: TJoinType = jtSquare; Limit: Double = 0;
-  AutoFix: Boolean = True): TPaths;
+  AutoFix: Boolean = True): TPolygons;
+function PolyTreeToPolygons(PolyTree: TPolyTree): TPolygons;
 {$ENDIF}
 
 //SimplifyPolygon converts a self-intersecting polygon into a simple polygon.
@@ -1753,20 +1756,6 @@ begin
     if AddPath(Paths[I], PolyType, Closed) then Result := True;
 end;
 //------------------------------------------------------------------------------
-
-{$IFDEF use_deprecated}
-function TClipperBase.AddPolygons(const Paths: TPaths; PolyType: TPolyType): Boolean;
-begin
-  Result := AddPaths(Paths, PolyType, True);
-end;
-//------------------------------------------------------------------------------
-
-function TClipperBase.AddPolygon(const Path: TPath; PolyType: TPolyType): Boolean;
-begin
-  Result := AddPath(Path, PolyType, True);
-end;
-//------------------------------------------------------------------------------
-{$ENDIF}
 
 procedure TClipperBase.Clear;
 var
@@ -4625,7 +4614,7 @@ begin
           else if Y < 0 then Y := 1
           else X := -1;
         end;
-      end;
+      end;
       SetLength(FOutP, FOutPos);
       FSolution[I] := FOutP;
       Continue;
@@ -4671,13 +4660,10 @@ begin
         K := Len - 2;
         FNorms[J].X := -FNorms[J].X;
         FNorms[J].Y := -FNorms[J].Y;
+        FSinA := 0;
         if EndType = etSquare then
-          DoSquare(J, K)
-        else
-        begin
-          FSinA := 0;
+          DoSquare(J, K) else
           DoRound(J, K);
-        end;
       end;
 
       //re-build Normals ...
@@ -4703,13 +4689,10 @@ begin
           round(FInP[0].Y + FNorms[0].Y * FDelta)));
       end else
       begin
+        FSinA := 0;
         if EndType = etSquare then
-          DoSquare(0, 1)
-        else
-        begin
-          FSinA := 0;
+          DoSquare(0, 1) else
           DoRound(0, 1);
-        end;
       end;
       SetLength(FOutP, FOutPos);
       FSolution[I] := FOutP;
@@ -4775,16 +4758,6 @@ begin
   SetLength(Result, J);
 end;
 //------------------------------------------------------------------------------
-
-{$IFDEF use_deprecated}
-function OffsetPolygons(const Polys: TPaths; const Delta: Double;
-  JoinType: TJoinType = jtSquare; Limit: Double = 0;
-  AutoFix: Boolean = True): TPaths;
-begin
-  result := OffsetPaths(Polys, Delta, JoinType, etClosed, Limit);
-end;
-//------------------------------------------------------------------------------
-{$ENDIF}
 
 function OffsetPaths(const Polys: TPaths; const Delta: Double;
   JoinType: TJoinType = jtSquare; EndType: TEndType = etClosed;
@@ -5013,5 +4986,46 @@ end;
 
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
+
+{$IFDEF use_deprecated}
+function TClipperBase.AddPolygons(const Paths: TPaths; PolyType: TPolyType): Boolean;
+begin
+  Result := AddPaths(Paths, PolyType, True);
+end;
+//------------------------------------------------------------------------------
+
+function TClipperBase.AddPolygon(const Path: TPath; PolyType: TPolyType): Boolean;
+begin
+  Result := AddPath(Path, PolyType, True);
+end;
+//------------------------------------------------------------------------------
+
+function OffsetPolygons(const Polys: TPolygons; const Delta: Double;
+  JoinType: TJoinType = jtSquare; Limit: Double = 0;
+  AutoFix: Boolean = True): TPolygons;
+begin
+  result := OffsetPaths(Polys, Delta, JoinType, etClosed, Limit);
+end;
+//------------------------------------------------------------------------------
+
+function PolyTreeToPolygons(PolyTree: TPolyTree): TPolygons;
+begin
+  result := PolyTreeToPaths(PolyTree);
+end;
+//------------------------------------------------------------------------------
+
+function ReversePolygon(const Pts: TPolygon): TPolygon;
+begin
+  result := ReversePath(Pts);
+end;
+//------------------------------------------------------------------------------
+
+function ReversePolygons(const Pts: TPolygons): TPolygons;
+begin
+  result := ReversePaths(Pts);
+end;
+//------------------------------------------------------------------------------
+{$ENDIF}
+
 
 end.

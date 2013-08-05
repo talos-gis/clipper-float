@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (rc1)                                                     *
-* Date      :  3 August 2013                                                   *
+* Date      :  4 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -47,8 +47,7 @@
 //When enabled, code developed with earlier versions of Clipper 
 //(ie prior to ver 6) should compile without changes. 
 //In a future update, this compatability code will be removed.
-#define use_deprecated
-  
+#define use_deprecated  
 
 #include <vector>
 #include <stdexcept>
@@ -181,6 +180,9 @@ double Area(const Path &poly);
 #ifdef use_deprecated
   void OffsetPolygons(const Polygons &in_polys, Polygons &out_polys,
     double delta, JoinType jointype = jtSquare, double limit = 0, bool autoFix = true);
+  void PolyTreeToPolygons(const PolyTree& polytree, Paths& paths);
+  void ReversePolygon(Path& p);
+  void ReversePolygons(Paths& p);
 #endif
 
 void OffsetPaths(const Paths &in_polys, Paths &out_polys,
@@ -193,10 +195,12 @@ void SimplifyPolygons(Paths &polys, PolyFillType fillType = pftEvenOdd);
 void CleanPolygon(const Path& in_poly, Path& out_poly, double distance = 1.415);
 void CleanPolygons(const Paths& in_polys, Paths& out_polys, double distance = 1.415);
 
-void PolyTreeToPolygons(const PolyTree& polytree, Paths& paths);
+void PolyTreeToPaths(const PolyTree& polytree, Paths& paths);
+void ClosedPathsFromPolyTree(const PolyTree& polytree, Paths& paths);
+void OpenPathsFromPolyTree(PolyTree& polytree, Paths& paths);
 
-void ReversePolygon(Path& p);
-void ReversePolygons(Paths& p);
+void ReversePath(Path& p);
+void ReversePaths(Paths& p);
 
 struct IntRect { cInt left; cInt top; cInt right; cInt bottom; };
 

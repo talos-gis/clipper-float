@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (rc1)                                                     *
-* Date      :  3 August 2013                                                   *
+* Date      :  4 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -70,6 +70,11 @@ namespace ClipperLib
 
   using Path = List<IntPoint>;
   using Paths = List<List<IntPoint>>;
+
+#if use_deprecated
+  using Polygon = List<IntPoint>;
+  using Polygons = List<List<IntPoint>>;
+#endif
 
   public class DoublePoint
   {
@@ -3522,7 +3527,7 @@ namespace ClipperLib
       }
       //------------------------------------------------------------------------------
 
-      public static void ReversePolygons(Paths polys)
+      public static void ReversePaths(Paths polys)
       {
         polys.ForEach(delegate(Path poly) { poly.Reverse(); });
       }
@@ -4322,15 +4327,13 @@ namespace ClipperLib
                       {
                           m_j = len - 1;
                           m_k = len - 2;
+                          m_sinA = 0;
                           normals[m_j].X = -normals[m_j].X;
                           normals[m_j].Y = -normals[m_j].Y;
                           if (endtype == EndType.etSquare)
                             DoSquare();
                           else
-                          {
-                            m_sinA = 0;
                             DoRound();
-                          }
                       }
 
                       //re-build Normals ...
@@ -4358,13 +4361,11 @@ namespace ClipperLib
                       else
                       {
                           m_k = 1;
+                          m_sinA = 0;
                           if (endtype == EndType.etSquare) 
                             DoSquare();
                           else
-                          {
-                            m_sinA = 0;
                             DoRound();
-                          }
                       }
                       solution.Add(currentPoly);
                   }
@@ -4372,7 +4373,7 @@ namespace ClipperLib
 
               //finally, clean up untidy corners ...
               Clipper clpr = new Clipper();
-              clpr.AddPolygons(solution, PolyType.ptSubject);
+              clpr.AddPaths(solution, PolyType.ptSubject, true);
               if (delta > 0)
               {
                   clpr.Execute(ClipType.ctUnion, solution, PolyFillType.pftPositive, PolyFillType.pftPositive);
@@ -4387,7 +4388,7 @@ namespace ClipperLib
                   outer.Add(new IntPoint(r.right + 10, r.top - 10));
                   outer.Add(new IntPoint(r.left - 10, r.top - 10));
 
-                  clpr.AddPolygon(outer, PolyType.ptSubject);
+                  clpr.AddPath(outer, PolyType.ptSubject, true);
                   clpr.ReverseSolution = true;
                   clpr.Execute(ClipType.ctUnion, solution, PolyFillType.pftNegative, PolyFillType.pftNegative);
                   if (solution.Count > 0) solution.RemoveAt(0);
@@ -4507,7 +4508,7 @@ namespace ClipperLib
             }
         }
         if (endtype == EndType.etClosed && botIdx >= 0 && !Orientation(out_polys[botIdx]))
-          ReversePolygons(out_polys);
+          ReversePaths(out_polys);
 
         Paths result;
         new PolyOffsetBuilder(out_polys, out result, delta, jointype, endtype, MiterLimit);
@@ -4530,15 +4531,29 @@ namespace ClipperLib
       }
       //------------------------------------------------------------------------------
 
-      public static Paths OffsetPolygons(Paths poly, double delta, JoinType jointype)
+      public static Paths OffsetPolygons(Polygons polys, double delta, JoinType jointype)
       {
-        return OffsetPaths(poly, delta, jointype, EndType.etClosed, 0);
+        return OffsetPaths(polys, delta, jointype, EndType.etClosed, 0);
       }
       //------------------------------------------------------------------------------
 
-      public static Paths OffsetPolygons(Paths poly, double delta)
+      public static Paths OffsetPolygons(Polygons polys, double delta)
       {
-          return OffsetPolygons(poly, delta, JoinType.jtSquare, 0, true);
+          return OffsetPolygons(polys, delta, JoinType.jtSquare, 0, true);
+      }
+      //------------------------------------------------------------------------------
+
+      public static void ReversePolygons(Polygons polys)
+      {
+        polys.ForEach(delegate(Path poly) { poly.Reverse(); });
+      }
+      //------------------------------------------------------------------------------
+
+      public static void PolyTreeToPolygons(PolyTree polytree, Polygons polys)
+      {
+        polys.Clear();
+        polys.Capacity = polytree.Total;
+        AddPolyNodeToPaths(polytree, NodeType.ntAny, polys);
       }
       //------------------------------------------------------------------------------
 #endif
@@ -4554,7 +4569,7 @@ namespace ClipperLib
           Paths result = new Paths();
           Clipper c = new Clipper();
           c.StrictlySimple = true;
-          c.AddPolygon(poly, PolyType.ptSubject);
+          c.AddPath(poly, PolyType.ptSubject, true);
           c.Execute(ClipType.ctUnion, result, fillType, fillType);
           return result;
       }
@@ -4566,7 +4581,7 @@ namespace ClipperLib
           Paths result = new Paths();
           Clipper c = new Clipper();
           c.StrictlySimple = true;
-          c.AddPolygons(polys, PolyType.ptSubject);
+          c.AddPaths(polys, PolyType.ptSubject, true);
           c.Execute(ClipType.ctUnion, result, fillType, fillType);
           return result;
       }

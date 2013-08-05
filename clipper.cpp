@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (rc1)                                                     *
-* Date      :  3 August 2013                                                   *
+* Date      :  4 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -235,8 +235,8 @@ bool PolyNode::IsOpen() const
 
 //------------------------------------------------------------------------------
 // Int128 class (enables safe math on signed 64bit integers)
-// eg Int128 val1((long64)9223372036854775807); //ie 2^63 -1
-//    Int128 val2((long64)9223372036854775807);
+// eg Int128 val1((cInt)9223372036854775807); //ie 2^63 -1
+//    Int128 val2((cInt)9223372036854775807);
 //    Int128 val3 = val1 * val2;
 //    val3.AsString => "85070591730234615847396907784232501249" (8.5e+37)
 //------------------------------------------------------------------------------
@@ -245,21 +245,21 @@ class Int128
 {
   public:
 
-    ulong64 lo;
-    long64 hi;
+    cUInt lo;
+    cInt hi;
 
-    Int128(long64 _lo = 0)
+    Int128(cInt _lo = 0)
     {
-      lo = (ulong64)_lo;   
+      lo = (cUInt)_lo;   
       if (_lo < 0)  hi = -1; else hi = 0; 
     }
 
 
     Int128(const Int128 &val): lo(val.lo), hi(val.hi){}
 
-    Int128(const long64& _hi, const ulong64& _lo): lo(_lo), hi(_hi){}
+    Int128(const cInt& _hi, const ulong64& _lo): lo(_lo), hi(_hi){}
     
-    Int128& operator = (const long64 &val)
+    Int128& operator = (const cInt &val)
     {
       lo = (ulong64)val;
       if (val < 0) hi = -1; else hi = 0;
@@ -348,11 +348,11 @@ class Int128
           while (divisor.hi >= 0 && !(divisor > dividend))
           {
               divisor.hi <<= 1;
-              if ((long64)divisor.lo < 0) divisor.hi++;
+              if ((cInt)divisor.lo < 0) divisor.hi++;
               divisor.lo <<= 1;
 
               cntr.hi <<= 1;
-              if ((long64)cntr.lo < 0) cntr.hi++;
+              if ((cInt)cntr.lo < 0) cntr.hi++;
               cntr.lo <<= 1;
           }
           divisor.lo >>= 1;
@@ -407,7 +407,7 @@ class Int128
 };
 //------------------------------------------------------------------------------
 
-Int128 Int128Mul (long64 lhs, long64 rhs)
+Int128 Int128Mul (cInt lhs, cInt rhs)
 {
   bool negate = (lhs < 0) != (rhs < 0);
 
@@ -425,9 +425,9 @@ Int128 Int128Mul (long64 lhs, long64 rhs)
   ulong64 c = int1Hi * int2Lo + int1Lo * int2Hi;
 
   Int128 tmp;
-  tmp.hi = long64(a + (c >> 32));
-  tmp.lo = long64(c << 32);
-  tmp.lo += long64(b);
+  tmp.hi = cInt(a + (c >> 32));
+  tmp.lo = cInt(c << 32);
+  tmp.lo += cInt(b);
   if (tmp.lo < b) tmp.hi++;
   if (negate) tmp = -tmp;
   return tmp;
@@ -1141,23 +1141,6 @@ void RangeTest(const IntPoint& Pt, bool& useFullRange)
   }
 }
 //------------------------------------------------------------------------------
-
-#ifdef use_deprecated
-bool ClipperBase::AddPolygon(const Path &pg, PolyType PolyTyp)
-{
-  return AddPath(pg, PolyTyp, true);
-}
-//------------------------------------------------------------------------------
-
-bool ClipperBase::AddPolygons(const Paths &ppg, PolyType PolyTyp)
-{
-  bool result = false;
-  for (Paths::size_type i = 0; i < ppg.size(); ++i)
-    if (AddPath(ppg[i], PolyTyp, true)) result = true;
-  return result;
-}
-//------------------------------------------------------------------------------
-#endif
 
 bool ClipperBase::AddPath(const Path &pg, PolyType PolyTyp, bool Closed)
 {
@@ -4029,16 +4012,16 @@ void Clipper::DoSimplePolygons()
 }
 //------------------------------------------------------------------------------
 
-void ReversePolygon(Path& p)
+void ReversePath(Path& p)
 {
   std::reverse(p.begin(), p.end());
 }
 //------------------------------------------------------------------------------
 
-void ReversePolygons(Paths& p)
+void ReversePaths(Paths& p)
 {
   for (Paths::size_type i = 0; i < p.size(); ++i)
-    ReversePolygon(p[i]);
+    ReversePath(p[i]);
 }
 
 //------------------------------------------------------------------------------
@@ -4183,15 +4166,13 @@ OffsetBuilder(const Paths& in_polys, Paths& out_polys,
         {
           m_j = len - 1;
           m_k = len - 2;
+          m_sinA = 0;
           normals[m_j].X = -normals[m_j].X;
           normals[m_j].Y = -normals[m_j].Y;
           if (endtype == etSquare) 
             DoSquare();
           else 
-          {
-            m_sinA = 0;
             DoRound();
-          }
         }
 
         //re-build Normals ...
@@ -4219,14 +4200,12 @@ OffsetBuilder(const Paths& in_polys, Paths& out_polys,
           AddPoint(pt1);
         } else
         {
+          m_sinA = 0;
           m_k = 1;
           if (endtype == etSquare) 
             DoSquare(); 
           else 
-          {
-            m_sinA = 0;
             DoRound();
-          }
         }
       }
     }
@@ -4395,28 +4374,10 @@ void OffsetPaths(const Paths &in_polys, Paths &out_polys,
 
   }
   if (endtype == etClosed && botIdx >= 0 && !Orientation(inPolys[botIdx]))
-      ReversePolygons(inPolys);
+      ReversePaths(inPolys);
 
   OffsetBuilder(inPolys, out_polys, delta, jointype, endtype, limit);
 }
-//------------------------------------------------------------------------------
-
-#ifdef use_deprecated
-void OffsetPolygons(const Polygons &in_polys, Polygons &out_polys,
-  double delta, JoinType jointype, double limit, bool autoFix)
-{
-  OffsetPaths(in_polys, out_polys, delta, jointype, etClosed, limit);
-}
-//------------------------------------------------------------------------------
-#endif
-
-//void SimplifyPolygon(const Path &in_poly, Paths &out_polys, PolyFillType fillType)
-//{
-//  Clipper c;
-//  c.StrictlySimple(true);
-//  c.AddPath(in_poly, ptSubject, true);
-//  c.Execute(ctUnion, out_polys, fillType, fillType);
-//}
 //------------------------------------------------------------------------------
 
 void SimplifyPolygons(const Paths &in_polys, Paths &out_polys, PolyFillType fillType)
@@ -4513,20 +4474,45 @@ void CleanPolygons(const Paths& in_polys, Paths& out_polys, double distance)
 }
 //------------------------------------------------------------------------------
 
-void AddPolyNodeToPolygons(const PolyNode& polynode, Paths& paths)
+enum NodeType {ntAny, ntOpen, ntClosed};
+
+void AddPolyNodeToPolygons(const PolyNode& polynode, NodeType nodetype, Paths& paths)
 {
-  if (!polynode.Contour.empty())
+  bool match = true;
+  if (nodetype == ntClosed) match = !polynode.IsOpen();
+  else if (nodetype == ntOpen) return;
+
+  if (!polynode.Contour.empty() && match)
     paths.push_back(polynode.Contour);
   for (int i = 0; i < polynode.ChildCount(); ++i)
-    AddPolyNodeToPolygons(*polynode.Childs[i], paths);
+    AddPolyNodeToPolygons(*polynode.Childs[i], nodetype, paths);
 }
 //------------------------------------------------------------------------------
 
-void PolyTreeToPolygons(const PolyTree& polytree, Paths& paths)
+void PolyTreeToPaths(const PolyTree& polytree, Paths& paths)
 {
   paths.resize(0); 
   paths.reserve(polytree.Total());
-  AddPolyNodeToPolygons(polytree, paths);
+  AddPolyNodeToPolygons(polytree, ntAny, paths);
+}
+//------------------------------------------------------------------------------
+
+void ClosedPathsFromPolyTree(const PolyTree& polytree, Paths& paths)
+{
+  paths.resize(0); 
+  paths.reserve(polytree.Total());
+  AddPolyNodeToPolygons(polytree, ntClosed, paths);
+}
+//------------------------------------------------------------------------------
+
+void OpenPathsFromPolyTree(PolyTree& polytree, Paths& paths)
+{
+  paths.resize(0); 
+  paths.reserve(polytree.Total());
+  //Open paths are top level only, so ...
+  for (int i = 0; i < polytree.ChildCount(); ++i)
+    if (polytree.Childs[i]->IsOpen())
+      paths.push_back(polytree.Childs[i]->Contour);
 }
 //------------------------------------------------------------------------------
 
@@ -4556,6 +4542,48 @@ std::ostream& operator <<(std::ostream &s, const Paths &p)
   return s;
 }
 //------------------------------------------------------------------------------
+
+#ifdef use_deprecated
+bool ClipperBase::AddPolygon(const Path &pg, PolyType PolyTyp)
+{
+  return AddPath(pg, PolyTyp, true);
+}
+//------------------------------------------------------------------------------
+
+bool ClipperBase::AddPolygons(const Paths &ppg, PolyType PolyTyp)
+{
+  bool result = false;
+  for (Paths::size_type i = 0; i < ppg.size(); ++i)
+    if (AddPath(ppg[i], PolyTyp, true)) result = true;
+  return result;
+}
+//------------------------------------------------------------------------------
+
+void OffsetPolygons(const Polygons &in_polys, Polygons &out_polys,
+  double delta, JoinType jointype, double limit, bool autoFix)
+{
+  OffsetPaths(in_polys, out_polys, delta, jointype, etClosed, limit);
+}
+//------------------------------------------------------------------------------
+
+void PolyTreeToPolygons(const PolyTree& polytree, Paths& paths)
+{
+  PolyTreeToPaths(polytree, paths);
+}
+//------------------------------------------------------------------------------
+
+void ReversePolygon(Path& p)
+{
+  std::reverse(p.begin(), p.end());
+}
+//------------------------------------------------------------------------------
+
+void ReversePolygons(Paths& p)
+{
+  for (Paths::size_type i = 0; i < p.size(); ++i)
+    ReversePolygon(p[i]);
+}
+#endif
 
 
 } //ClipperLib namespace
