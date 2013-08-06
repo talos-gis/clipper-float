@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0 (rc1)                                                     *
-* Date      :  4 August 2013                                                   *
+* Version   :  6.0.0 (rc2)                                                     *
+* Date      :  7 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -735,15 +735,15 @@ bool IntersectPoint(TEdge &Edge1, TEdge &Edge2,
   {
     if (Edge1.Top.Y > Edge2.Top.Y)
     {
-      ip.X = Edge1.Top.X;
       ip.Y = Edge1.Top.Y;
-      return TopX(Edge2, Edge1.Top.Y) < Edge1.Top.X;
+      ip.X = TopX(Edge2, Edge1.Top.Y);
+      return ip.X < Edge1.Top.X;
     } 
     else
     {
-      ip.X = Edge2.Top.X;
       ip.Y = Edge2.Top.Y;
-      return TopX(Edge1, Edge2.Top.Y) > Edge2.Top.X;
+      ip.X = TopX(Edge1, Edge2.Top.Y);
+      return ip.X > Edge2.Top.X;
     }
   } 
   else 
@@ -1642,7 +1642,7 @@ Clipper::~Clipper() //destructor
 //------------------------------------------------------------------------------
 
 #ifdef use_xyz  
-void Clipper::ZFillFunction(ZFillFunc zFillFunc)
+void Clipper::ZFillFunction(TZFillCallback zFillFunc)
 {  
   m_ZFill = zFillFunc;
 }
@@ -2260,8 +2260,8 @@ void Clipper::DeleteFromSEL(TEdge *e)
 #ifdef use_xyz
 inline void GetZ(IntPoint& Pt, TEdge& e)
 {
-  if (PointsEqual(Pt, e.Bot)) Pt.Z = e.Bot.Z;
-  else if (PointsEqual(Pt, e.Top)) Pt.Z = e.Top.Z;
+  if (Pt == e.Bot) Pt.Z = e.Bot.Z;
+  else if (Pt == e.Top) Pt.Z = e.Top.Z;
   else if (e.WindDelta > 0) Pt.Z = e.Bot.Z;
   else Pt.Z = e.Top.Z;
 }

@@ -3,8 +3,8 @@ unit clipper;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0 (rc1)                                                     *
-* Date      :  4 August 2013                                                   *
+* Version   :  6.0.0 (rc2)                                                     *
+* Date      :  7 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -61,7 +61,7 @@ type
 {$ENDIF}
 
   PIntPoint = ^TIntPoint;
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
   TIntPoint = record X, Y, Z: cInt; end;
 {$ELSE}
   TIntPoint = record X, Y: cInt; end;
@@ -72,8 +72,8 @@ type
   TDoublePoint = record X, Y: Double; end;
   TArrayOfDoublePoint = array of TDoublePoint;
 
-{$IFDEF UseXYZ}
-  TZFillCallback = procedure (const Z1, Z2: Int64; var Pt: TIntPoint);
+{$IFDEF use_xyz}
+  TZFillCallback = procedure (const Z1, Z2: cInt; var Pt: TIntPoint);
 {$ENDIF}
 
   TInitOption = (ioReverseSolution, ioStrictlySimple, ioPreserveColinear);
@@ -269,7 +269,7 @@ type
     FReverseOutput    : Boolean;
     FStrictSimple      : Boolean;
     FUsingPolyTree    : Boolean;
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
     FZFillCallback    : TZFillCallback;
 {$ENDIF}
     procedure DisposeScanbeamList;
@@ -340,7 +340,7 @@ type
     property ReverseSolution: Boolean read FReverseOutput write FReverseOutput;
     //StrictlySimple: when false (the default) solutions are 'weakly' simple
     property StrictlySimple: Boolean read FStrictSimple write FStrictSimple;
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
     property ZFillFunction: TZFillCallback read FZFillCallback write FZFillCallback;
 {$ENDIF}
   end;
@@ -348,7 +348,7 @@ type
 function Orientation(const Pts: TPath): Boolean; overload;
 function Area(const Pts: TPath): Double; overload;
 
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
 function IntPoint(const X, Y: Int64; Z: Int64 = 0): TIntPoint;
 {$ELSE}
 function IntPoint(const X, Y: cInt): TIntPoint;
@@ -747,7 +747,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
 function IntPoint(const X, Y: Int64; Z: Int64 = 0): TIntPoint;
 begin
   Result.X := X;
@@ -989,7 +989,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
 procedure GetZ(var Pt: TIntPoint; E: PEdge); {$IFDEF INLINING} inline; {$ENDIF}
 begin
   if PointsEqual(Pt, E.Bot) then Pt.Z := E.Bot.Z
@@ -1021,7 +1021,7 @@ function IntersectPoint(Edge1, Edge2: PEdge;
 var
   B1,B2,M: Double;
 begin
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
   ip.Z := 0;
 {$ENDIF}
   if SlopesEqual(Edge1, Edge2, UseFullInt64Range) then
@@ -1080,12 +1080,14 @@ begin
     //intersection really has occurred...
     if (Edge1.Top.Y > Edge2.Top.Y) then
     begin
-      Result := TopX(Edge2, Edge1.Top.Y) < Edge1.Top.X;
-      ip := Edge1.Top;
+      ip.Y := edge1.Top.Y;
+      ip.X := TopX(edge2, edge1.Top.Y);
+      Result := ip.X < edge1.Top.X;
     end else
     begin
-      Result := TopX(Edge1, Edge2.Top.Y) > Edge2.Top.X;
-      ip := Edge2.Top;
+      ip.Y := edge2.Top.Y;
+      ip.X := TopX(edge1, edge2.Top.Y);
+      Result := ip.X > edge2.Top.X;
     end;
   end else
     Result := True;
@@ -1172,7 +1174,7 @@ begin
   E.Top.X := E.Bot.X;
   E.Bot.X := tmp;
 
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
   tmp := E.Top.Z;
   E.Top.Z := E.Bot.Z;
   E.Bot.Z := tmp;
@@ -2500,7 +2502,7 @@ begin
       if Assigned(E) then
         while (E <> Rb) do
         begin
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
           SetZ(Pt, Rb, E, FZFillCallback);
 {$ENDIF}
           //nb: For calculating winding counts etc, IntersectEdges() assumes
@@ -3286,14 +3288,14 @@ begin
         else if (Direction = dLeftToRight) then
         begin
           Pt := IntPoint(E.Curr.X, HorzEdge.Curr.Y);
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
           SetZ(Pt, HorzEdge, E, FZFillCallback);
 {$ENDIF}
           IntersectEdges(HorzEdge, E, Pt, True);
         end else
         begin
           Pt := IntPoint(E.Curr.X, HorzEdge.Curr.Y);
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
           SetZ(Pt, E, HorzEdge, FZFillCallback);
 {$ENDIF}
           IntersectEdges(E, HorzEdge, Pt, True);
@@ -3469,7 +3471,7 @@ begin
             Pt.X := TopX(e, botY);
         end;
 
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
         SetZ(Pt, E, eNext, FZFillCallback);
 {$ENDIF}
         InsertIntersectNode(E, eNext, Pt);
@@ -3548,7 +3550,7 @@ begin
   while Assigned(ENext) and (ENext <> EMaxPair) do
   begin
     Pt := E.Top;
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
     SetZ(Pt, E, ENext, FZFillCallback);
 {$ENDIF}
     IntersectEdges(E, ENext, Pt, True);
@@ -3661,7 +3663,7 @@ begin
           (ePrev.OutIdx >= 0) and (ePrev.WindDelta <> 0) then
         begin
           Pt := IntPoint(E.Curr.X, TopY);
-{$IFDEF UseXYZ}
+{$IFDEF use_xyz}
           GetZ(Pt, ePrev);
           Op := AddOutPt(ePrev, Pt);
           GetZ(Pt, E);

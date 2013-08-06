@@ -1,8 +1,8 @@
 ﻿/*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0 (rc1)                                                     *
-* Date      :  4 August 2013                                                   *
+* Version   :  6.0.0 (rc2)                                                     *
+* Date      :  7 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -1478,8 +1478,8 @@ namespace ClipperLib
       private List<Join> m_GhostJoins;
       private bool m_UsingPolyTree;
 #if use_xyz
-      public delegate void ZFillFunc(Int64 Z1, Int64 Z2, ref IntPoint pt);
-      public ZFillFunc ZFillFunction { get; set; }
+      public delegate void TZFillCallback(cInt Z1, cInt Z2, ref IntPoint pt);
+      public TZFillCallback ZFillFunction { get; set; }
 #endif
       public Clipper(int initOptions = 0): base() //constructor
       {
@@ -1754,8 +1754,8 @@ namespace ClipperLib
 #if use_xyz
       void GetZ(ref IntPoint pt, TEdge e)
       {
-        if (PointsEqual(pt, e.Bot)) pt.Z = e.Bot.Z;
-        else if (PointsEqual(pt, e.Top)) pt.Z = e.Top.Z;
+        if (pt == e.Bot) pt.Z = e.Bot.Z;
+        else if (pt == e.Top) pt.Z = e.Top.Z;
         else if (e.WindDelta > 0) pt.Z = e.Bot.Z;
         else pt.Z = e.Top.Z;
       }
@@ -3345,13 +3345,15 @@ namespace ClipperLib
         {
             if (edge1.Top.Y > edge2.Top.Y)
             {
-                ip = edge1.Top;
-                return TopX(edge2, edge1.Top.Y) < edge1.Top.X;
+                ip.Y = edge1.Top.Y;
+                ip.X = TopX(edge2, edge1.Top.Y);
+                return ip.X < edge1.Top.X;
             }
             else
             {
-                ip = edge2.Top;
-                return TopX(edge1, edge2.Top.Y) > edge2.Top.X;
+                ip.Y = edge2.Top.Y;
+                ip.X = TopX(edge1, edge2.Top.Y);
+                return ip.X > edge2.Top.X;
             }
         }
         else

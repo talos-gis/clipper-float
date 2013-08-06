@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.0.0 (rc1)                                                     *
-* Date      :  4 August 2013                                                   *
+* Version   :  6.0.0 (rc2)                                                     *
+* Date      :  7 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -133,7 +133,7 @@ public:
 
 
 #ifdef use_xyz
-typedef void (*ZFillFunc)(long64 z1, long64 z2, IntPoint& pt);
+typedef void (*TZFillCallback)(cInt z1, cInt z2, IntPoint& pt);
 #endif
 
 class PolyNode;
@@ -280,7 +280,7 @@ public:
   void StrictlySimple(bool value) {m_StrictSimple = value;};
   //set the callback function for z value filling on intersections (otherwise Z is 0)
 #ifdef use_xyz
-  void ZFillFunction(ZFillFunc zFillFunc);
+  void ZFillFunction(TZFillCallback zFillFunc);
 #endif
 protected:
   void Reset();
@@ -301,7 +301,7 @@ private:
   bool             m_UsingPolyTree; 
   bool             m_StrictSimple;
 #ifdef use_xyz
-  ZFillFunc        m_ZFill; //custom callback 
+  TZFillCallback   m_ZFill; //custom callback 
 #endif
   void DisposeScanbeamList();
   void SetWindingCount(TEdge& edge);
