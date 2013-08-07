@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (rc2)                                                     *
-* Date      :  7 August 2013                                                   *
+* Date      :  8 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -794,10 +794,10 @@ namespace ClipperLib
       {
         if (useFullRange)
         {
-          if (Pt.X > hiRange || Pt.Y > hiRange) 
+          if (Pt.X > hiRange || Pt.Y > hiRange || -Pt.X > hiRange || -Pt.Y > hiRange) 
             throw new ClipperException("Coordinate outside allowed range");
         }
-        else if (Pt.X > loRange|| Pt.Y > loRange) 
+        else if (Pt.X > loRange || Pt.Y > loRange || -Pt.X > loRange || -Pt.Y > loRange) 
         {
           useFullRange = true;
           RangeTest(Pt, ref useFullRange);
@@ -1481,7 +1481,7 @@ namespace ClipperLib
       public delegate void TZFillCallback(cInt Z1, cInt Z2, ref IntPoint pt);
       public TZFillCallback ZFillFunction { get; set; }
 #endif
-      public Clipper(int initOptions = 0): base() //constructor
+      public Clipper(int InitOptions = 0): base() //constructor
       {
           m_Scanbeam = null;
           m_ActiveEdges = null;
@@ -1492,9 +1492,9 @@ namespace ClipperLib
           m_PolyOuts = new List<OutRec>();
           m_Joins = new List<Join>();
           m_GhostJoins = new List<Join>();
-          ReverseSolution = (ioReverseSolution & initOptions) != 0;
-          StrictlySimple = (ioStrictlySimple & initOptions) != 0;
-          PreserveColinear = (ioPreserveColinear & initOptions) != 0;
+          ReverseSolution = (ioReverseSolution & InitOptions) != 0;
+          StrictlySimple = (ioStrictlySimple & InitOptions) != 0;
+          PreserveColinear = (ioPreserveColinear & InitOptions) != 0;
 #if use_xyz
           ZFillFunction = null;
 #endif

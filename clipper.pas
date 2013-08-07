@@ -4,7 +4,7 @@ unit clipper;
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.0.0 (rc2)                                                     *
-* Date      :  7 August 2013                                                   *
+* Date      :  8 August 2013                                                   *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -1152,10 +1152,12 @@ procedure RangeTest(const Pt: TIntPoint; var Use64BitRange: Boolean);
 begin
   if Use64BitRange then
   begin
-    if (Pt.X > HiRange) or (Pt.Y > HiRange) then
-      raise exception.Create(rsInvalidInt);
+    if (Pt.X > HiRange) or (Pt.Y > HiRange) or
+      (-Pt.X > HiRange) or (-Pt.Y > HiRange) then
+        raise exception.Create(rsInvalidInt);
   end
-  else if (Pt.X > LoRange) or (Pt.Y > LoRange) then
+  else if (Pt.X > LoRange) or (Pt.Y > LoRange) or
+    (-Pt.X > LoRange) or (-Pt.Y > LoRange) then
   begin
     Use64BitRange := true;
     RangeTest(Pt, Use64BitRange);

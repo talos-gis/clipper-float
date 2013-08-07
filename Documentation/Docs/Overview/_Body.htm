@@ -75,19 +75,19 @@
   <p class="Body" id="terminology"> <img src="../../Images/int.png" alt="" border="0" align="right"> <b>Terminology:</b><br> 
     <ul>
   
-      <li><b>Clipping:</b> commonly refers to the process of removing from a set 2-dimensional geometric shapes (ie lines and polygons) those parts that are outside a rectangular '<em>clipping</em>' window. This can be achieved by <em>intersecting</em> subject polygons (and lines) with the clipping rectangle. In a more general sense, the clipping window need not be rectangular but can be any type of polygon, even multiple polygons. Also, while clipping typically refers to an <em>intersection</em> operation, in this documentation it will refer to any one of the <a href="../Units/ClipperLib/Types/ClipType.htm">four boolean operations</a> (intersection, union, difference and exclusive-or).</li>
+      <li><b>Clipping:</b> commonly refers to the process of removing (cutting away) from a set of 2-dimensional geometric shapes those parts that are outside a rectangular '<em>clipping</em>' window. This can be achieved by <em>intersecting</em> subject paths (lines and polygons) with the clipping rectangle. In a more general sense, the clipping window need not be rectangular but can be any type of polygon, even multiple polygons. Also, while clipping typically refers to an <em>intersection</em> operation, in this documentation it will refer to any one of the <a href="../Units/ClipperLib/Types/ClipType.htm">four boolean operations</a> (intersection, union, difference and exclusive-or).</li>
 	
-      <li><b>Path:</b> an ordered sequence of vertices defining a single geometric contour that is either a line (an open path) or a polygon (a closed path).</li> 
+      <li><b>Path:</b> an ordered sequence of vertices defining a single geometric contour that's either a line (an open path) or a polygon (a closed path).</li> 
   
       <li><b>Contour:</b> synonymous with path.</li>
   
-      <li><b>Line:</b> an <em>open</em> path representing line segments bounded by 2 or more vertices.</li>
+      <li><b>Line:</b> an <em>open</em> path containing 2 or more vertices.</li>
   
-      <li><b>Polygon:</b> in a general sense is a two-dimensional region that's bounded by an outer <em>closed</em> path and containing zero to many 'holes'. More specifically in this documentation polygon refers to a single <a href="../Units/ClipperLib/Types/Path.htm">Path</a> that's known to be closed.</li>
+      <li><b>Polygon:</b> in a general sense is a two-dimensional region that's bounded by an outer <em>closed</em> path and containing zero to many 'holes'. However in this documentation polygon refers to a <a href="../Units/ClipperLib/Types/Path.htm">Path</a> that's known to be closed.</li>
 	
-      <li><b>Hole:</b> a closed region within a polygon that's not part of the polygon.</li>
+      <li><b>Hole:</b> a closed region within a polygon that's not part of the polygon. A polygon that forms the outer boundaries of a hole is called a hole polygon.</li>
    
-      <li><b>Polygon Filling Rule:</b> determines those regions bounded by contours that are <em>inside</em> polygons and those which are <em>outside</em>. Polygons can be defined by using a relatively complex data structure that includes an outer contour and a list of hole contours. Alternatively, a single list of contours can be used to define any number of polygons as long as a <a href="../Units/ClipperLib/Types/PolyFillType.htm"><b>filling rule</b></a> has been specified. The Clipper Library uses this latter method to define polygons because it's simpler, and because the former method doesn't generally accommodate self-intersecting polygons.</li>
+      <li><b>Polygon Filling Rule:</b> together with a list of paths, the <a href="../Units/ClipperLib/Types/PolyFillType.htm"><b>filling rule</b></a> defines those regions bounded by paths that are <em>inside</em> polygons (ie 'filled' in a graphical display) and those which are <em>outside</em>.</li>
 
     </ul><br> </p>
 
@@ -98,7 +98,7 @@
   <h2 id="Auto-SeeAlso">See Also</h2>
   <p class="Body"><a href="../_Body.htm">Source</a>, <a href="License.htm">License</a>, <a href="../Units/ClipperLib/Classes/Clipper/_Body.htm">Clipper</a>, <a href="../Units/ClipperLib/Functions/OffsetPaths.htm">OffsetPaths</a>, <a href="../Units/ClipperLib/Types/ClipType.htm">ClipType</a>, <a href="../Units/ClipperLib/Types/Path.htm">Path</a>, <a href="../Units/ClipperLib/Types/PolyFillType.htm">PolyFillType</a></p>
     
-  <p class="Copyright" id="auto"> <br><br> Copyright &copy;2010-2013 Angus Johnson&nbsp; - &nbsp; Clipper Ver 6.0.0 &nbsp; - &nbsp; Help file built on 7-August-2013 <br><br> </p>
+  <p class="Copyright" id="auto"> <br><br> Copyright &copy;2010-2013 Angus Johnson&nbsp; - &nbsp; Clipper Ver 6.0.0 &nbsp; - &nbsp; Help file built on 8-August-2013 <br><br> </p>
   
 </body>
 
