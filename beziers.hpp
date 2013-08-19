@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.8e (alpha)                                                    *
-* Date      :  19 June 2013                                                    *
+* Version   :  0.9 (alpha)                                                     *
+* Date      :  10 August 2013                                                  *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -23,35 +23,31 @@ namespace BezierLib {
   using namespace ClipperLib;
 
   enum BezierType {CubicBezier, QuadBezier};
+  const double DefaultPrecision = 0.5;
 
-  struct IntNode;
-  class Segment;
+  class Bezier;
 
-  class Bezier
+  class BezierList
   {
   private:
-    int reference;
-    BezierType beziertype;
-    //segments: ie supports poly-beziers (ie before flattening) with up to 16,383 segments 
-    std::vector< Segment* > segments;
-    void ReconstructInternal(unsigned short segIdx, unsigned startIdx, unsigned endIdx, IntNode* intCurr);
+    std::vector <Bezier*> m_Beziers;
+    double m_Precision;
   public:
-    Bezier(){};
-    Bezier(
-      const ClipperLib::Polygon& ctrlPts,  //CtrlPts: Bezier control points
-      BezierType beztype,                  //CubicBezier or QuadBezier ...
-      short ref,                           //Ref: user supplied identifier;
-      double precision = 0.5               //Precision of flattened path
-      );
-    ~Bezier();
+    BezierList(double precision = DefaultPrecision);
+    ~BezierList();
+    int AddPath(const Path ctrlPts, BezierType bezType);
     void Clear();
-    void SetCtrlPoints(const ClipperLib::Polygon& ctrlPts,
-      BezierType beztype, unsigned short ref, double precision = 0.5);
-    void FlattenedPath(ClipperLib::Polygon& out_poly);
-    //Reconstruct: returns a list of Bezier control points using the
-    //information provided in the startZ and endZ parameters (together with
-    //the object's stored data) ...
-    void Reconstruct(long64 startZ, long64 endZ, ClipperLib::Polygon& out_poly); //Control points again.
+
+    void GetCtrlPts(int index, Path& path);
+    BezierType GetBezierType(int index);
+    void GetFlattenedPath(int index, Path& path);
+    static void Flatten(const Path& in_path, Path& out_path, 
+      BezierType bezType, double precision = DefaultPrecision);
+    static void Flatten(const Paths& in_paths, Paths& out_paths, 
+      BezierType bezType, double precision = DefaultPrecision);
+    void Reconstruct(cInt z1, cInt z2, Path& path);
+    double Precision();
+    void Precision(double value);
   };
 
 } //BezierLib namespace

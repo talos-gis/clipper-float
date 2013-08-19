@@ -3,8 +3,8 @@ unit Beziers;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.8c (alpha)                                                    *
-* Date      :  18 June 2013                                                    *
+* Version   :  0.9 (alpha)                                                     *
+* Date      :  10 August 2013                                                  *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -19,10 +19,55 @@ interface
 uses
   Windows, Messages, SysUtils, Classes, Math, clipper;
 
-type
+const
+  DefaultPrecision = 0.5;
 
+type
   //TBezierType: a parameter of TBezier's constructor
   TBezierType = (CubicBezier, QuadBezier);
+
+  //The TPath structure is defined in Clipper.pas ...
+  //TPath = Array of TIntPoint;
+  //TIntPoint = record X,Y,Z: Int64; end;
+
+  TBezierList = class
+  private
+    FList: TList;
+    FPrecision: Double;
+  public
+    constructor Create(Precision: Double = DefaultPrecision);
+    destructor Destroy; override;
+
+    function AddPath(const CtrlPts: TPath; BezType: TBezierType): integer;
+    procedure Clear;
+
+    function GetCtrlPts(index: Integer): TPath;
+    function GetBezierType(index: Integer): TBezierType;
+    function GetFlattenedPath(index: Integer): TPath;
+
+    class function Flatten(path: TPath;
+      BezType: TBezierType; Precision: Double = DefaultPrecision): TPath;
+
+    function Reconstruct(Z1, Z2: Int64): TPath; //Control points again.
+    property Precision: Double read FPrecision write FPrecision;
+  end;
+
+implementation
+
+{$IF CompilerVersion >= 20}
+  {$DEFINE INLINING}
+{$IFEND}
+
+resourcestring
+  rsInvalidBezierPointCount = 'TBezier: invalid number of control points.';
+  rsInvalidBezierType       = 'TBezier: invalid type.';
+  rsIndexRange              = 'TBezierList: index out of range';
+  rsZMemberDisabled         = 'TBezierList: Z member of TIntPoint is disabled.';
+
+const
+  half = 0.5;
+
+type
 
   //IntNode: used internally only
   PIntNode = ^TIntNode;
@@ -32,53 +77,41 @@ type
     Prev: PIntNode;
   end;
 
-  //The TPolygon structure is defined in Clipper.pas ...
-  //TPolygon = Array of TIntPoint;
-  //TIntPoint = record X,Y,Z: Int64; end;
-
   //TBezier: Flattens poly-bezier curves, and later reconstructs them.
   //The FlattenedPath method stores data in the Z members of the returned
-  //TPolygon structure and this is used for bezier reconstruction.
+  //TPath structure and this is used for bezier reconstruction.
   //Any two Z values (of the IntPoints returned by the FlattenedPath method)
   //are sufficient to allow reconstruction of part or all of the original curve.
 
   TBezier = class
   private
     Reference : Integer;
-    BezierType: TBezierType;
+    FBezierType: TBezierType;
+    FCtrlPoints: TPath;
     //supports poly-beziers (ie before flattening) with up to 16,383 segments
     SegmentList: TList;
     procedure ReconstructInternal(SegIdx: Integer;
-      StartIdx, EndIdx: Int64; var IntCurrent: PIntNode);
+      StartIdx, EndIdx: Int64; IntCurrent: PIntNode);
   public
     constructor Create; overload;
     constructor Create(
-      const CtrlPts: TPolygon;   //CtrlPts: Bezier control points
-      BezType: TBezierType;      //CubicBezier or QuadBezier ...
-      Ref: Word;                 //Ref: user supplied identifier;
-      Precision: Double = 0.5  //Precision of flattened path
+      const CtrlPts: TPath;     //CtrlPts: Bezier control points
+      BezType: TBezierType;     //CubicBezier or QuadBezier ...
+      Ref: Word;                //Ref: user supplied identifier;
+      Precision: Double         //Precision of flattened path
       ); overload;
     destructor Destroy; override;
     procedure Clear;
-    procedure SetCtrlPoints(const CtrlPts: TPolygon;
-      BezType: TBezierType; Ref: Word; Precision: Double = 0.5);
-    function FlattenedPath: TPolygon;
+    procedure SetCtrlPoints(const CtrlPts: TPath;
+      BezType: TBezierType; Ref: Word; Precision: Double = 0.25);
+    function FlattenedPath: TPath;
     //Reconstruct: returns a list of Bezier control points using the
     //information provided in the startZ and endZ parameters (together with
     //the object's stored data) ...
-    function Reconstruct(startZ, endZ: Int64): TPolygon; //Control points again.
+    function Reconstruct(startZ, endZ: Int64): TPath; //Control points again.
+    property BezierType: TBezierType read FBezierType write FBezierType;
+    property CtrlPoints: TPath read FCtrlPoints;
   end;
-
-implementation
-
-resourcestring
-  rsInvalidBezierPointCount = 'TBezier: invalid number of control points.';
-  rsInvalidBezierType = 'TBezier: invalid type.';
-
-const
-  half = 0.5;
-
-type
 
   TSegment = class
   protected
@@ -87,8 +120,9 @@ type
     Index: Cardinal;
     Ctrls: array [0..3] of TDoublePoint;
     Childs: array [0..1] of TSegment;
-    procedure GetFlattenedPath(var Path: TPolygon;
-      var Cnt: Integer; Init: Boolean = False); overload;
+    procedure GetFlattenedPath(var Path: TPath;
+      var Cnt: Integer; Init: Boolean); overload;
+    procedure AddCtrlPtsToPath(var path: TPath; var currCnt: Integer);
   public
     constructor Create(Ref, Seg, Idx: Cardinal); overload; virtual;
     destructor Destroy; override;
@@ -111,25 +145,27 @@ type
 //------------------------------------------------------------------------------
 
 //nb. The format (high to low) of the 64bit Z value returned in the path ...
-//Typ  (2): either CubicBezier, QuadBezier
+//Flg  (2): Flags StartOfPath and BezierType (CubicBezier, QuadBezier)
 //Seg (14): segment index since a bezier may consist of multiple segments
 //Ref (16): reference value passed to TBezier owner object
 //Idx (32): binary index to sub-segment containing control points
 
-function MakeZ(BezierType: TBezierType; Seg, Ref, Idx: Integer): Int64; inline;
+function MakeZ(BezierType: TBezierType;
+  Seg, Ref, Idx: Integer): Int64; //{$IFDEF INLINING} inline; {$ENDIF}
 begin
+  //nb: StartOfPath flag (bit63) is set separately
   Int64Rec(Result).Lo := Idx;
-  Int64Rec(Result).Hi := byte(BezierType) shl 30 + Seg shl 16 + Ref;
+  Int64Rec(Result).Hi := Byte(BezierType) shl 30 or (Seg shl 16) or (Ref +1);
 end;
 //------------------------------------------------------------------------------
 
 function UnMakeZ(ZVal: Int64;
-  out BezierType: TBezierType; out Seg, Ref: Integer): Cardinal;
+  out BezierType: TBezierType; out Seg, Ref: Integer): Integer;
 begin
-  Result := Int64Rec(ZVal).Lo;
-  BezierType := TBezierType(ZVal shr 62);
-  Ref := Int64Rec(ZVal).Hi and $FFFF;
-  Seg := Int64Rec(ZVal).Hi shr 16 and $3FFF -1; //convert segments to zero-base
+  Result := Integer(Int64Rec(ZVal).Lo);
+  BezierType := TBezierType((ZVal shr 62) and $1);
+  Ref := (Int64Rec(ZVal).Hi and $FFFF) -1;
+  Seg := Int64Rec(ZVal).Hi shr 16 and $3FFF;
 end;
 //------------------------------------------------------------------------------
 
@@ -172,7 +208,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure AppendToPath(var Path: TPolygon;
+procedure AppendToPath(var Path: TPath;
   var Cnt: Integer; const Pt: TIntPoint); overload;
 const
   buffSize = 128;
@@ -184,17 +220,10 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function DoublePoint(const Ip: TIntPoint): TDoublePoint; overload;
+function DoublePoint(const Ip: TIntPoint): TDoublePoint; {$IFDEF INLINING} inline; {$ENDIF}
 begin
   Result.X := Ip.X;
   Result.Y := Ip.Y;
-end;
-//------------------------------------------------------------------------------
-
-function MidPoint(const Ip1, Ip2: TIntPoint): TDoublePoint;
-begin
-  Result.X := (Ip1.X + Ip2.X) / 2;
-  Result.Y := (Ip1.Y + Ip2.Y) / 2;
 end;
 //------------------------------------------------------------------------------
 
@@ -215,9 +244,97 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function IsBitSet(val, index: cardinal): boolean;
+function IsBitSet(val, index: cardinal): boolean; {$IFDEF INLINING} inline; {$ENDIF}
 begin
   result := val and (1 shl index) <> 0;
+end;
+
+//------------------------------------------------------------------------------
+// TBezierList methods ...
+//------------------------------------------------------------------------------
+
+constructor TBezierList.Create(Precision: Double);
+begin
+  if (sizeof(TIntPoint) <> sizeof(cInt) * 3) then
+    raise Exception.Create(rsZMemberDisabled);
+
+  if Precision <= 0 then Precision := DefaultPrecision;
+  FPrecision := Precision;
+  FList := TList.Create;
+end;
+//------------------------------------------------------------------------------
+
+destructor TBezierList.Destroy;
+begin
+  Clear;
+  FList.Free;
+end;
+//------------------------------------------------------------------------------
+
+function TBezierList.AddPath(const CtrlPts: TPath; BezType: TBezierType): integer;
+var
+  NewBez: TBezier;
+begin
+  NewBez := TBezier.Create(CtrlPts, BezType, FList.Count, FPrecision);
+  result := FList.Add(NewBez);
+end;
+//------------------------------------------------------------------------------
+
+procedure TBezierList.Clear;
+var
+  i: Integer;
+begin
+  for i := 0 to FList.Count -1 do
+    TBezier(FList[i]).Free;
+  FList.Clear;
+end;
+//------------------------------------------------------------------------------
+
+function TBezierList.GetCtrlPts(index: Integer): TPath;
+begin
+  if (index < 0) or (index >= FList.Count) then
+    raise Exception.Create(rsIndexRange);
+  result := TBezier(FList[index]).CtrlPoints;
+end;
+//------------------------------------------------------------------------------
+
+function TBezierList.GetBezierType(index: Integer): TBezierType;
+begin
+  if (index < 0) or (index >= FList.Count) then
+    raise Exception.Create(rsIndexRange);
+  result := TBezier(FList[index]).BezierType;
+end;
+//------------------------------------------------------------------------------
+
+function TBezierList.GetFlattenedPath(index: Integer): TPath;
+begin
+  if (index < 0) or (index >= FList.Count) then
+    raise Exception.Create(rsIndexRange);
+  result := TBezier(FList[index]).FlattenedPath;
+end;
+//------------------------------------------------------------------------------
+
+function TBezierList.Reconstruct(Z1, Z2: Int64): TPath;
+var
+  Seg, Ref: Integer;
+  BezType: TBezierType;
+begin
+  UnMakeZ(Z1, BezType, Seg, Ref); //UnMakeZ() here just for Ref
+  if (Ref >= 0) and (Ref < FList.Count) then
+    result := TBezier(FList[Ref]).Reconstruct(Z1, Z2) else
+    result := nil;
+end;
+//------------------------------------------------------------------------------
+
+class function TBezierList.Flatten(path: TPath;
+  BezType: TBezierType; Precision: Double): TPath;
+begin
+    with TBezier.Create(path, BezType, 0, Precision) do
+    try
+      Result := FlattenedPath;
+    finally
+      Free;
+    end;
 end;
 
 //------------------------------------------------------------------------------
@@ -240,8 +357,8 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure TSegment.GetFlattenedPath(var Path: TPolygon;
-  var Cnt: Integer; Init: Boolean = False);
+procedure TSegment.GetFlattenedPath(var Path: TPath;
+  var Cnt: Integer; Init: Boolean);
 var
   Z: Int64;
   CtrlIdx: Integer;
@@ -250,7 +367,9 @@ begin
   begin
     Z := MakeZ(BezierType, SegID, RefID, Index);
     AppendToPath(Path, Cnt, IntPoint(Round(ctrls[0].X), Round(ctrls[0].Y), Z));
-  end else if not assigned(childs[0]) then
+  end;
+
+  if not assigned(childs[0]) then
   begin
     case BezierType of
       CubicBezier: CtrlIdx := 3;
@@ -261,11 +380,43 @@ begin
       IntPoint(Round(ctrls[CtrlIdx].X), Round(ctrls[CtrlIdx].Y), Z));
   end else
   begin
-    childs[0].GetFlattenedPath(Path, Cnt);
-    childs[1].GetFlattenedPath(Path, Cnt);
+    childs[0].GetFlattenedPath(Path, Cnt, False);
+    childs[1].GetFlattenedPath(Path, Cnt, False);
   end;
 end;
 //------------------------------------------------------------------------------
+
+procedure TSegment.AddCtrlPtsToPath(var path: TPath; var currCnt: Integer);
+var
+  I, Len, FirstDelta: Integer;
+const
+  buffSize = 128;
+begin
+  Len := Length(path);
+  if currCnt + 4 >= Len then
+    SetLength(path, Len + buffSize);
+
+  if currCnt = 0 then
+    FirstDelta := 0 else
+    FirstDelta := 1;
+
+  case BezierType of
+    CubicBezier:
+      for I := FirstDelta to 3 do
+      begin
+        path[currCnt].X := Round(ctrls[I].X);
+        path[currCnt].Y := Round(ctrls[I].Y);
+        Inc(currCnt);
+      end;
+    QuadBezier:
+      for I := FirstDelta to 2 do
+      begin
+        path[currCnt].X := Round(ctrls[I].X);
+        path[currCnt].Y := Round(ctrls[I].Y);
+        Inc(currCnt);
+      end;
+  end;
+end;
 
 //------------------------------------------------------------------------------
 // TQuadBez methods ...
@@ -341,16 +492,16 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-constructor TBezier.Create(const CtrlPts: TPolygon;
-  BezType: TBezierType; Ref: Word; Precision: Double = 0.5);
+constructor TBezier.Create(const CtrlPts: TPath;
+  BezType: TBezierType; Ref: Word; Precision: Double);
 begin
   Create;
   SetCtrlPoints(CtrlPts, BezType, Ref, Precision);
 end;
 //------------------------------------------------------------------------------
 
-procedure TBezier.SetCtrlPoints(const CtrlPts: TPolygon;
-  BezType: TBezierType; Ref: Word; Precision: Double = 0.5);
+procedure TBezier.SetCtrlPoints(const CtrlPts: TPath;
+  BezType: TBezierType; Ref: Word; Precision: Double);
 var
   I, HighPts: Integer;
   Segment: TSegment;
@@ -371,8 +522,9 @@ begin
     else raise Exception.Create(rsInvalidBezierType);
   end;
 
+  FCtrlPoints := CtrlPts;
   Reference  := Ref;
-  if Precision <= 0.0 then Precision := 0.1;
+  if Precision <= 0 then Precision := DefaultPrecision;
 
   //now for each segment in the poly-bezier create a binary tree structure
   //and add it to SegmentList ...
@@ -385,7 +537,7 @@ begin
                     DoublePoint(CtrlPts[I*3+1]),
                     DoublePoint(CtrlPts[I*3+2]),
                     DoublePoint(CtrlPts[I*3+3]),
-                    Ref, I +1, 1, Precision);
+                    Ref, I, 1, Precision);
         SegmentList.Add(Segment);
       end;
     QuadBezier:
@@ -395,7 +547,7 @@ begin
                     DoublePoint(CtrlPts[I*2]),
                     DoublePoint(CtrlPts[I*2+1]),
                     DoublePoint(CtrlPts[I*2+2]),
-                    Ref, I +1, 1, Precision);
+                    Ref, I, 1, Precision);
         SegmentList.Add(Segment);
       end;
   end;
@@ -406,6 +558,7 @@ procedure TBezier.Clear;
 var
   I: Integer;
 begin
+  FCtrlPoints := nil;
   for I := 0 to SegmentList.Count -1 do
     TObject(SegmentList[I]).Free;
   SegmentList.Clear;
@@ -420,83 +573,60 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TBezier.FlattenedPath: TPolygon;
+function TBezier.FlattenedPath: TPath;
 var
   I, Cnt: Integer;
-  Segment: TSegment;
 begin
   Result := Nil;
   if SegmentList.Count = 0 then Exit;
-
   Cnt := 0;
-  Segment := TSegment(SegmentList[0]);
-  Segment.GetFlattenedPath(Result, Cnt, True); //initializes the path
   for I := 0 to SegmentList.Count -1 do
-    TSegment(SegmentList[I]).GetFlattenedPath(Result, Cnt);
+    TSegment(SegmentList[I]).GetFlattenedPath(Result, Cnt, Cnt = 0);
+  Result[0].Z := Result[0].Z or $8000000000000000; //StartOfPath flag
   SetLength(Result, Cnt);
 end;
 //------------------------------------------------------------------------------
 
-procedure AddCtrlPoint(Segment: TSegment; var CtrlPts: TPolygon;
-  var currCnt: Integer);
-var
-  I, Len, FirstDelta: Integer;
-const
-  buffSize = 128;
-begin
-  Len := Length(CtrlPts);
-  if currCnt + 4 >= Len then
-    SetLength(CtrlPts, Len + buffSize);
-
-  if currCnt = 0 then
-    FirstDelta := 0 else
-    FirstDelta := 1;
-
-  case Segment.BezierType of
-
-    CubicBezier:
-      for I := FirstDelta to 3 do
-      begin
-        CtrlPts[currCnt].X := Round(Segment.ctrls[I].X);
-        CtrlPts[currCnt].Y := Round(Segment.ctrls[I].Y);
-        Inc(currCnt);
-      end;
-
-    QuadBezier:
-      for I := FirstDelta to 2 do
-      begin
-        CtrlPts[currCnt].X := Round(Segment.ctrls[I].X);
-        CtrlPts[currCnt].Y := Round(Segment.ctrls[I].Y);
-        Inc(currCnt);
-      end;
-
-    else Exit;
-  end;
-end;
-//------------------------------------------------------------------------------
-
-function TBezier.Reconstruct(startZ, endZ: Int64): TPolygon;
+function TBezier.Reconstruct(startZ, endZ: Int64): TPath;
 var
   I, J, K, Seg1, Seg2, Cnt: Integer;
+  I64: Int64;
   BezType1, BezType2: TBezierType;
   IntList, IntCurrent: PIntNode;
   Segment: TSegment;
   Reversed: Boolean;
 begin
+  //precondition: startZ <> endZ
   result := nil;
+  if startZ = endZ then Exit;
+
+  //StartOfPath subSegID is converted to +1 once any reversal has been sorted.
+  //if endZ has the StartOfPath flag then reverse path ...
+  if endZ < 0 then
+  begin
+    I64 := startZ;
+    startZ := endZ;
+    endZ := I64;
+    Reversed := true;
+  end
+  else
+    Reversed := false;
+
+  //'startZ' and 'endZ' are now converted into subSegIDs ...
   startZ := UnMakeZ(startZ, BezType1, Seg1, I);
   endZ   := UnMakeZ(endZ,   BezType2, Seg2, J);
 
   if (BezType1 <> BezierType) or (BezType1 <> BezType2) or
-    (Reference <> I) or (I <> J) then Exit;
-
-  if (Seg1 < 0) or (Seg1 >= SegmentList.Count) or
-    (Seg2 < 0) or (Seg2 >= SegmentList.Count) then Exit;
+    (Reference <> I) or (I <> J) or
+    (Seg1 < 0) or (Seg1 >= SegmentList.Count) or
+    (Seg2 < 0) or (Seg2 >= SegmentList.Count) then
+  begin
+    Exit;
+  end;
 
   //check orientation because it's much simpler to temporarily unreverse when
   //the startIdx and endIdx are reversed ...
-  Reversed := (Seg1 > Seg2);
-  if Reversed then
+  if (Seg1 > Seg2) then
   begin
     I := Seg1;
     Seg1 := Seg2;
@@ -504,11 +634,13 @@ begin
     I := startZ;
     startZ := endZ;
     endZ := I;
+    Reversed := true;
   end;
 
-  //do further checks for reversal, in case reversal within a single segment ...
+  //do further checks for reversal, in case reversal within a single segment.
+  //nb: when endZ == 1 or startZ == 1 then reversal managed above.
   if not Reversed and (Seg1 = Seg2) and
-    (startZ <> 1) and (endZ <> 1) then //nb: idx == 1 is a special case
+    (startZ <> 1) and (endZ <> 1) then
   begin
     I := GetMostSignificantBit(startZ);
     J := GetMostSignificantBit(endZ);
@@ -560,7 +692,7 @@ begin
             Segment := Segment.childs[0];
           Dec(K);
         end;
-        AddCtrlPoint(Segment, Result, Cnt);
+        Segment.AddCtrlPtsToPath(Result, Cnt);
         IntCurrent := IntCurrent.Next;
       end; //while assigned(IntCurrent);
 
@@ -577,7 +709,7 @@ end;
 //------------------------------------------------------------------------------
 
 procedure TBezier.ReconstructInternal(SegIdx: Integer;
-  StartIdx, EndIdx: Int64; var IntCurrent: PIntNode);
+  StartIdx, EndIdx: Int64; IntCurrent: PIntNode);
 var
   Level, L1, L2, L, R, J: Cardinal;
 begin
@@ -588,7 +720,7 @@ begin
 
   if Level = 0 then
   begin
-    IntCurrent := InsertInt(IntCurrent, 1);
+    InsertInt(IntCurrent, 1);
     Exit;
   end;
 
