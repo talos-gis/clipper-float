@@ -1,7 +1,7 @@
 ﻿/*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.8e (alpha)                                                    *
+* Version   :  0.9 (alpha)                                                     *
 * Date      :  19 June 2013                                                    *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
@@ -19,39 +19,123 @@ using ClipperLib;
 namespace BezierLib
 {
 
-  using Polygon = List<IntPoint>;
-  using Polygons = List<List<IntPoint>>;
+  using Path = List<IntPoint>;
+  using Paths = List<List<IntPoint>>;
 
   public enum BezierType { CubicBezier, QuadBezier };
 
-  struct DoublePoint{
-    internal double x;
-    internal double y;
-    public DoublePoint(IntPoint ip){x = (double)ip.X; y = (double)ip.Y;}
-    public DoublePoint(double x = 0, double y = 0){this.x = x; this.y = y;}
+  public class BezierList
+  {
+    private const double DefaultPrecision = 0.5;
+    private List<Bezier> m_Beziers = new List<Bezier>();
+
+    public BezierList(double precision = DefaultPrecision)
+    {
+      Precision = (precision <= 0 ? DefaultPrecision : precision);  
+    }
+    //------------------------------------------------------------------------------
+
+    public int AddPath(Path ctrlPts, BezierType bezType)
+    {
+      Bezier bezier = new Bezier(ctrlPts, bezType, (ushort)m_Beziers.Count, Precision);
+      m_Beziers.Add(bezier);
+      return m_Beziers.Count;
+    }
+    //------------------------------------------------------------------------------
+
+    public void Clear()
+    {
+      m_Beziers.Clear();
+    }
+    //------------------------------------------------------------------------------
+
+    public double Precision { get; set; }
+    //------------------------------------------------------------------------------
+
+    public BezierType GetBezierType(int index)
+    {
+      if (index < 0 || index >= m_Beziers.Count)
+        throw new BezierException("BezierList: index out of range.");
+      return m_Beziers[index].beziertype;
+    }
+    //------------------------------------------------------------------------------
+
+    public Path GetCtrlPts(int index)
+    {
+      if (index < 0 || index >= m_Beziers.Count)
+        throw new BezierException("BezierList: index out of range.");
+      Path result = new Path(m_Beziers[index].path);
+      return result;   
+    }
+    //------------------------------------------------------------------------------
+
+    public Path GetFlattenedPath(int index)
+    {
+      if (index < 0 || index >= m_Beziers.Count)
+        throw new BezierException("BezierList: index out of range.");
+      Path result = new Path(m_Beziers[index].FlattenedPath());
+      return result;       
+    }
+    //------------------------------------------------------------------------------
+
+    public static Path Flatten(Path path, BezierType bezType, double precision = DefaultPrecision)
+    {
+      if (path.Count < 4) return new Path();
+      Bezier b = new Bezier(path, bezType, 0, precision);
+      return b.FlattenedPath();       
+    }
+    //------------------------------------------------------------------------------
+
+    public static Paths Flatten(Paths paths, BezierType bezType, double precision = DefaultPrecision)
+    {
+      Paths result = new Paths(paths.Count);
+      for (int i = 0; i < paths.Count; i++)
+      {
+        if (paths.Count < 4) continue;
+        Bezier b = new Bezier(paths[i], bezType, 0, precision);
+        result.Add(b.FlattenedPath());
+      }
+      return result;       
+    }
+    //------------------------------------------------------------------------------
+
+    public Path Reconstruct(Int64 z1, Int64 z2)
+    {
+      Path result = new Path();
+      UInt16 seg, refId;
+      BezierType beztype;
+      Bezier.UnMakeZ(z1, out beztype, out seg, out refId); //nb: just need refId
+      if (refId >= 0 && refId < m_Beziers.Count)
+        result = m_Beziers[refId].Reconstruct(z1, z2);
+      return result;       
+    }
+    //------------------------------------------------------------------------------
+
   }
 
-  public class Bezier
+  internal class Bezier
   {
     internal const double half = 0.5;
     private int reference;
     internal BezierType beziertype;
+    internal Path path = new Path(); //path of Control Pts
     //segments: ie supports poly-beziers (ie before flattening) with up to 16,383 segments 
     internal List<Segment> segments = new List<Segment>();
 
-    internal static Int64 MakeZ(BezierType beziertype, UInt16 segID, UInt16 refID, UInt32 idx)
+    internal static Int64 MakeZ(BezierType beziertype, UInt16 seg, UInt16 refId, UInt32 idx)
     {
-      Int32 hi = (Int32)beziertype << 30 | segID << 16 | refID;
-      return (Int64)hi << 32 | idx;
+      UInt32 hi = (UInt32)((UInt16)beziertype << 30 | seg << 16 | (refId + 1));
+      return (Int64)(hi << 32 | idx);
     }
     //------------------------------------------------------------------------------
 
-    internal static UInt32 UnMakeZ(Int64 zval, out BezierType beziertype, out UInt16 segID, out UInt16 refID)
+    internal static UInt32 UnMakeZ(Int64 zval, 
+      out BezierType beziertype, out UInt16 seg, out UInt16 refId)
     {
-      Int64 vals = zval >> 32; //the top 32 bits => vals
-      beziertype = (BezierType)(vals >> 30);
-      segID = (UInt16)(((vals >> 16) & 0x3FFF) - 1); //convert segments to zero-base
-      refID = (UInt16)(vals & 0xFFFF);
+      UInt32 vals = (UInt32)((UInt64)zval >> 32); //the top 32 bits => vals
+      beziertype = (BezierType)((vals >> 30) & 0x1);
+      seg = (UInt16)((vals >> 16) & 0x3FFF);
+      refId = (UInt16)((vals & 0xFFFF) - 1);
       return (UInt32)(zval & 0xFFFFFFFF);
     }
     //------------------------------------------------------------------------------
@@ -149,24 +233,46 @@ namespace BezierLib
         this.Index = idx;
       }
 
-      internal void GetFlattenedPath(Polygon path, bool init)
+      internal void GetFlattenedPath(Path path, bool init)
       {
         if (init)
         {
           Int64 Z = MakeZ(beziertype, SegID, RefID, Index);
-          path.Add(new IntPoint(Round(Ctrls[0].x), Round(Ctrls[0].y), Z));
+          path.Add(new IntPoint(Round(Ctrls[0].X), Round(Ctrls[0].Y), Z));
         }
 
         if (Childs[0] == null)
         {
           int CtrlIdx = (beziertype == BezierType.CubicBezier ? 3: 2);
           Int64 Z = MakeZ(beziertype, SegID, RefID, Index);
-          path.Add(new IntPoint(Round(Ctrls[CtrlIdx].x), Round(Ctrls[CtrlIdx].y), Z));
+          path.Add(new IntPoint(Round(Ctrls[CtrlIdx].X), Round(Ctrls[CtrlIdx].Y), Z));
         }
         else
         {
           Childs[0].GetFlattenedPath(path, false);
           Childs[1].GetFlattenedPath(path, false);
+        }
+      }
+
+      internal void AddCtrlPtsToPath(Path ctrlPts)
+      {
+        int firstDelta = (ctrlPts.Count == 0 ? 0 : 1);
+        switch (beziertype)
+        {
+          case BezierType.CubicBezier:
+            for (int i = firstDelta; i < 4; ++i)
+            {
+              ctrlPts.Add(new IntPoint(
+                Round(Ctrls[i].X), Round(Ctrls[i].Y)));
+            }
+            break;
+          case BezierType.QuadBezier:
+            for (int i = firstDelta; i < 3; ++i)
+            {
+              ctrlPts.Add(new IntPoint(
+                Round(Ctrls[i].X), Round(Ctrls[i].Y)));
+            }
+            break;
         }
       }
 
@@ -183,24 +289,18 @@ namespace BezierLib
         Ctrls[0] = pt1; Ctrls[1] = pt2; Ctrls[2] = pt3; Ctrls[3] = pt4;
         //assess curve flatness:
         //http://groups.google.com/group/comp.graphics.algorithms/tree/browse_frm/thread/d85ca902fdbd746e
-        if (Math.Abs(pt1.x + pt3.x - 2*pt2.x) + Math.Abs(pt2.x + pt4.x - 2*pt3.x) +
-          Math.Abs(pt1.y + pt3.y - 2*pt2.y) + Math.Abs(pt2.y + pt4.y - 2*pt3.y) < precision)
+        if (Math.Abs(pt1.X + pt3.X - 2*pt2.X) + Math.Abs(pt2.X + pt4.X - 2*pt3.X) +
+          Math.Abs(pt1.Y + pt3.Y - 2*pt2.Y) + Math.Abs(pt2.Y + pt4.Y - 2*pt3.Y) < precision)
             return;
 
         //if not at maximum precision then (recursively) create sub-segments ...
-        DoublePoint p12, p23, p34, p123, p234, p1234;
-        p12.x = (pt1.x + pt2.x) * half;
-        p12.y = (pt1.y + pt2.y) * half;
-        p23.x = (pt2.x + pt3.x) * half;
-        p23.y = (pt2.y + pt3.y) * half;
-        p34.x = (pt3.x + pt4.x) * half;
-        p34.y = (pt3.y + pt4.y) * half;
-        p123.x = (p12.x + p23.x) * half;
-        p123.y = (p12.y + p23.y) * half;
-        p234.x = (p23.x + p34.x) * half;
-        p234.y = (p23.y + p34.y) * half;
-        p1234.x = (p123.x + p234.x) * half;
-        p1234.y = (p123.y + p234.y) * half;
+        //, p23, p34, p123, p234, p1234;
+        DoublePoint p12 = new DoublePoint((pt1.X + pt2.X) * half, (pt1.Y + pt2.Y) * half);
+        DoublePoint p23 = new DoublePoint((pt2.X + pt3.X) * half, (pt2.Y + pt3.Y) * half);
+        DoublePoint p34 = new DoublePoint((pt3.X + pt4.X) * half, (pt3.Y + pt4.Y) * half);
+        DoublePoint p123 = new DoublePoint((p12.X + p23.X) * half, (p12.Y + p23.Y) * half);
+        DoublePoint p234 = new DoublePoint((p23.X + p34.X) * half, (p23.Y + p34.Y) * half);
+        DoublePoint p1234 = new DoublePoint((p123.X + p234.X) * half, (p123.Y + p234.Y) * half);
         idx = idx << 1;
         Childs[0] = new CubicBez(pt1, p12, p123, p1234, refID, segID, idx, precision);
         Childs[1] = new CubicBez(p1234, p234, p34, pt4, refID, segID, idx +1, precision);
@@ -216,16 +316,13 @@ namespace BezierLib
         beziertype = BezierType.QuadBezier;
         Ctrls[0] = pt1; Ctrls[1] = pt2; Ctrls[2] = pt3;
         //assess curve flatness:
-        if (Math.Abs(pt1.x + pt3.x - 2*pt2.x) + Math.Abs(pt1.y + pt3.y - 2*pt2.y) < precision) return;
+        if (Math.Abs(pt1.X + pt3.X - 2*pt2.X) + Math.Abs(pt1.Y + pt3.Y - 2*pt2.Y) < precision) return;
 
         //if not at maximum precision then (recursively) create sub-segments ...
-        DoublePoint p12, p23, p123;
-        p12.x = (pt1.x + pt2.x) * half;
-        p12.y = (pt1.y + pt2.y) * half;
-        p23.x = (pt2.x + pt3.x) * half;
-        p23.y = (pt2.y + pt3.y) * half;
-        p123.x = (p12.x + p23.x) * half;
-        p123.y = (p12.y + p23.y) * half;
+        //DoublePoint p12, p23, p123;
+        DoublePoint p12 = new DoublePoint((pt1.X + pt2.X) * half, (pt1.Y + pt2.Y) * half);
+        DoublePoint p23 = new DoublePoint((pt2.X + pt3.X) * half, (pt2.Y + pt3.Y) * half);
+        DoublePoint p123 = new DoublePoint((p12.X + p23.X) * half, (p12.Y + p23.Y) * half);
         idx = idx << 1;
         Childs[0] = new QuadBez(pt1, p12, p123, refID, segID, idx, precision);
         Childs[1] = new QuadBez(p123, p23, pt3, refID, segID, idx +1, precision);
@@ -233,23 +330,32 @@ namespace BezierLib
     } //end QuadBez
     //------------------------------------------------------------------------------
 
-    public Bezier(){}
+    internal Bezier() { }
     //------------------------------------------------------------------------------
 
-    public Bezier(Polygon ctrlPts, BezierType beztype, UInt16 refID, double precision = 0.5)
+    internal ~Bezier() { Clear(); }
+    //------------------------------------------------------------------------------
+
+    internal void Clear()
+    {
+      segments.Clear();
+    }
+    //------------------------------------------------------------------------------
+
+    internal Bezier(Path ctrlPts, BezierType beztype, UInt16 refID, double precision)
     {
       SetCtrlPoints(ctrlPts, beztype, refID, precision);
     }
     //------------------------------------------------------------------------------
 
-    public void SetCtrlPoints(Polygon ctrlPts, BezierType beztype, UInt16 refID, double precision = 0.5)
+    internal void SetCtrlPoints(Path ctrlPts, BezierType beztype, UInt16 refID, double precision)
     {
       //clean up any existing data ...
       segments.Clear();
 
       this.beziertype = beztype;
       this.reference = refID;
-
+      this.path = ctrlPts;
       int highpts = ctrlPts.Count - 1;
 
       switch( beztype )
@@ -265,32 +371,30 @@ namespace BezierLib
         default: throw new BezierException("Unsupported bezier type");
       }
 
-      if (precision <= 0.0) precision = 0.1;
-
       //now for each segment in the poly-bezier create a binary tree structure
       //and add it to SegmentList ...
       switch( beztype )
       {
         case BezierType.CubicBezier:
-          for (int i = 0; i < ((int)highpts / 3); ++i)
+          for (UInt16 i = 0; i < ((UInt16)highpts / 3); ++i)
           {
             Segment s = new CubicBez(
                         new DoublePoint(ctrlPts[i*3]),
                         new DoublePoint(ctrlPts[i*3+1]),
                         new DoublePoint(ctrlPts[i*3+2]),
                         new DoublePoint(ctrlPts[i*3+3]),
-                        refID, (UInt16)(i+1), 1, precision);
+                        refID, i, 1, precision);
             segments.Add(s);
           }
           break;
         case BezierType.QuadBezier:
-          for (int i = 0; i < ((int)highpts / 2); ++i)
+          for (UInt16 i = 0; i < ((UInt16)highpts / 2); ++i)
           {
             Segment s = new QuadBez(
                         new DoublePoint(ctrlPts[i*2]),
                         new DoublePoint(ctrlPts[i*2+1]),
                         new DoublePoint(ctrlPts[i*2+2]),
-                        refID, (UInt16)(i+1), 1, precision);
+                        refID, i, 1, precision);
             segments.Add(s);
           }
           break;
@@ -298,74 +402,67 @@ namespace BezierLib
     }
     //------------------------------------------------------------------------------
 
-    public Polygon FlattenedPath()
+    internal Path FlattenedPath()
     {
-      Polygon path = new Polygon();
+      Path path = new Path();
       for (int i = 0; i < segments.Count; i++)
         segments[i].GetFlattenedPath(path, i == 0);
+      IntPoint pt = path[0];
+      pt.Z += (1 << 63); //StartOfPath flag
       return path;
     }
 
   //------------------------------------------------------------------------------
 
-  internal void AddCtrlPoint(Segment segment, Polygon ctrlPts)
+  internal Path Reconstruct(Int64 startZ, Int64 endZ)
   {
-    int firstDelta = (ctrlPts.Count == 0 ? 0 : 1);
-    switch (segment.beziertype)
-    {
-      case BezierType.CubicBezier:
-        for (int i = firstDelta; i < 4; i++)
-          ctrlPts.Add(new IntPoint(Round(segment.Ctrls[i].x), Round(segment.Ctrls[i].y)));
-        break;
-      case BezierType.QuadBezier:
-        for (int i = firstDelta; i < 3; i++)
-          ctrlPts.Add(new IntPoint(Round(segment.Ctrls[i].x), Round(segment.Ctrls[i].y)));
-        break;
-    }
-  }
-  //------------------------------------------------------------------------------
+    Path out_poly = new Path();
+    if (endZ == startZ) return out_poly;
 
-  public Polygon Reconstruct(Int64 startZ, Int64 endZ)
-  {
-    Polygon out_poly = new Polygon();
+    bool reversed = false;
+    if (endZ < 0)
+    {
+      Int64 tmp = startZ;
+      startZ = endZ;
+      endZ = tmp;
+      reversed = true;
+    }
+
     BezierType bt1, bt2;
     UInt16 seg1, seg2;
     UInt16 ref1, ref2;
-    UInt32 startZu = UnMakeZ(startZ, out bt1, out seg1, out ref1);
-    UInt32 endZu = UnMakeZ(endZ, out bt2, out seg2, out ref2);
+    startZ = UnMakeZ(startZ, out bt1, out seg1, out ref1);
+    endZ = UnMakeZ(endZ, out bt2, out seg2, out ref2);
 
     if (bt1 != beziertype || bt1 != bt2 ||
       ref1 != reference || ref1 != ref2) return out_poly;
 
     if (seg1 >= segments.Count || seg2 >= segments.Count) return out_poly;
 
-    //check orientation because it's much simpler to temporarily unreverse when
-    //the startIdx and endIdx are reversed ...
-    bool reversed = (seg1 > seg2);
-    if (reversed)
+    if (seg1 > seg2)
     {
       UInt16 i = seg1;
       seg1 = seg2;
       seg2 = i;
-      UInt32 j = startZu;
-      startZu = endZu;
-      endZu = j;
+      Int64 tmp = startZ;
+      startZ = endZ;
+      endZ = tmp;
     }
 
     //do further checks for reversal, in case reversal within a single segment ...
     if (!reversed && seg1 == seg2 && startZ != 1 && endZ != 1)
     {
-      UInt32 i = GetMostSignificantBit(startZu);
-      UInt32 j = GetMostSignificantBit(endZu);
+      UInt32 i = GetMostSignificantBit((uint)startZ);
+      UInt32 j = GetMostSignificantBit((uint)endZ);
       UInt32 k = Math.Max(i, j);
       //nb: we must compare Node indexes at the same level ...
-      i = startZu << (int)(k - i);
-      j = endZu << (int)(k - j);
+      i = (uint)startZ << (int)(k - i);
+      j = (uint)endZ << (int)(k - j);
       if (i > j)
       {
-        k = startZu;
-        startZu = endZu;
-        endZu = k;
+        Int64 tmp = startZ;
+        startZ = endZ;
+        endZ = tmp;
         reversed = true;
       }
     }
@@ -377,9 +474,9 @@ namespace BezierLib
       IntNode intCurr = intList;
 
       if (seg1 != seg2)
-        ReconstructInternal(seg1, startZu, 1, intCurr);
+        ReconstructInternal(seg1, (uint)startZ, 1, intCurr);
       else
-        ReconstructInternal(seg1, startZu, endZu, intCurr);
+        ReconstructInternal(seg1, (uint)startZ, (uint)endZ, intCurr);
 
       //IntList now contains the indexes of one or a series of sub-segments
       //that together define part of or the whole of the original segment.
@@ -399,13 +496,13 @@ namespace BezierLib
           else
             s = s.Childs[0];
         }
-        AddCtrlPoint(s, out_poly);
+        s.AddCtrlPtsToPath(out_poly);
         intCurr = intCurr.next;
       } //while 
 
       intList = null;
       seg1++;
-      startZu = 1;
+      startZ = 1;
     }
     if (reversed) out_poly.Reverse();
     return out_poly;

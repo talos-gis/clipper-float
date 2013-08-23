@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.9 (alpha)                                                     *
-* Date      :  10 August 2013                                                  *
+* Version   :  1.0                                                             *
+* Date      :  22 August 2013                                                  *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *

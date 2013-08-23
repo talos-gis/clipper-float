@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.9 (alpha)                                                     *
-* Date      :  10 August 2013                                                  *
+* Version   :  1.0                                                             *
+* Date      :  22 August 2013                                                  *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -303,7 +303,7 @@ namespace BezierLib {
       const Path& ctrlPts,                  //CtrlPts: Bezier control points
       BezierType beztype,                   //CubicBezier or QuadBezier ...
       short ref,                            //Ref: user supplied identifier;
-      double precision = DefaultPrecision)  //Precision of flattened path
+      double precision)                     //Precision of flattened path
     {
       SetCtrlPoints(ctrlPts, beztype, ref, precision);
     };
@@ -332,7 +332,6 @@ namespace BezierLib {
       m_beztype = beztype;
       m_ref = ref;
       m_path = ctrlPts;
-      if (precision <= 0.0) precision = DefaultPrecision;
 
       switch( beztype )
       {
@@ -562,8 +561,6 @@ namespace BezierLib {
 
   BezierList::BezierList(double precision)
   {
-    if (sizeof(IntPoint) != sizeof(cInt) * 3) 
-      throw "BezierList: Z member of IntPoint is disabled.";
     if (precision <= 0) precision = DefaultPrecision;
     m_Precision = precision;
   }
@@ -595,7 +592,7 @@ namespace BezierLib {
   {
     if (index < 0 || index >= (int)m_Beziers.size()) 
       throw "BezierList: index out of range";
-    m_Beziers[index]->m_path;
+    path = m_Beziers[index]->m_path;
   }
   //------------------------------------------------------------------------------
 
