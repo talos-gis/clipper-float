@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  1.0                                                             *
-* Date      :  22 August 2013                                                  *
+* Date      :  27 August 2013                                                  *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -92,9 +92,9 @@ namespace BezierLib {
   }
   //------------------------------------------------------------------------------
 
-  DoublePoint MidPoint(const IntPoint& ip1, const IntPoint& ip2)
+  inline IntPoint MidPoint(const IntPoint& pt1, const IntPoint& pt2)
   {
-    return DoublePoint(double(ip1.X + ip2.X) / 2, double(ip1.Y + ip2.Y) / 2);
+    return IntPoint((pt1.X + pt2.X)/2, (pt1.Y + pt2.Y)/2);
   }
   //------------------------------------------------------------------------------
 
@@ -572,11 +572,22 @@ namespace BezierLib {
   }
   //------------------------------------------------------------------------------
 
-  int BezierList::AddPath(const Path ctrlPts, BezierType bezType)
+  void BezierList::AddPath(const Path ctrlPts, BezierType bezType)
   {
     Bezier* NewBez = new Bezier(ctrlPts, bezType, m_Beziers.size(), m_Precision);
     m_Beziers.push_back(NewBez);
-    return m_Beziers.size();
+  }
+  //------------------------------------------------------------------------------
+
+  void BezierList::AddPaths(const Paths ctrlPts, BezierType bezType)
+  {
+    size_t minCnt = (bezType == CubicBezier ? 4 : 3);
+    for (size_t i = 0; i < ctrlPts.size(); ++i)
+    {
+      if (ctrlPts[i].size() < minCnt) continue;
+      Bezier* NewBez = new Bezier(ctrlPts[i], bezType, m_Beziers.size(), m_Precision);
+      m_Beziers.push_back(NewBez);
+    }
   }
   //------------------------------------------------------------------------------
 
@@ -612,11 +623,21 @@ namespace BezierLib {
   }
   //------------------------------------------------------------------------------
 
+  void BezierList::GetFlattenedPaths(Paths& paths)
+  {
+    paths.clear();
+    paths.resize(m_Beziers.size());
+    for (size_t i = 0; i < m_Beziers.size(); ++i)
+      m_Beziers[i]->FlattenedPath(paths[i]);
+  }
+  //------------------------------------------------------------------------------
+
   void BezierList::Flatten(const Path& in_path, 
     Path& out_path, BezierType bezType, double precision)
   {
     out_path.clear();
-    if (in_path.size() < 4) return;
+    size_t minCnt = (bezType == CubicBezier ? 4 : 3);
+    if (in_path.size() < minCnt) return;
     Bezier b(in_path, bezType, 0, precision);
     b.FlattenedPath(out_path);
   }
@@ -625,13 +646,59 @@ namespace BezierLib {
   void BezierList::Flatten(const Paths& in_paths, 
     Paths& out_paths, BezierType bezType, double precision)
   {
+    out_paths.clear();
     out_paths.resize(in_paths.size());
+    size_t minCnt = (bezType == CubicBezier ? 4 : 3);
     for (size_t i = 0; i < in_paths.size(); ++i)
     {
-      if (in_paths[i].size() < 4) continue;
+      if (in_paths[i].size() < minCnt) continue;
       Bezier b(in_paths[i], bezType, 0, precision);
       b.FlattenedPath(out_paths[i]);
     }
+  }
+  //------------------------------------------------------------------------------
+
+  void BezierList::CSplineToCBezier(const Path& in_path, Path& out_path)
+  {
+    out_path.clear();
+    size_t len = in_path.size();
+    if (len < 4) return;
+    if (len % 2 != 0) len--;
+    size_t i = (len / 2) - 1;
+    out_path.reserve(i * 3 + 1);
+    out_path.push_back(in_path[0]);
+    out_path.push_back(in_path[1]);
+    out_path.push_back(in_path[2]);
+    i = 3;
+    size_t lenMin1 = len - 1;
+    while (i < lenMin1) 
+    {
+      out_path.push_back(MidPoint(in_path[i-1], in_path[i]));
+      out_path.push_back(in_path[i++]);
+      out_path.push_back(in_path[i++]);
+    }
+    out_path.push_back(in_path[lenMin1]);
+  }
+  //------------------------------------------------------------------------------
+
+    void BezierList::QSplineToQBezier(const Path& in_path, Path& out_path)
+  {
+    out_path.clear();
+    size_t len = in_path.size();
+    if (len < 3) return;
+    if (len % 2 == 0) len--;
+    size_t i = len - 2;
+    out_path.reserve(i * 2 + 1);
+    out_path.push_back(in_path[0]);
+    out_path.push_back(in_path[1]);
+    i = 2;
+    size_t lenMin1 = len - 1;
+    while (i < lenMin1) 
+    {
+      out_path.push_back(MidPoint(in_path[i-1], in_path[i]));
+      out_path.push_back(in_path[i++]);
+    }
+    out_path.push_back(in_path[lenMin1]);
   }
   //------------------------------------------------------------------------------
 

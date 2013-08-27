@@ -4,7 +4,7 @@ unit Beziers;
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  1.0                                                             *
-* Date      :  22 August 2013                                                  *
+* Date      :  27 August 2013                                                  *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -38,15 +38,22 @@ type
     constructor Create(Precision: Double = DefaultPrecision);
     destructor Destroy; override;
 
-    function AddPath(const CtrlPts: TPath; BezType: TBezierType): integer;
+    procedure AddPath(const CtrlPts: TPath; BezType: TBezierType);
+    procedure AddPaths(const CtrlPts: TPaths; BezType: TBezierType);
     procedure Clear;
 
     function GetCtrlPts(index: Integer): TPath;
     function GetBezierType(index: Integer): TBezierType;
     function GetFlattenedPath(index: Integer): TPath;
+    function GetFlattenedPaths(): TPaths;
 
-    class function Flatten(path: TPath;
-      BezType: TBezierType; Precision: Double = DefaultPrecision): TPath;
+    class function Flatten(path: TPath; BezType: TBezierType;
+      Precision: Double = DefaultPrecision): TPath; overload;
+    class function Flatten(paths: TPaths; BezType: TBezierType;
+      Precision: Double = DefaultPrecision): TPaths; overload;
+
+    class function CSplineToCBezier(CubicSpline: TPath): TPath;
+    class function QSplineToQBezier(QuadSpline: TPath): TPath;
 
     function Reconstruct(Z1, Z2: Int64): TPath; //Control points again.
     property Precision: Double read FPrecision write FPrecision;
@@ -250,6 +257,15 @@ begin
 end;
 
 //------------------------------------------------------------------------------
+
+function MidPoint(const Pt1, Pt2: TIntPoint): TIntPoint; {$IFDEF INLINING} inline; {$ENDIF}
+begin
+  Result.X := (Pt1.X + Pt2.X) div 2;
+  Result.Y := (Pt1.Y + Pt2.Y) div 2;
+  Result.Z := 0;
+end;
+
+//------------------------------------------------------------------------------
 // TBezierList methods ...
 //------------------------------------------------------------------------------
 
@@ -271,12 +287,27 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TBezierList.AddPath(const CtrlPts: TPath; BezType: TBezierType): integer;
+procedure TBezierList.AddPath(const CtrlPts: TPath; BezType: TBezierType);
 var
   NewBez: TBezier;
 begin
   NewBez := TBezier.Create(CtrlPts, BezType, FList.Count, FPrecision);
-  result := FList.Add(NewBez);
+  FList.Add(NewBez);
+end;
+//------------------------------------------------------------------------------
+
+procedure TBezierList.AddPaths(const CtrlPts: TPaths; BezType: TBezierType);
+var
+  I, MinLen: Integer;
+  NewBez: TBezier;
+begin
+  if (bezType = CubicBezier) then MinLen := 4  else MinLen := 3;
+  for I := 0 to high(ctrlPts) do
+  begin
+    if length(CtrlPts[I]) < MinLen then continue;
+    NewBez := TBezier.Create(CtrlPts[I], BezType, FList.Count, FPrecision);
+    FList.Add(NewBez);
+  end;
 end;
 //------------------------------------------------------------------------------
 
@@ -314,6 +345,16 @@ begin
 end;
 //------------------------------------------------------------------------------
 
+function TBezierList.GetFlattenedPaths(): TPaths;
+var
+  I: Integer;
+begin
+  SetLength(result, FList.Count);
+  for I := 0  to FList.Count -1 do
+    result[I] := TBezier(FList[I]).FlattenedPath;
+end;
+//------------------------------------------------------------------------------
+
 function TBezierList.Reconstruct(Z1, Z2: Int64): TPath;
 var
   Seg, Ref: Integer;
@@ -335,6 +376,78 @@ begin
     finally
       Free;
     end;
+end;
+//------------------------------------------------------------------------------
+
+class function TBezierList.Flatten(paths: TPaths;
+  BezType: TBezierType; Precision: Double = DefaultPrecision): TPaths;
+var
+  I, MinLen: Integer;
+begin
+  if (bezType = CubicBezier) then MinLen := 4  else MinLen := 3;
+  SetLength(Result, length(paths));
+  for I := 0 to high(paths) do
+  begin
+    if Length(paths[I]) < MinLen then
+      result[I] := nil
+    else
+      with TBezier.Create(paths[I], BezType, I, Precision) do
+      try
+        Result[I] := FlattenedPath;
+      finally
+        Free;
+      end;
+  end;
+end;
+//------------------------------------------------------------------------------
+
+class function TBezierList.CSplineToCBezier(CubicSpline: TPath): TPath;
+var
+  I, J, Len, LenMin1: Integer;
+begin
+  Result := nil;
+  Len := Length(CubicSpline);
+  if Len < 4 then Exit;
+  if Odd(Len) then Dec(Len);
+  I := (Len div 2) - 1;
+  SetLength(Result, I * 3 + 1);
+  Result[0] := CubicSpline[0];
+  Result[1] := CubicSpline[1];
+  Result[2] := CubicSpline[2];
+  I := 3; J := 3;
+  LenMin1 := Len - 1;
+  while I < LenMin1 do
+  begin
+    Result[J] := MidPoint(CubicSpline[I-1], CubicSpline[I]);
+    Result[J+1] := CubicSpline[I];
+    Result[J+2] := CubicSpline[I+1];
+    Inc(I, 2); Inc(J, 3);
+  end;
+  Result[J] := CubicSpline[LenMin1];
+end;
+//------------------------------------------------------------------------------
+
+class function TBezierList.QSplineToQBezier(QuadSpline: TPath): TPath;
+var
+  I, J, Len, LenMin1: Integer;
+begin
+  Result := nil;
+  Len := Length(QuadSpline);
+  if Len < 3 then Exit;
+  if not Odd(Len) then Dec(Len);
+  I := Len - 2;
+  SetLength(Result, I * 2 + 1);
+  Result[0] := QuadSpline[0];
+  Result[1] := QuadSpline[1];
+  I := 2; J := 2;
+  LenMin1 := Len - 1;
+  while I < LenMin1 do
+  begin
+    Result[J] := MidPoint(QuadSpline[I-1], QuadSpline[I]);
+    Result[J+1] := QuadSpline[I];
+    Inc(I); Inc(J, 2);
+  end;
+  Result[J] := QuadSpline[LenMin1];
 end;
 
 //------------------------------------------------------------------------------
