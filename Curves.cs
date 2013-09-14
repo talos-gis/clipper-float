@@ -1,8 +1,8 @@
 ﻿/*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  1.0                                                             *
-* Date      :  27 August 2013                                                  *
+* Version   :  0.99 beta                                                       *
+* Date      :  14 September 2013                                               *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -23,18 +23,33 @@ namespace CurvesLib
   using Paths = List<List<IntPoint>>;
 
   public enum CurveType { CubicBezier, QuadBezier, Arc, Other };
+  //------------------------------------------------------------------------------
 
   public class CurveList
   {
     private const double DefaultPrecision = 0.5;
     private List<Curve> m_Curves = new List<Curve>();
 
-    public CurveList(double precision = DefaultPrecision)
+    //------------------------------------------------------------------------------
+
+    public static void ClipCallback(IntPoint vert1, IntPoint vert2, ref IntPoint intersectPt)
     {
-      Precision = (precision <= 0 ? DefaultPrecision : precision);  
+      if ((CurveType)((UInt64)vert1.Z >> 60 & 0x3) == CurveType.Arc)
+      {
+        intersectPt.Z = (Int64)((UInt64)vert1.Z & 0xFFFFFFFF00000000 | 
+          ((UInt32)vert1.Z + (UInt32)vert2.Z) >> 1); //ie for arcs => average the bottom 32bit value
+      }
+      else intersectPt.Z = vert2.Z; //ie use the 'inside' vertex (vert1 is the outside vertex)
     }
     //------------------------------------------------------------------------------
 
+    public CurveList(double precision = DefaultPrecision)
+    {
+      if (precision <= 0) Precision = DefaultPrecision;
+      else Precision = precision;
+    }
+    //------------------------------------------------------------------------------
+    
     public bool AddPath(Path ctrlPts, CurveType ct)
     {
       Curve curve = null;
@@ -229,19 +244,31 @@ namespace CurvesLib
 
   }; //end CurveList
   //------------------------------------------------------------------------------
-  //------------------------------------------------------------------------------
 
   internal class Curve
   {
     internal const double half = 0.5;
+    internal const double rad180 = Math.PI;
+    internal const double rad90 = rad180 / 2;
+    internal const double rad270 = rad90 * 3;
+    internal const double rad360 = rad180 * 2;
+    internal const double TwoPI = rad180 * 2;
+
     internal UInt16 reference;
     internal Path path = new Path(); //path of Control Pts
     //segments: ie supports poly-beziers (ie before flattening) with up to 4,096 segments 
     //internal List<Segment> segments = new List<Segment>();
 
+    //nb. The format (high to low) of the 64bit Z value returned in the path ...
+    //---  (1): Unused but ideal for callback function to flag intersection vertex 
+    //SOP  (1): StartOfPath Flag
+    //Typ  (2): CurveType (CubicBezier, QuadBezier, Arc)
+    //Seg (12): Bezier segment idx since there may be multiple (4095) segments
+    //Ref (16): Reference value passed to TCurve owner object
+    //Idx (32): Binary index to sub-segment containing control points
     internal static Int64 MakeZ(CurveType ct, UInt16 seg, UInt16 refId, UInt32 idx)
     {
-      //nb: SOP flag (bit63) is set separately
+      //nb: SOP flag (bit62) is set separately
       UInt32 hi = (UInt32)((UInt16)ct << 28 | seg << 16 | (refId + 1));
       return (Int64)((UInt64)hi << 32 | idx);
     }
@@ -251,7 +278,7 @@ namespace CurvesLib
       out CurveType ct, out UInt16 seg, out UInt16 refId)
     {
       UInt32 vals = (UInt32)((UInt64)zval >> 32); //the top 32 bits => vals
-      ct = (CurveType)((vals >> 28) & 0x7);
+      ct = (CurveType)((vals >> 28) & 0x3);
       seg = (UInt16)((vals >> 16) & 0xFFF);
       refId = (UInt16)((vals & 0xFFFF) - 1);
       return (UInt32)(zval & 0xFFFFFFFF);
@@ -264,13 +291,45 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
+    internal void SwapInts(ref UInt32 val1, ref UInt32 val2)
+    {
+      UInt32 tmp = val1;
+      val1 = val2;
+      val2 = tmp;
+    }
+    //------------------------------------------------------------------------------
+
+    internal void SwapInts(ref UInt16 val1, ref UInt16 val2)
+    {
+      UInt16 tmp = val1;
+      val1 = val2;
+      val2 = tmp;
+    }
+    //------------------------------------------------------------------------------
+
+    internal void SwapIntPoints(ref IntPoint val1, ref IntPoint val2)
+    {
+      IntPoint tmp = val1;
+      val1 = val2;
+      val2 = tmp;
+    }
+    //------------------------------------------------------------------------------
+
+    internal void SwapDoublePoints(ref DoublePoint val1, ref DoublePoint val2)
+    {
+      DoublePoint tmp = val1;
+      val1 = val2;
+      val2 = tmp;
+    }
+    //------------------------------------------------------------------------------
+
     ~Curve() { Clear(); }
     //------------------------------------------------------------------------------
 
     internal virtual void Clear() { path.Clear(); }
     //------------------------------------------------------------------------------
 
-    internal Curve(Path ctrlPts, UInt16 refID, double precision)
+    internal Curve(Path ctrlPts, UInt16 refID, double precision) //constructor
     {
       SetCtrlPoints(ctrlPts, refID, precision);
     }
@@ -332,23 +391,6 @@ namespace CurvesLib
         insertAfter.next.prev = result;
       insertAfter.next = result;
       return result;
-    }
-    //------------------------------------------------------------------------------
-
-    internal IntNode GetFirstIntNode(IntNode current)
-    {
-      if (current == null) return null;
-      IntNode result = current;
-      while (result.prev != null)
-        result = result.prev;
-      //now skip the very first (dummy) node ...
-      return result.next;
-    }
-    //------------------------------------------------------------------------------
-
-    internal DoublePoint MidPoint(IntPoint ip1, IntPoint ip2)
-    {
-      return new DoublePoint((double)(ip1.X + ip2.X) / 2, (double)(ip1.Y + ip2.Y) / 2);
     }
     //------------------------------------------------------------------------------
 
@@ -499,7 +541,7 @@ namespace CurvesLib
     //------------------------------------------------------------------------------
 
     internal BezierCurve(Path ctrlPts, UInt16 refID, double precision) :
-      base(ctrlPts, refID, precision) { }
+      base(ctrlPts, refID, precision) { } //constructor
     //------------------------------------------------------------------------------
 
     internal override void Clear() { segments.Clear(); }
@@ -512,7 +554,7 @@ namespace CurvesLib
       for (int i = 0; i < segments.Count; i++)
         segments[i].GetFlattenedSeg(path, i == 0);
       IntPoint pt = path[0];
-      pt.Z = (Int64)((UInt64)pt.Z | 0x8000000000000000); //StartOfPath flag
+      pt.Z = (Int64)((UInt64)pt.Z | 0x4000000000000000); //StartOfPath flag
       path[0] = pt;
       return path;
     }
@@ -522,15 +564,6 @@ namespace CurvesLib
     {
       Path out_poly = new Path();
       if (pt2 == pt1) return out_poly;
-
-      bool reversed = false;
-      if (pt2.Z < 0)
-      {
-        IntPoint tmp = pt1;
-        pt1 = pt2;
-        pt2 = tmp;
-        reversed = true;
-      }
 
       CurveType bt1, bt2;
       UInt16 seg1, seg2;
@@ -543,18 +576,25 @@ namespace CurvesLib
 
       if (seg1 >= segments.Count || seg2 >= segments.Count) return out_poly;
 
-      if (seg1 > seg2)
+      if (pt1Z == pt2Z && seg1 == seg2)
       {
-        UInt16 i = seg1;
-        seg1 = seg2;
-        seg2 = i;
-        UInt32 tmp = pt1Z;
-        pt1Z = pt2Z;
-        pt2Z = tmp;
+        //they're almost the same point so return a very simple bezier ...
+        out_poly.Add(pt1);
+        out_poly.Add(pt1);
+        out_poly.Add(pt2);
+        out_poly.Add(pt2);
+        return out_poly;
+      }
+
+      if (((UInt64)pt2.Z & 0x4000000000000000) != 0 || seg1 > seg2)
+      {
+        SwapIntPoints(ref pt1, ref pt2);
+        SwapInts(ref seg1, ref seg2);
+        SwapInts(ref pt1Z, ref pt2Z);
       }
 
       //do further checks for reversal, in case reversal within a single segment ...
-      if (!reversed && seg1 == seg2 && pt1Z != 1 && pt2Z != 1)
+      if (seg1 == seg2 && pt1Z != 1 && pt2Z != 1)
       {
         UInt32 i = GetMostSignificantBit(pt1Z);
         UInt32 j = GetMostSignificantBit(pt2Z);
@@ -564,10 +604,8 @@ namespace CurvesLib
         j = pt2Z << (int)(k - j);
         if (i > j)
         {
-          UInt32 tmp = pt1Z;
-          pt1Z = pt2Z;
-          pt2Z = tmp;
-          reversed = true;
+          SwapIntPoints(ref pt1, ref pt2);
+          SwapInts(ref pt1Z, ref pt2Z);
         }
       }
 
@@ -578,9 +616,9 @@ namespace CurvesLib
         IntNode intCurr = intList;
 
         if (seg1 != seg2)
-          ReconstructInternal(seg1, pt1Z, 1, intCurr);
+          BezierReconstruct(seg1, pt1Z, 1, intCurr);
         else
-          ReconstructInternal(seg1, pt1Z, pt2Z, intCurr);
+          BezierReconstruct(seg1, pt1Z, pt2Z, intCurr);
 
         //IntList now contains the indexes of one or a series of sub-segments
         //that together define part of or the whole of the original segment.
@@ -608,12 +646,15 @@ namespace CurvesLib
         seg1++;
         pt1Z = 1;
       }
-      if (reversed) out_poly.Reverse();
+      //'adjust' the coords of the start and end points ...
+      //nb: this isn't a perfect solution but it'll be so close as to not matter.
+      out_poly[0] = pt1;
+      out_poly[out_poly.Count - 1] = pt2;
       return out_poly;
     }
     //------------------------------------------------------------------------------
 
-    internal void ReconstructInternal(UInt16 segIdx, UInt32 startIdx, UInt32 endIdx, IntNode intCurr)
+    internal void BezierReconstruct(UInt16 segIdx, UInt32 startIdx, UInt32 endIdx, IntNode intCurr)
     {
       //get the maximum level ...
       UInt32 L1 = GetMostSignificantBit(startIdx);
@@ -690,13 +731,12 @@ namespace CurvesLib
 
   }; //end BezierCurve
   //------------------------------------------------------------------------------
-  //------------------------------------------------------------------------------
 
   internal class CBezierCurve : BezierCurve
   {
 
     internal CBezierCurve(Path ctrlPts, UInt16 refID, double precision) :
-      base(ctrlPts, refID, precision) { beziertype = CurveType.CubicBezier; }
+      base(ctrlPts, refID, precision) { beziertype = CurveType.CubicBezier; } //constructor
     //------------------------------------------------------------------------------
 
     internal override void SetCtrlPoints(Path ctrlPts, UInt16 refID, double precision)
@@ -720,13 +760,12 @@ namespace CurvesLib
 
   }; //end CBezierCurve
   //------------------------------------------------------------------------------
-  //------------------------------------------------------------------------------
 
   internal class QBezierCurve : BezierCurve
   {
 
     internal QBezierCurve(Path ctrlPts, UInt16 refID, double precision) :
-      base(ctrlPts, refID, precision) { beziertype = CurveType.QuadBezier; }
+      base(ctrlPts, refID, precision) { beziertype = CurveType.QuadBezier; } //constructor
 
     internal override void SetCtrlPoints(Path ctrlPts, UInt16 refID, double precision)
     {
@@ -748,20 +787,15 @@ namespace CurvesLib
 
   }; //end QBezierCurve
   //------------------------------------------------------------------------------
-  //------------------------------------------------------------------------------
 
   internal class ArcCurve : Curve
   {
     double m_precision;
 
-    internal double GetAngleOfEndPtFromStartPt(DoublePoint StartPt, DoublePoint EndPt)
+    internal double GetAngle(DoublePoint startPt, DoublePoint endPt)
     {
-      const double rad90 = Math.PI / 2;
-      const double rad270 = rad90 * 3;
-      const double rad360 = Math.PI * 2;
-
       double result;
-      DoublePoint relEndPt = new DoublePoint(EndPt.X - StartPt.X, EndPt.Y - StartPt.Y);
+      DoublePoint relEndPt = new DoublePoint(endPt.X - startPt.X, endPt.Y - startPt.Y);
       if (relEndPt.X == 0)
       {
         if (relEndPt.Y > 0) result = rad270; else result = rad90;
@@ -774,8 +808,6 @@ namespace CurvesLib
       return result;
     }
     //------------------------------------------------------------------------------
-
-    const double TwoPI = Math.PI * 2;
 
     internal double GetBisectingAngle(double angle1, double angle2, bool isClockwise)
     {
@@ -797,59 +829,69 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    IntPoint GetPointFromOrigin(DoublePoint origin, double radius, double angle)
+    DoublePoint GetPointFromOrigin(DoublePoint origin, double radius, double angle)
     {
       double asin, acos;
       sincos(angle, out asin, out acos);
-      return new IntPoint(
-        Round(radius * acos + origin.X), 
-        Round(-radius * asin + origin.Y));
+      return new DoublePoint(radius * acos + origin.X, -radius * asin + origin.Y);
     }
     //------------------------------------------------------------------------------
 
-    internal bool CircleFrom3Points(DoublePoint p1, DoublePoint p2, DoublePoint p3, 
+    internal bool RightTurning(DoublePoint dp1, DoublePoint dp2, DoublePoint dp3)
+    {
+      double dx1 = dp2.X - dp1.X;
+      double dy1 = dp2.Y - dp1.Y;
+      double dx2 = dp3.X - dp2.X;
+      double dy2 = dp3.Y - dp2.Y;
+      return ((dx1 * dy2) - (dx2 * dy1)) > 0;
+    }
+    //------------------------------------------------------------------------------
+
+    internal bool CircleFrom3Points(DoublePoint dp1, DoublePoint dp2, DoublePoint dp3, 
       out DoublePoint origin, out double radius)
     {
+      //logic: A line perpendicular to a chord that passes through the chord's midpoint 
+      //must also pass through the origin. Therefore given 2 chords we can find the origin.
       origin = new DoublePoint();
       radius = 0.0;
       double m1, m2, mp1x, mp1y, mp2x, mp2y;
-      if (p1.Y == p2.Y) 
+      if (dp1.Y == dp2.Y) 
       {
         //test for collinear points ...
-        if ((p3.Y-p1.Y)*(p2.X-p3.X) == (p3.X-p1.X)*(p3.Y-p2.Y)) return false;
-        m1 = (p3.X-p1.X) / (p1.Y-p3.Y); //nb: inverse slopes
-        m2 = (p2.X - p3.X) / (p3.Y - p2.Y);
-        mp1x = (p1.X + p3.X) / 2;
-        mp1y = (p1.Y + p3.Y) / 2;
-        mp2x = (p3.X + p2.X) / 2;
-        mp2y = (p3.Y + p2.Y) / 2;
+        if ((dp3.Y-dp1.Y)*(dp2.X-dp3.X) == (dp3.X-dp1.X)*(dp3.Y-dp2.Y)) return false;
+        m1 = (dp3.X-dp1.X) / (dp1.Y-dp3.Y); //nb: inverse slopes
+        m2 = (dp2.X - dp3.X) / (dp3.Y - dp2.Y);
+        mp1x = (dp1.X + dp3.X) / 2;
+        mp1y = (dp1.Y + dp3.Y) / 2;
+        mp2x = (dp3.X + dp2.X) / 2;
+        mp2y = (dp3.Y + dp2.Y) / 2;
       }
-      else if (p2.Y == p3.Y) 
+      else if (dp2.Y == dp3.Y) 
       {
-        if ((p1.Y-p2.Y)*(p1.X-p3.X) == (p2.X-p1.X)*(p3.Y-p1.Y)) return false;
-        m1 = (p2.X - p1.X) / (p1.Y - p2.Y); //nb: inverse slopes
-        m2 = (p1.X - p3.X) / (p3.Y - p1.Y);
-        mp1x = (p1.X + p2.X) / 2;
-        mp1y = (p1.Y + p2.Y) / 2;
-        mp2x = (p3.X + p1.X) / 2;
-        mp2y = (p3.Y + p1.Y) / 2;
+        if ((dp1.Y-dp2.Y)*(dp1.X-dp3.X) == (dp2.X-dp1.X)*(dp3.Y-dp1.Y)) return false;
+        m1 = (dp2.X - dp1.X) / (dp1.Y - dp2.Y); //nb: inverse slopes
+        m2 = (dp1.X - dp3.X) / (dp3.Y - dp1.Y);
+        mp1x = (dp1.X + dp2.X) / 2;
+        mp1y = (dp1.Y + dp2.Y) / 2;
+        mp2x = (dp3.X + dp1.X) / 2;
+        mp2y = (dp3.Y + dp1.Y) / 2;
       }
       else //use 1-2, 2-3
       {
-        if ((p1.Y-p2.Y)*(p2.X-p3.X) == (p2.X-p1.X)*(p3.Y-p2.Y)) return false;
-        m1 = (p2.X - p1.X) / (p1.Y - p2.Y); //nb: inverse slopes
-        m2 = (p2.X - p3.X) / (p3.Y - p2.Y);
-        mp1x = (p1.X + p2.X) / 2;
-        mp1y = (p1.Y + p2.Y) / 2;
-        mp2x = (p3.X + p2.X) / 2;
-        mp2y = (p3.Y + p2.Y) / 2;
+        if ((dp1.Y-dp2.Y)*(dp2.X-dp3.X) == (dp2.X-dp1.X)*(dp3.Y-dp2.Y)) return false;
+        m1 = (dp2.X - dp1.X) / (dp1.Y - dp2.Y); //nb: inverse slopes
+        m2 = (dp2.X - dp3.X) / (dp3.Y - dp2.Y);
+        mp1x = (dp1.X + dp2.X) / 2;
+        mp1y = (dp1.Y + dp2.Y) / 2;
+        mp2x = (dp3.X + dp2.X) / 2;
+        mp2y = (dp3.Y + dp2.Y) / 2;
       }
       double b1 = mp1y - mp1x * m1 ;
       double b2 = mp2y - mp2x * m2;
       origin.X = (b2 - b1) / (m1 - m2);
       origin.Y = m1 * origin.X + b1;
-      radius = Math.Sqrt((p1.X - origin.X) * (p1.X - origin.X) +
-        (p1.Y - origin.Y) * (p1.Y - origin.Y));
+      radius = Math.Sqrt((dp1.X - origin.X) * (dp1.X - origin.X) +
+        (dp1.Y - origin.Y) * (dp1.Y - origin.Y));
       return true;
     }
     //---------------------------------------------------------------------------
@@ -877,15 +919,12 @@ namespace CurvesLib
         DoublePoint p3 = new DoublePoint(path[i + 1]); 
         DoublePoint origin;
         double radius;
-        bool isClockwise;
 
         if (!CircleFrom3Points(p1, p2, p3, out origin, out radius))
-          return result; //oops
-        double a1 = GetAngleOfEndPtFromStartPt(p1, origin);
-        double a2 = GetAngleOfEndPtFromStartPt(p2, origin);
-        double a3 = GetAngleOfEndPtFromStartPt(p3, origin);
-        isClockwise = (((a2 > a1) == (a2 < a3)) != (a1 < a3));
-
+          return new Path(); //oops - p1, p2 & p3 must be collinear
+        bool isClockwise = RightTurning(p1, p2, p3);
+        double a1 = GetAngle(p1, origin);
+        double a3 = GetAngle(p3, origin);
         double frac = Math.Abs(a3 - a1) / (2 * Math.PI);
         if (isClockwise == (a3 >= a1)) frac = 1 - frac;
 
@@ -896,19 +935,45 @@ namespace CurvesLib
         sincos(angle, out asin, out acos);
         double x = ((double)p1.X - origin.X);
         double y = ((double)p1.Y - origin.Y);
-        for (int j = 0; j < steps; j++)
+        int j = 0;
+        for ( ; j < steps; j++)
         {
           result.Add(new IntPoint(
             Round(origin.X + x),
             Round(origin.Y + y),
-            MakeZ(CurveType.Arc, (UInt16)((i - 1) / 2), reference, (UInt16)j)));
+            MakeZ(CurveType.Arc, (UInt16)((i - 1) / 2), reference, (UInt16)(j*2))));
           double x2 = x;
           x = x * acos - asin * y;
           y = x2 * asin + y * acos;
         }
+        j++;
+        IntPoint endPt = new IntPoint(path[i +1].X, path[i +1].Y,
+          MakeZ(CurveType.Arc, (UInt16)((i - 1) / 2), reference, (UInt16)(j*2)));
+        result.Add(endPt);
         p1 = p3;
       }
       return result;
+    }
+    //------------------------------------------------------------------------------
+
+    internal double NormalizeAngle(double angle)
+    {
+      if (angle >= rad360)
+        while (angle >= rad360) angle -= rad360;
+      else if (angle < 0)
+        while (angle < 0) angle += rad360;
+      return angle;
+    }
+    //------------------------------------------------------------------------------
+
+    internal bool IsCollinear(DoublePoint pt1, DoublePoint pt2, DoublePoint pt3)
+    {
+      //cross product...
+      Int64 dx1 = (Int64)(pt2.X - pt1.X);
+      Int64 dy1 = (Int64)(pt2.Y - pt1.Y);
+      Int64 dx2 = (Int64)(pt3.X - pt2.X);
+      Int64 dy2 = (Int64)(pt3.Y - pt2.Y);
+      return ((dx1 * dy2) - (dx2 * dy1)) == 0;
     }
     //------------------------------------------------------------------------------
 
@@ -927,44 +992,56 @@ namespace CurvesLib
       if (ct1 != CurveType.Arc || ct1 != ct2 ||
         ref1 != reference || ref1 != ref2 ||
         seg1 >= arcCount || seg2 >= arcCount) return result;
-      
-      if (seg1 > seg2 || (seg1 == seg2 && z1 > z2))
-      {
-        UInt16 i = seg1;
-        seg1 = seg2;
-        seg2 = i;
-        IntPoint tmp = pt1;
-        pt1 = pt2;
-        pt2 = tmp;
-      }
 
+      if (seg1 > seg2 ||(seg1 == seg2 && z1 > z2)) 
+      {
+        SwapInts(ref seg1, ref seg2);
+        SwapIntPoints(ref pt1, ref pt2);
+      }
+      else if (seg1 == seg2 && z1 == z2)
+        return result;
+      
       int idx1 = seg1 * 2, idx2 = seg2 * 2 + 2;
       result.Capacity = idx2 - idx1 + 1;
-      DoublePoint origin1 = new DoublePoint();
-      double radius1;
 
       for (int j = seg1; j <= seg2; j++)
       {
-        if ((j == seg1 && pt1 != path[j * 2]) || (j == seg2 && pt2 != path[j * 2 + 2]))
+        if ((j == seg1 && pt1 != path[j * 2])
+          || (j == seg2 && pt2 != path[j * 2 + 2]))
         {
+          DoublePoint origin = new DoublePoint();
+          double radius;
           DoublePoint dp1 = new DoublePoint(path[j * 2]);
           DoublePoint dp2 = new DoublePoint(path[j * 2 + 1]);
           DoublePoint dp3 = new DoublePoint(path[j * 2 + 2]);
-          //get the origin and radius of each arc ...
-          CircleFrom3Points(dp1, dp2, dp3, out origin1, out radius1);
-          double a1 = GetAngleOfEndPtFromStartPt(origin1, dp1);
-          double a2 = GetAngleOfEndPtFromStartPt(origin1, dp2);
-          double a3 = GetAngleOfEndPtFromStartPt(origin1, dp3);
-          bool isClockwise = (((a2 > a1) == (a2 < a3)) != (a1 < a3));
-          //now build the new arc
-          if (j == seg1)
-            a1 = GetAngleOfEndPtFromStartPt(origin1, new DoublePoint(pt1));
-          if (j == seg2)
-            a3 = GetAngleOfEndPtFromStartPt(origin1, new DoublePoint(pt2));
-          a2 = GetBisectingAngle(a1, a3, isClockwise);
-          result.Add(GetPointFromOrigin(origin1, radius1, a1));
-          result.Add(GetPointFromOrigin(origin1, radius1, a2));
-          if (j == seg2) result.Add(pt2);
+          //get the origin, radius and orientation of each arc ...
+          if (!CircleFrom3Points(dp1, dp2, dp3, out origin, out radius))
+            return result; //not an arc as points collinear. (should never happen)
+          bool isClockwise = RightTurning(dp1, dp2, dp3);
+
+          if (j == seg1) dp2 = new DoublePoint(pt1);
+          else dp2 = dp1;
+          if (j == seg2) dp3 = new DoublePoint(pt2);
+          //now get the new mid-arc point ...
+          double a1 = GetAngle(origin, dp2);
+          double a3 = GetAngle(origin, dp3);
+          double a2 = NormalizeAngle((a1 + a3) / 2);
+          //now check that this new point is oriented correctly ...
+          DoublePoint midpoint = GetPointFromOrigin(origin, radius, a2);
+          //todo - collinearity test ==> 'near' collinearity test
+          if (Math.Abs(a1 - a2) > 0.2 &&
+            RightTurning(dp2, midpoint, dp3) != isClockwise &&
+            !IsCollinear(dp2, midpoint, dp3))
+          {
+            midpoint = GetPointFromOrigin(origin, radius, NormalizeAngle(a2 + rad180));
+          }
+          result.Add(new IntPoint(dp2.X, dp2.Y));
+          result.Add(new IntPoint(midpoint.X, midpoint.Y));
+          if (j == seg2 || (z2 == 0 && j == seg2 - 1))
+          {
+            result.Add(new IntPoint(dp3.X, dp3.Y));
+            break;
+          }
         }
         else
         {
@@ -979,8 +1056,6 @@ namespace CurvesLib
 
   }; //end ArcCurve
   //------------------------------------------------------------------------------
-  //------------------------------------------------------------------------------
-
 
   class CurveException : Exception
   {
