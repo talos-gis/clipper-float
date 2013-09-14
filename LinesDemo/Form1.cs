@@ -37,13 +37,28 @@ namespace Clipper_Lines_Demo
     }
     //------------------------------------------------------------------------------
 
+    //subclass Panel to stop redraw flicker ...
+    //http://stackoverflow.com/questions/8046560/how-to-stop-flickering-c-sharp-winforms
+    public class MyDisplayPanel : System.Windows.Forms.Panel
+    {
+      public MyDisplayPanel()
+      {
+        this.SetStyle(
+            System.Windows.Forms.ControlStyles.UserPaint |
+            System.Windows.Forms.ControlStyles.AllPaintingInWmPaint |
+            System.Windows.Forms.ControlStyles.OptimizedDoubleBuffer,
+            true);
+      }
+    }
+    //------------------------------------------------------------------------------
+
     private void BmpUpdateNeeded()
     {
       if (bmpGraphics == null) return;
-      bmpGraphics.Clear(Color.White);
       FillMode fm = (mEvenOdd.Checked ? FillMode.Alternate : FillMode.Winding);
-
       Paths ap = GetActivePaths();
+
+      bmpGraphics.Clear(Color.White);
       if (ap == subjCBeziers)
         DrawCBezierCtrlLines(bmpGraphics, subjCBeziers, 0xFFEEEEEE);
       else if (ap == subjQBeziers)
@@ -77,7 +92,7 @@ namespace Clipper_Lines_Demo
       //draw curves ...
       if (subjCBeziers.Count > 0 || subjQBeziers.Count > 0 || subjArcs.Count > 0)
       {
-        curves = new CurveList();
+        curves = new CurveList(0.5 * scale);
         if (subjCBeziers.Count > 0)
           curves.AddPaths(subjCBeziers, CurveType.CubicBezier);
         if (subjQBeziers.Count > 0)

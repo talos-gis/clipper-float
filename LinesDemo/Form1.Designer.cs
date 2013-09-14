@@ -63,7 +63,8 @@
       this.rbSubjCBezier = new System.Windows.Forms.RadioButton();
       this.rbSubjLine = new System.Windows.Forms.RadioButton();
       this.groupBox1 = new System.Windows.Forms.GroupBox();
-      this.DisplayPanel = new System.Windows.Forms.Panel();
+      //this.DisplayPanel = new System.Windows.Forms.Panel();
+      this.DisplayPanel = new MyDisplayPanel();
       this.statusStrip1.SuspendLayout();
       this.menuStrip1.SuspendLayout();
       this.panel1.SuspendLayout();
