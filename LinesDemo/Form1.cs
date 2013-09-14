@@ -17,7 +17,7 @@ namespace Clipper_Lines_Demo
   public partial class MainForm : Form
   {
 
-    const double scale = 2.0; //removes the blocky-ness associated with integer rounding.
+    const double scale = 10.0; //removes the blocky-ness associated with integer rounding.
     const int btnRadius = 3 * (int)scale;
     bool LeftButtonPressed = false;
     int MovingButton = -1;
