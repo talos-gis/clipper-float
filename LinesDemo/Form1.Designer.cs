@@ -63,8 +63,8 @@
       this.rbSubjCBezier = new System.Windows.Forms.RadioButton();
       this.rbSubjLine = new System.Windows.Forms.RadioButton();
       this.groupBox1 = new System.Windows.Forms.GroupBox();
-      //this.DisplayPanel = new System.Windows.Forms.Panel();
-      this.DisplayPanel = new MyDisplayPanel();
+      this.DisplayPanel = new Clipper_Lines_Demo.MainForm.MyDisplayPanel();
+      this.rbSubjEllipses = new System.Windows.Forms.RadioButton();
       this.statusStrip1.SuspendLayout();
       this.menuStrip1.SuspendLayout();
       this.panel1.SuspendLayout();
@@ -75,7 +75,7 @@
       this.statusStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.toolStripStatusLabel1,
             this.toolStripStatusLabel2});
-      this.statusStrip1.Location = new System.Drawing.Point(0, 380);
+      this.statusStrip1.Location = new System.Drawing.Point(0, 405);
       this.statusStrip1.Name = "statusStrip1";
       this.statusStrip1.Size = new System.Drawing.Size(623, 22);
       this.statusStrip1.TabIndex = 2;
@@ -173,7 +173,7 @@
             this.mClear});
       this.editToolStripMenuItem.Name = "editToolStripMenuItem";
       this.editToolStripMenuItem.Size = new System.Drawing.Size(37, 20);
-      this.editToolStripMenuItem.Text = "&Edit";
+      this.editToolStripMenuItem.Text = "E&dit";
       // 
       // mIntersection
       // 
@@ -299,6 +299,7 @@
       // panel1
       // 
       this.panel1.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
+      this.panel1.Controls.Add(this.rbSubjEllipses);
       this.panel1.Controls.Add(this.rbSubjArc);
       this.panel1.Controls.Add(this.rbSubjQBezier);
       this.panel1.Controls.Add(this.cbShowCtrls);
@@ -312,7 +313,7 @@
       this.panel1.Dock = System.Windows.Forms.DockStyle.Left;
       this.panel1.Location = new System.Drawing.Point(0, 24);
       this.panel1.Name = "panel1";
-      this.panel1.Size = new System.Drawing.Size(159, 356);
+      this.panel1.Size = new System.Drawing.Size(159, 381);
       this.panel1.TabIndex = 1;
       // 
       // rbSubjArc
@@ -343,16 +344,16 @@
       this.cbShowCtrls.Enabled = false;
       this.cbShowCtrls.Location = new System.Drawing.Point(12, 315);
       this.cbShowCtrls.Name = "cbShowCtrls";
-      this.cbShowCtrls.Size = new System.Drawing.Size(121, 17);
+      this.cbShowCtrls.Size = new System.Drawing.Size(103, 17);
       this.cbShowCtrls.TabIndex = 26;
-      this.cbShowCtrls.Text = "Show C&trl Points too";
+      this.cbShowCtrls.Text = "Show C&trl Points";
       this.cbShowCtrls.UseVisualStyleBackColor = true;
       this.cbShowCtrls.Click += new System.EventHandler(this.cbShowCtrls_Click);
       // 
       // cbReconstCurve
       // 
       this.cbReconstCurve.AutoSize = true;
-      this.cbReconstCurve.Location = new System.Drawing.Point(12, 273);
+      this.cbReconstCurve.Location = new System.Drawing.Point(12, 284);
       this.cbReconstCurve.Name = "cbReconstCurve";
       this.cbReconstCurve.Size = new System.Drawing.Size(132, 17);
       this.cbReconstCurve.TabIndex = 25;
@@ -363,7 +364,7 @@
       // bNewPath
       // 
       this.bNewPath.Enabled = false;
-      this.bNewPath.Location = new System.Drawing.Point(12, 212);
+      this.bNewPath.Location = new System.Drawing.Point(12, 234);
       this.bNewPath.Name = "bNewPath";
       this.bNewPath.Size = new System.Drawing.Size(130, 28);
       this.bNewPath.TabIndex = 20;
@@ -374,7 +375,7 @@
       // rbClipPoly
       // 
       this.rbClipPoly.AutoSize = true;
-      this.rbClipPoly.Location = new System.Drawing.Point(26, 163);
+      this.rbClipPoly.Location = new System.Drawing.Point(26, 188);
       this.rbClipPoly.Name = "rbClipPoly";
       this.rbClipPoly.Size = new System.Drawing.Size(83, 17);
       this.rbClipPoly.TabIndex = 17;
@@ -422,7 +423,7 @@
       // 
       this.groupBox1.Location = new System.Drawing.Point(10, 22);
       this.groupBox1.Name = "groupBox1";
-      this.groupBox1.Size = new System.Drawing.Size(130, 172);
+      this.groupBox1.Size = new System.Drawing.Size(130, 197);
       this.groupBox1.TabIndex = 5;
       this.groupBox1.TabStop = false;
       this.groupBox1.Text = "Add ...";
@@ -434,18 +435,29 @@
       this.DisplayPanel.Dock = System.Windows.Forms.DockStyle.Fill;
       this.DisplayPanel.Location = new System.Drawing.Point(159, 24);
       this.DisplayPanel.Name = "DisplayPanel";
-      this.DisplayPanel.Size = new System.Drawing.Size(464, 356);
+      this.DisplayPanel.Size = new System.Drawing.Size(464, 381);
       this.DisplayPanel.TabIndex = 3;
       this.DisplayPanel.Paint += new System.Windows.Forms.PaintEventHandler(this.DisplayPanel_Paint);
       this.DisplayPanel.MouseDown += new System.Windows.Forms.MouseEventHandler(this.DisplayPanel_MouseDown);
       this.DisplayPanel.MouseMove += new System.Windows.Forms.MouseEventHandler(this.DisplayPanel_MouseMove);
       this.DisplayPanel.MouseUp += new System.Windows.Forms.MouseEventHandler(this.DisplayPanel_MouseUp);
       // 
+      // rbSubjEllipses
+      // 
+      this.rbSubjEllipses.AutoSize = true;
+      this.rbSubjEllipses.Location = new System.Drawing.Point(26, 150);
+      this.rbSubjEllipses.Name = "rbSubjEllipses";
+      this.rbSubjEllipses.Size = new System.Drawing.Size(94, 17);
+      this.rbSubjEllipses.TabIndex = 29;
+      this.rbSubjEllipses.Text = "Subject &Ellipse";
+      this.rbSubjEllipses.UseVisualStyleBackColor = true;
+      this.rbSubjEllipses.Click += new System.EventHandler(this.rbAdd_Click);
+      // 
       // MainForm
       // 
       this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
       this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-      this.ClientSize = new System.Drawing.Size(623, 402);
+      this.ClientSize = new System.Drawing.Size(623, 427);
       this.Controls.Add(this.DisplayPanel);
       this.Controls.Add(this.panel1);
       this.Controls.Add(this.menuStrip1);
@@ -497,7 +509,6 @@
     private System.Windows.Forms.RadioButton rbSubjPoly;
     private System.Windows.Forms.RadioButton rbSubjCBezier;
     private System.Windows.Forms.RadioButton rbSubjLine;
-    private System.Windows.Forms.Panel DisplayPanel;
     private System.Windows.Forms.CheckBox cbReconstCurve;
     private System.Windows.Forms.CheckBox cbShowCtrls;
     private System.Windows.Forms.ToolStripMenuItem mSave;
@@ -506,6 +517,8 @@
     private System.Windows.Forms.RadioButton rbSubjArc;
     private System.Windows.Forms.RadioButton rbSubjQBezier;
     private System.Windows.Forms.GroupBox groupBox1;
+    private System.Windows.Forms.RadioButton rbSubjEllipses;
+    private MainForm.MyDisplayPanel DisplayPanel;
   }
 }
 

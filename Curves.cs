@@ -22,13 +22,17 @@ namespace CurvesLib
   using Path = List<IntPoint>;
   using Paths = List<List<IntPoint>>;
 
-  public enum CurveType { CubicBezier, QuadBezier, Arc, Other };
+  public enum CurveType { CubicBezier, QuadBezier, Arc, Ellipse, Open, Closed, Unknown };
+  public enum PathType { Open, Closed, Both };
+
   //------------------------------------------------------------------------------
 
   public class CurveList
   {
-    private const double DefaultPrecision = 0.5;
+    internal const double DefaultPrecision = 0.5;
     private List<Curve> m_Curves = new List<Curve>();
+    
+    public int Count { get{return m_Curves.Count;} }
 
     //------------------------------------------------------------------------------
 
@@ -49,7 +53,7 @@ namespace CurvesLib
       else Precision = precision;
     }
     //------------------------------------------------------------------------------
-    
+
     public bool AddPath(Path ctrlPts, CurveType ct)
     {
       Curve curve = null;
@@ -63,6 +67,9 @@ namespace CurvesLib
           break;
         case CurveType.Arc:
           if (ctrlPts.Count > 2) curve = new ArcCurve(ctrlPts, (ushort)m_Curves.Count, Precision);
+          break;
+        case CurveType.Ellipse:
+          if (ctrlPts.Count == 3) curve = new EllipseCurve(ctrlPts, (ushort)m_Curves.Count, Precision);
           break;
       }
 
@@ -98,10 +105,7 @@ namespace CurvesLib
       if (index < 0 || index >= m_Curves.Count)
         throw new CurveException("CurveList: index out of range.");
       Curve c = m_Curves[index];
-      if (c is CBezierCurve) return CurveType.CubicBezier;
-      else if (c is QBezierCurve) return CurveType.QuadBezier;
-      else if (c is ArcCurve) return CurveType.Arc;
-      else return CurveType.Other;
+      return c.GetCurveType();
     }
     //------------------------------------------------------------------------------
 
@@ -132,29 +136,49 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    public Paths GetFlattenedPaths()
+    internal static bool CurveTypeInPathType(CurveType ct, PathType pt)
+    {
+      if (pt == PathType.Both) return true;
+      switch (ct)
+      {
+        case CurveType.Arc:
+        case CurveType.CubicBezier:
+        case CurveType.QuadBezier:
+        case CurveType.Open:
+          return (pt == PathType.Open);
+        case CurveType.Ellipse:
+        case CurveType.Closed:
+          return (pt == PathType.Closed);
+        default: return false;
+      }
+    }
+    //------------------------------------------------------------------------------
+
+    public Paths GetFlattenedPaths(PathType pt = PathType.Both)
     {
       Paths result = new Paths(m_Curves.Count);
       if (m_Curves.Count > 0) 
         foreach (Curve c in m_Curves)
-          result.Add(c.FlattenedPath());
+          if (CurveTypeInPathType(c.GetCurveType(), pt))
+            result.Add(c.FlattenedPath());
       return result;
     }
     //------------------------------------------------------------------------------
 
-    public static Path Flatten(Path ctrlPts, CurveType ct, double precision = DefaultPrecision)
+    public static Path Flatten(Path ctrlPts, CurveType ct, 
+      UInt16 refID = 0, double precision = DefaultPrecision)
     {
       Curve curve = null;
       switch (ct)
       {
         case CurveType.QuadBezier:
-          if (ctrlPts.Count > 2) curve = new QBezierCurve(ctrlPts, 0, precision); 
+          if (ctrlPts.Count > 2) curve = new QBezierCurve(ctrlPts, refID, precision); 
           break;
         case CurveType.CubicBezier:
-          if (ctrlPts.Count > 3) curve = new CBezierCurve(ctrlPts, 0, precision);
+          if (ctrlPts.Count > 3) curve = new CBezierCurve(ctrlPts, refID, precision);
           break;
         case CurveType.Arc:
-          if (ctrlPts.Count > 2) curve = new ArcCurve(ctrlPts, 0, precision);
+          if (ctrlPts.Count > 2) curve = new ArcCurve(ctrlPts, refID, precision);
           break;
       }
       if (curve != null)
@@ -164,14 +188,15 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    public static Paths Flatten(Paths paths, CurveType ct, double precision = DefaultPrecision)
+    public static Paths Flatten(Paths paths, CurveType ct, 
+      UInt16 refID = 0, double precision = DefaultPrecision)
     {
       int len = paths.Count;
       Paths result = new Paths(len);
       if (len == 0) return result;
       foreach (Path p in paths)
       {
-        Path pp = Flatten(p, ct, precision);
+        Path pp = Flatten(p, ct, refID, precision);
         if (pp.Count > 0) result.Add(pp);
       }
       return result;
@@ -234,8 +259,8 @@ namespace CurvesLib
     {
       Path result = new Path();
       UInt16 seg, refId;
-      CurveType beztype;
-      Curve.UnMakeZ(Pt1.Z, out beztype, out seg, out refId); //nb: just need refId
+      CurveType curvetype;
+      Curve.UnMakeZ(Pt1.Z, out curvetype, out seg, out refId); //nb: just need refId
       if (refId >= 0 && refId < m_Curves.Count)
         result = m_Curves[refId].Reconstruct(Pt1, Pt2);
       return result;       
@@ -245,7 +270,7 @@ namespace CurvesLib
   }; //end CurveList
   //------------------------------------------------------------------------------
 
-  internal class Curve
+  internal abstract class Curve
   {
     internal const double half = 0.5;
     internal const double rad180 = Math.PI;
@@ -255,14 +280,14 @@ namespace CurvesLib
     internal const double TwoPI = rad180 * 2;
 
     internal UInt16 reference;
+    internal double precision = CurveList.DefaultPrecision;
     internal Path path = new Path(); //path of Control Pts
     //segments: ie supports poly-beziers (ie before flattening) with up to 4,096 segments 
     //internal List<Segment> segments = new List<Segment>();
 
     //nb. The format (high to low) of the 64bit Z value returned in the path ...
-    //---  (1): Unused but ideal for callback function to flag intersection vertex 
     //SOP  (1): StartOfPath Flag
-    //Typ  (2): CurveType (CubicBezier, QuadBezier, Arc)
+    //Typ  (3): CurveType (CubicBezier, QuadBezier, Arc)
     //Seg (12): Bezier segment idx since there may be multiple (4095) segments
     //Ref (16): Reference value passed to TCurve owner object
     //Idx (32): Binary index to sub-segment containing control points
@@ -278,12 +303,14 @@ namespace CurvesLib
       out CurveType ct, out UInt16 seg, out UInt16 refId)
     {
       UInt32 vals = (UInt32)((UInt64)zval >> 32); //the top 32 bits => vals
-      ct = (CurveType)((vals >> 28) & 0x3);
+      ct = (CurveType)((vals >> 28) & 0x7);
       seg = (UInt16)((vals >> 16) & 0xFFF);
       refId = (UInt16)((vals & 0xFFFF) - 1);
       return (UInt32)(zval & 0xFFFFFFFF);
     }
     //------------------------------------------------------------------------------
+
+    internal abstract CurveType GetCurveType();
 
     internal static Int64 Round(double value)
     {
@@ -291,7 +318,7 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal void SwapInts(ref UInt32 val1, ref UInt32 val2)
+    internal static void SwapInts(ref UInt32 val1, ref UInt32 val2)
     {
       UInt32 tmp = val1;
       val1 = val2;
@@ -299,7 +326,7 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal void SwapInts(ref UInt16 val1, ref UInt16 val2)
+    internal static void SwapInts(ref UInt16 val1, ref UInt16 val2)
     {
       UInt16 tmp = val1;
       val1 = val2;
@@ -307,7 +334,7 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal void SwapIntPoints(ref IntPoint val1, ref IntPoint val2)
+    internal static void SwapIntPoints(ref IntPoint val1, ref IntPoint val2)
     {
       IntPoint tmp = val1;
       val1 = val2;
@@ -315,11 +342,18 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal void SwapDoublePoints(ref DoublePoint val1, ref DoublePoint val2)
+    internal static void SwapDoublePoints(ref DoublePoint val1, ref DoublePoint val2)
     {
       DoublePoint tmp = val1;
       val1 = val2;
       val2 = tmp;
+    }
+    //------------------------------------------------------------------------------
+
+    internal static void sincos(double angle, out double sinval, out double cosval)
+    {
+      sinval = Math.Sin(angle);
+      cosval = Math.Cos(angle);
     }
     //------------------------------------------------------------------------------
 
@@ -340,21 +374,13 @@ namespace CurvesLib
       Clear();
       reference = refID;
       path = new Path(ctrlPts);
+      if (precision > 0) this.precision = precision;
     }
     //------------------------------------------------------------------------------
 
     internal virtual Path FlattenedPath()
     {
-      int Len = path.Count;
-      Path result = new Path(Len);
-      for (int i = 0; i < Len; i++)
-      {
-        result.Add(new IntPoint(
-          path[i].X, 
-          path[i].Y, 
-          MakeZ(CurveType.Other, 0, reference, (uint)i)));
-      }
-      return result;
+      return new Path();
     }
 
     //------------------------------------------------------------------------------
@@ -368,11 +394,11 @@ namespace CurvesLib
   }; //end Curve
   //------------------------------------------------------------------------------
 
-  internal class BezierCurve : Curve
+  internal abstract class BezierCurve : Curve
   {
     //segments: ie supports poly-beziers (ie before flattening) with up to 16,383 segments 
     internal List<Segment> segments = new List<Segment>();
-    internal CurveType beziertype;
+    //internal CurveType curvetype;
 
     internal class IntNode
     {
@@ -382,7 +408,7 @@ namespace CurvesLib
       internal IntNode(int val) { this.val = val; }
     }
 
-    internal IntNode InsertInt(IntNode insertAfter, int val)
+    private IntNode InsertInt(IntNode insertAfter, int val)
     {
       IntNode result = new IntNode(val);
       result.next = insertAfter.next;
@@ -394,7 +420,7 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal UInt32 GetMostSignificantBit(UInt32 v) //index is zero based
+    private UInt32 GetMostSignificantBit(UInt32 v) //index is zero based
     {
       UInt32[] b = { 0x2, 0xC, 0xF0, 0xFF00, 0xFFFF0000 };
       Int32[] s = { 0x1, 0x2, 0x4, 0x8, 0x10 };
@@ -409,19 +435,19 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal bool IsBitSet(UInt32 val, Int32 index)
+    private static bool IsBitSet(UInt32 val, Int32 index)
     {
       return (val & (1 << (int)index)) != 0;
     }
     //------------------------------------------------------------------------------
 
-    internal bool Odd(Int32 val)
+    private static bool Odd(Int32 val)
     {
       return (val % 2) != 0;
     }
     //------------------------------------------------------------------------------
 
-    internal bool Even(Int32 val)
+    private static bool Even(Int32 val)
     {
       return (val % 2) == 0;
     }
@@ -429,31 +455,32 @@ namespace CurvesLib
 
     internal class Segment
     {
-      internal CurveType beziertype;
+      internal CurveType curvetype;
       internal UInt16 RefID;
       internal UInt16 SegID;
       internal UInt32 Index;
       internal DoublePoint[] Ctrls = new DoublePoint[4];
       internal Segment[] Childs = new Segment[2];
-      internal Segment(UInt16 refID, UInt16 segID, UInt32 idx)
+      internal Segment(UInt16 refID, UInt16 segID, UInt32 idx, CurveType curvetype)
       {
         this.RefID = refID;
         this.SegID = segID;
         this.Index = idx;
+        this.curvetype = curvetype;
       }
 
       internal void GetFlattenedSeg(Path path, bool init)
       {
         if (init)
         {
-          Int64 Z = MakeZ(beziertype, SegID, RefID, Index);
+          Int64 Z = MakeZ(curvetype, SegID, RefID, Index);
           path.Add(new IntPoint(Round(Ctrls[0].X), Round(Ctrls[0].Y), Z));
         }
 
         if (Childs[0] == null)
         {
-          int CtrlIdx = (beziertype == CurveType.CubicBezier ? 3 : 2);
-          Int64 Z = MakeZ(beziertype, SegID, RefID, Index);
+          int CtrlIdx = (curvetype == CurveType.CubicBezier ? 3 : 2);
+          Int64 Z = MakeZ(curvetype, SegID, RefID, Index);
           path.Add(new IntPoint(Round(Ctrls[CtrlIdx].X), Round(Ctrls[CtrlIdx].Y), Z));
         }
         else
@@ -466,9 +493,10 @@ namespace CurvesLib
       internal void AddCtrlPtsToPath(Path ctrlPts)
       {
         int firstDelta = (ctrlPts.Count == 0 ? 0 : 1);
-        switch (beziertype)
+        switch (curvetype)
         {
           case CurveType.CubicBezier:
+          case CurveType.Ellipse:
             for (int i = firstDelta; i < 4; ++i)
             {
               ctrlPts.Add(new IntPoint(
@@ -490,11 +518,11 @@ namespace CurvesLib
     internal class CBezSegment : Segment
     {
       internal CBezSegment(DoublePoint pt1, DoublePoint pt2, DoublePoint pt3, DoublePoint pt4,
-        UInt16 refID, UInt16 segID, UInt32 idx, double precision)
-        : base(refID, segID, idx)
+        UInt16 refID, UInt16 segID, UInt32 idx, double precision, CurveType ct)
+        : base(refID, segID, idx, ct)
       {
 
-        beziertype = CurveType.CubicBezier;
+        curvetype = ct;
         Ctrls[0] = pt1; Ctrls[1] = pt2; Ctrls[2] = pt3; Ctrls[3] = pt4;
         //assess curve flatness:
         //http://groups.google.com/group/comp.graphics.algorithms/tree/browse_frm/thread/d85ca902fdbd746e
@@ -511,19 +539,19 @@ namespace CurvesLib
         DoublePoint p234 = new DoublePoint((p23.X + p34.X) * half, (p23.Y + p34.Y) * half);
         DoublePoint p1234 = new DoublePoint((p123.X + p234.X) * half, (p123.Y + p234.Y) * half);
         idx = idx << 1;
-        Childs[0] = new CBezSegment(pt1, p12, p123, p1234, refID, segID, idx, precision);
-        Childs[1] = new CBezSegment(p1234, p234, p34, pt4, refID, segID, idx + 1, precision);
+        Childs[0] = new CBezSegment(pt1, p12, p123, p1234, refID, segID, idx, precision, ct);
+        Childs[1] = new CBezSegment(p1234, p234, p34, pt4, refID, segID, idx + 1, precision, ct);
       } //end CubicBez constructor
     } //end CubicBez
 
     internal class QBezSegment : Segment
     {
       internal QBezSegment(DoublePoint pt1, DoublePoint pt2, DoublePoint pt3,
-        UInt16 refID, UInt16 segID, UInt32 idx, double precision)
-        : base(refID, segID, idx)
+        UInt16 refID, UInt16 segID, UInt32 idx, double precision, CurveType ct)
+        : base(refID, segID, idx, ct)
       {
 
-        beziertype = CurveType.QuadBezier;
+        curvetype = ct;
         Ctrls[0] = pt1; Ctrls[1] = pt2; Ctrls[2] = pt3;
         //assess curve flatness:
         if (Math.Abs(pt1.X + pt3.X - 2 * pt2.X) + Math.Abs(pt1.Y + pt3.Y - 2 * pt2.Y) < precision) return;
@@ -534,8 +562,8 @@ namespace CurvesLib
         DoublePoint p23 = new DoublePoint((pt2.X + pt3.X) * half, (pt2.Y + pt3.Y) * half);
         DoublePoint p123 = new DoublePoint((p12.X + p23.X) * half, (p12.Y + p23.Y) * half);
         idx = idx << 1;
-        Childs[0] = new QBezSegment(pt1, p12, p123, refID, segID, idx, precision);
-        Childs[1] = new QBezSegment(p123, p23, pt3, refID, segID, idx + 1, precision);
+        Childs[0] = new QBezSegment(pt1, p12, p123, refID, segID, idx, precision, ct);
+        Childs[1] = new QBezSegment(p123, p23, pt3, refID, segID, idx + 1, precision, ct);
       } //end QuadBez constructor
     } //end QuadBez
     //------------------------------------------------------------------------------
@@ -554,7 +582,7 @@ namespace CurvesLib
       for (int i = 0; i < segments.Count; i++)
         segments[i].GetFlattenedSeg(path, i == 0);
       IntPoint pt = path[0];
-      pt.Z = (Int64)((UInt64)pt.Z | 0x4000000000000000); //StartOfPath flag
+      pt.Z = (Int64)((UInt64)pt.Z | 0x8000000000000000); //StartOfPath flag
       path[0] = pt;
       return path;
     }
@@ -571,7 +599,7 @@ namespace CurvesLib
       UInt32 pt1Z = UnMakeZ(pt1.Z, out bt1, out seg1, out ref1);
       UInt32 pt2Z = UnMakeZ(pt2.Z, out bt2, out seg2, out ref2);
 
-      if (bt1 != beziertype || bt1 != bt2 ||
+      if (bt1 != GetCurveType() || bt1 != bt2 ||
         ref1 != reference || ref1 != ref2) return out_poly;
 
       if (seg1 >= segments.Count || seg2 >= segments.Count) return out_poly;
@@ -586,7 +614,7 @@ namespace CurvesLib
         return out_poly;
       }
 
-      if (((UInt64)pt2.Z & 0x4000000000000000) != 0 || seg1 > seg2)
+      if (((UInt64)pt2.Z & 0x8000000000000000) != 0 || seg1 > seg2)
       {
         SwapIntPoints(ref pt1, ref pt2);
         SwapInts(ref seg1, ref seg2);
@@ -736,13 +764,15 @@ namespace CurvesLib
   {
 
     internal CBezierCurve(Path ctrlPts, UInt16 refID, double precision) :
-      base(ctrlPts, refID, precision) { beziertype = CurveType.CubicBezier; } //constructor
+      base(ctrlPts, refID, precision) { } //constructor
     //------------------------------------------------------------------------------
+
+    internal override CurveType GetCurveType() { return CurveType.CubicBezier; }
 
     internal override void SetCtrlPoints(Path ctrlPts, UInt16 refID, double precision)
     {
       int highpts = ctrlPts.Count - 1;
-      if (highpts < 3)  throw new CurveException("CubicBezier: insuffient control points.");
+      if (highpts < 3)  throw new CurveException("CubicBezier: insufficient control points.");
       else highpts -= highpts % 3;
       base.SetCtrlPoints(ctrlPts, refID, precision);
       for (UInt16 i = 0; i < ((UInt16)highpts / 3); ++i)
@@ -752,7 +782,7 @@ namespace CurvesLib
                     new DoublePoint(ctrlPts[i * 3 + 1]),
                     new DoublePoint(ctrlPts[i * 3 + 2]),
                     new DoublePoint(ctrlPts[i * 3 + 3]),
-                    refID, i, 1, precision);
+                    refID, i, 1, precision, CurveType.CubicBezier);
         segments.Add(s);
       }
     }
@@ -765,12 +795,14 @@ namespace CurvesLib
   {
 
     internal QBezierCurve(Path ctrlPts, UInt16 refID, double precision) :
-      base(ctrlPts, refID, precision) { beziertype = CurveType.QuadBezier; } //constructor
+      base(ctrlPts, refID, precision) { } //constructor
+
+    internal override CurveType GetCurveType() { return CurveType.QuadBezier; }
 
     internal override void SetCtrlPoints(Path ctrlPts, UInt16 refID, double precision)
     {
       int highpts = ctrlPts.Count - 1;
-      if (highpts < 2) throw new CurveException("QuadBezier: insuffient control points.");
+      if (highpts < 2) throw new CurveException("QuadBezier: insufficient control points.");
       else highpts -= highpts % 2;
       base.SetCtrlPoints(ctrlPts, refID, precision);
       for (UInt16 i = 0; i < ((UInt16)highpts / 2); ++i)
@@ -779,7 +811,7 @@ namespace CurvesLib
                           new DoublePoint(ctrlPts[i * 2]),
                           new DoublePoint(ctrlPts[i * 2 + 1]),
                           new DoublePoint(ctrlPts[i * 2 + 2]),
-                          refID, i, 1, precision);
+                          refID, i, 1, precision, CurveType.QuadBezier);
         segments.Add(s);
       }
     }
@@ -790,9 +822,7 @@ namespace CurvesLib
 
   internal class ArcCurve : Curve
   {
-    double m_precision;
-
-    internal double GetAngle(DoublePoint startPt, DoublePoint endPt)
+    private static double GetAngle(DoublePoint startPt, DoublePoint endPt)
     {
       double result;
       DoublePoint relEndPt = new DoublePoint(endPt.X - startPt.X, endPt.Y - startPt.Y);
@@ -809,7 +839,7 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal double GetBisectingAngle(double angle1, double angle2, bool isClockwise)
+    private static double GetBisectingAngle(double angle1, double angle2, bool isClockwise)
     {
       if (isClockwise && angle2 >= angle1) angle2 -= TwoPI;
       else if (!isClockwise && angle2 <= angle1) angle2 += TwoPI;
@@ -820,16 +850,7 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal void sincos(double angle, out double sinval, out double cosval)
-    {
-      if (angle < 0) angle += (2 * Math.PI);
-      sinval = Math.Sin(angle);
-      cosval = Math.Sqrt(1.0 - sinval * sinval);
-      if (angle > Math.PI / 2 && angle < Math.PI * 3 / 2) cosval = -cosval;
-    }
-    //------------------------------------------------------------------------------
-
-    DoublePoint GetPointFromOrigin(DoublePoint origin, double radius, double angle)
+    private static DoublePoint GetPointFromOrigin(DoublePoint origin, double radius, double angle)
     {
       double asin, acos;
       sincos(angle, out asin, out acos);
@@ -837,7 +858,7 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal bool RightTurning(DoublePoint dp1, DoublePoint dp2, DoublePoint dp3)
+    private static bool RightTurning(DoublePoint dp1, DoublePoint dp2, DoublePoint dp3)
     {
       double dx1 = dp2.X - dp1.X;
       double dy1 = dp2.Y - dp1.Y;
@@ -847,7 +868,7 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal bool CircleFrom3Points(DoublePoint dp1, DoublePoint dp2, DoublePoint dp3, 
+    private static bool CircleFrom3Points(DoublePoint dp1, DoublePoint dp2, DoublePoint dp3, 
       out DoublePoint origin, out double radius)
     {
       //logic: A line perpendicular to a chord that passes through the chord's midpoint 
@@ -899,13 +920,14 @@ namespace CurvesLib
     internal ArcCurve(Path ctrlPts, UInt16 refID, double precision) :
       base(ctrlPts, refID, precision) { } //constructor
 
+    internal override CurveType GetCurveType() { return CurveType.Arc; }
+
     internal override void SetCtrlPoints(Path ctrlPts, UInt16 refID, double precision)
     {
       int highpts = ctrlPts.Count - 1;
-      if (highpts < 2) throw new CurveException("Arc: insuffient control points.");
+      if (highpts < 2) throw new CurveException("Arc: insufficient control points.");
       else highpts -= highpts % 2;
       base.SetCtrlPoints(ctrlPts, refID, precision);
-      m_precision = precision;
     }
     //------------------------------------------------------------------------------
 
@@ -928,7 +950,7 @@ namespace CurvesLib
         double frac = Math.Abs(a3 - a1) / (2 * Math.PI);
         if (isClockwise == (a3 >= a1)) frac = 1 - frac;
 
-        int steps = (int)Round(Math.PI / Math.Acos(1 - m_precision / radius)) + 1;
+        int steps = (int)Round(Math.PI / Math.Acos(1 - precision / radius)) + 1;
         if (steps < 2) steps = 2;
         double asin, acos, angle = frac * 2 * Math.PI / steps;
         if (!isClockwise) angle = -angle;
@@ -956,7 +978,7 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal double NormalizeAngle(double angle)
+    private static double NormalizeAngle(double angle)
     {
       if (angle >= rad360)
         while (angle >= rad360) angle -= rad360;
@@ -966,7 +988,7 @@ namespace CurvesLib
     }
     //------------------------------------------------------------------------------
 
-    internal bool IsCollinear(DoublePoint pt1, DoublePoint pt2, DoublePoint pt3)
+    private static bool IsCollinear(DoublePoint pt1, DoublePoint pt2, DoublePoint pt3)
     {
       //cross product...
       Int64 dx1 = (Int64)(pt2.X - pt1.X);
@@ -1055,6 +1077,217 @@ namespace CurvesLib
     //------------------------------------------------------------------------------
 
   }; //end ArcCurve
+  //------------------------------------------------------------------------------
+
+  internal class EllipseCurve : BezierCurve
+  {
+
+    internal EllipseCurve(Path ctrlPts, UInt16 refID, double precision) :
+      base(ctrlPts, refID, precision) { } //constructor
+
+    internal override CurveType GetCurveType() { return CurveType.Ellipse; }
+
+    internal override void SetCtrlPoints(Path ctrlPts, UInt16 refID, double precision)
+    {
+      int highpts = ctrlPts.Count - 1;
+      if (highpts != 2) throw new CurveException("Ellipse: requires 3 control points.");
+
+      DoublePoint center;
+      double rx, ry, angle;
+      if (!GetEllipseFrom3Points(ctrlPts[0], ctrlPts[1], ctrlPts[2],
+        out center, out rx, out ry, out angle))
+          throw new CurveException("Ellipse: invalid control points.");
+
+      //Magic constant = 4/3*(sqrt(2)-1) = 0.5522847498308
+      const double offset = 0.5522847498308;
+      double offx = rx * offset, offy = ry * offset;
+      Path pts = new Path(13);
+      pts.Add(new IntPoint(center.X + rx, center.Y));
+      pts.Add(new IntPoint(center.X + rx, center.Y - offy));
+      pts.Add(new IntPoint(center.X + offx, center.Y - ry));
+      pts.Add(new IntPoint(center.X, center.Y - ry));
+      pts.Add(new IntPoint(center.X - offx, center.Y - ry));
+      pts.Add(new IntPoint(center.X - rx, center.Y - offy));
+      pts.Add(new IntPoint(center.X - rx, center.Y));
+      pts.Add(new IntPoint(center.X - rx, center.Y + offy));
+      pts.Add(new IntPoint(center.X - offx, center.Y + ry));
+      pts.Add(new IntPoint(center.X, center.Y + ry));
+      pts.Add(new IntPoint(center.X + offx, center.Y + ry));
+      pts.Add(new IntPoint(center.X + rx, center.Y + offy));
+      pts.Add(new IntPoint(center.X + rx, center.Y));
+      if (angle != 0) Rotate(pts, center, angle);
+      
+      base.SetCtrlPoints(pts, refID, precision);
+      
+      for (UInt16 i = 0; i < 4; ++i)
+      {
+        CBezSegment s = new CBezSegment(
+                    new DoublePoint(pts[i * 3]),
+                    new DoublePoint(pts[i * 3 + 1]),
+                    new DoublePoint(pts[i * 3 + 2]),
+                    new DoublePoint(pts[i * 3 + 3]),
+                    refID, i, 1, precision, CurveType.Ellipse);
+        segments.Add(s);
+      }
+    }
+    //------------------------------------------------------------------------------
+
+    private DoublePoint ClosestPointOnLine(DoublePoint pt, DoublePoint linePt1, DoublePoint linePt2)
+    {
+      const double tolerance = 1.0e-8;
+      if (Math.Abs(linePt1.X - linePt2.X) < tolerance &&
+        Math.Abs(linePt1.Y - linePt2.Y) < tolerance) return linePt1;
+      double q = ((pt.X - linePt1.X) * (linePt2.X - linePt1.X) +
+        (pt.Y - linePt1.Y) * (linePt2.Y - linePt1.Y)) /
+        ((linePt2.X - linePt1.X) * (linePt2.X - linePt1.X) +
+        (linePt2.Y - linePt1.Y) * (linePt2.Y - linePt1.Y));
+      return new DoublePoint((1 - q) * linePt1.X + q * linePt2.X,
+        (1 - q) * linePt1.Y + q * linePt2.Y);
+    }
+    //------------------------------------------------------------------------------
+
+    private static double Distance(DoublePoint pt1, DoublePoint pt2)
+    {
+      double dx = pt2.X - pt1.X;
+      double dy = pt2.Y - pt1.Y;
+      return Math.Sqrt(dx * dx + dy * dy);
+    }
+    //------------------------------------------------------------------------------
+
+    private static DoublePoint Rotate90(DoublePoint pt, DoublePoint center)
+    {
+      double dx = pt.X - center.X;
+      double dy = pt.Y - center.Y;
+      return new DoublePoint(center.X - dy, center.Y + dx);
+    }
+    //------------------------------------------------------------------------------
+
+    private static DoublePoint PointAtAngle(DoublePoint origin, double distance, double angleRadians)
+    {
+      double sinA = Math.Sin(angleRadians);
+      double cosA = Math.Cos(angleRadians);
+      return new DoublePoint(distance * cosA + origin.X, -distance * sinA + origin.Y);
+    }
+    //------------------------------------------------------------------------------
+
+    private bool GetEllipseFrom3Points(IntPoint pt1, IntPoint pt2, IntPoint pt3,
+      out DoublePoint center, out double radius1, out double radius2, out double angle)
+    {
+      const double tolerance = 1.0e-8;
+      //premise: pt1 & pt3 define the extents of one axis and pt2 is another point on the ellipse.
+      DoublePoint dp1 = new DoublePoint(pt1);
+      DoublePoint dp2 = new DoublePoint(pt2);
+      DoublePoint dp3 = new DoublePoint(pt3);
+      center = new DoublePoint((dp1.X + dp3.X) / 2, (dp1.Y + dp3.Y) / 2);
+
+      double dx = dp1.X - center.X;
+      double dy = dp1.Y - center.Y;
+      //get the angle of the radius1 axis ...
+      if (Math.Abs(dp1.X - dp3.X) == 0)
+        angle = (dy > 0 ? 270 : 90);
+      else
+        angle = Math.Atan2(-dy, dx) * 180 / Math.PI;
+
+      radius1 = Distance(dp1, center);
+      radius2 = 0;
+      DoublePoint cpol = ClosestPointOnLine(dp2, dp1, center);
+      double rad1 = Distance(cpol, center);
+      if (rad1 > radius1) return false;
+      DoublePoint minorPt = Rotate90(dp1, center);
+      cpol = ClosestPointOnLine(dp2, minorPt, center);
+      double rad2 = Distance(cpol, center);
+      double anglePt2 = Math.Acos(rad1 / radius1);
+      double asin = Math.Sin(anglePt2);
+      if (asin < tolerance) return false;
+      radius2 = rad2 / asin;
+      return (radius1 > tolerance && radius2 > tolerance);
+    }
+    //------------------------------------------------------------------------------
+
+    internal static void Rotate(Path pts, DoublePoint centerPt, double angle)
+    {
+      double asin, acos;
+      sincos(angle * rad180/180, out asin, out acos);
+      for (int i = 0; i < pts.Count; i++)
+      {
+        double x = (double)pts[i].X - centerPt.X;
+        double y = (double)pts[i].Y - centerPt.Y;
+        pts[i] = new IntPoint(
+          (x * acos) + (y * asin) + centerPt.X,
+          (y * acos) - (x * asin) + centerPt.Y);
+      }
+    }
+    //------------------------------------------------------------------------------
+
+    internal override Path Reconstruct(IntPoint pt1, IntPoint pt2)
+    {
+      //a partial ellipse can't be defined by just 3 points ...
+      return new Path();
+    }
+    //------------------------------------------------------------------------------
+
+  }; //end EllipseCurve
+  //------------------------------------------------------------------------------
+
+
+  internal class OpenCurve : Curve
+  {
+
+    internal OpenCurve(Path ctrlPts, UInt16 refID, double precision) :
+      base(ctrlPts, refID, precision) { } //constructor
+
+    internal override CurveType GetCurveType() { return CurveType.Open; }
+
+    internal override void SetCtrlPoints(Path ctrlPts, UInt16 refID, double precision)
+    {
+      int highpts = ctrlPts.Count - 1;
+      if (highpts < 2) throw new CurveException("Open path requires 2 or more control points.");
+      base.SetCtrlPoints(ctrlPts, refID, precision);
+    }
+    //------------------------------------------------------------------------------
+
+    internal override Path FlattenedPath()
+    {
+      return new Path();
+    }
+    //------------------------------------------------------------------------------
+
+    internal override Path Reconstruct(IntPoint pt1, IntPoint pt2)
+    {
+      return new Path();
+    }
+    //------------------------------------------------------------------------------
+  }; //end OpenCurve
+  //------------------------------------------------------------------------------
+
+  internal class ClosedCurve : Curve
+  {
+
+    internal ClosedCurve(Path ctrlPts, UInt16 refID, double precision) :
+      base(ctrlPts, refID, precision) { } //constructor
+
+    internal override CurveType GetCurveType() { return CurveType.Closed; }
+
+    internal override void SetCtrlPoints(Path ctrlPts, UInt16 refID, double precision)
+    {
+      int highpts = ctrlPts.Count - 1;
+      if (highpts < 2) throw new CurveException("Closed path requires 3 or more control points.");
+      base.SetCtrlPoints(ctrlPts, refID, precision);
+    }
+    //------------------------------------------------------------------------------
+
+    internal override Path FlattenedPath()
+    {
+      return new Path();
+    }
+    //------------------------------------------------------------------------------
+
+    internal override Path Reconstruct(IntPoint pt1, IntPoint pt2)
+    {
+      return new Path();
+    }
+    //------------------------------------------------------------------------------
+  }; //end ClosedCurve
   //------------------------------------------------------------------------------
 
   class CurveException : Exception

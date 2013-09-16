@@ -17,7 +17,7 @@ namespace Clipper_Lines_Demo
   public partial class MainForm : Form
   {
 
-    const double scale = 10.0; //removes the blocky-ness associated with integer rounding.
+    const double scale = 5.0; //removes the blocky-ness associated with integer rounding.
     const int btnRadius = 3 * (int)scale;
     bool LeftButtonPressed = false;
     int MovingButton = -1;
@@ -27,6 +27,7 @@ namespace Clipper_Lines_Demo
     public Paths subjQBeziers = new Paths();
     public Paths subjArcs = new Paths();
     public Paths subjPolygons = new Paths();
+    public Paths subjEllipses = new Paths();
     public Paths clipPolygons = new Paths();
     public Bitmap bmp = null;
     public Graphics bmpGraphics = null;
@@ -57,8 +58,8 @@ namespace Clipper_Lines_Demo
       if (bmpGraphics == null) return;
       FillMode fm = (mEvenOdd.Checked ? FillMode.Alternate : FillMode.Winding);
       Paths ap = GetActivePaths();
-
       bmpGraphics.Clear(Color.White);
+
       if (ap == subjCBeziers)
         DrawCBezierCtrlLines(bmpGraphics, subjCBeziers, 0xFFEEEEEE);
       else if (ap == subjQBeziers)
@@ -82,25 +83,34 @@ namespace Clipper_Lines_Demo
       DrawPath(bmpGraphics, subjPolygons, true, 0x20808080, 0xFFAAAAAA, fm, 1.0);
       DrawPath(bmpGraphics, clipPolygons, true, 0x10FF6600, 0x99FF6600, fm, 1.0);
 
-      //CurveList - a container class that handles the 'flattening' of all curves 
+      //CurveList - a container class that handles the 'flattening' of all curved paths 
       //(defined by control point paths - eg beziers and arcs) and later de-flattening
       //or reconstructing of control point paths from parts of (ie clipped) flattened 
       //paths. The Z member of IntPoint stores info. used in reconstruction.
       CurveList curves = null;
-      Paths paths = new Paths();
+      Paths openPaths = new Paths();
+      Paths closedPaths = new Paths();
 
       //draw curves ...
-      if (subjCBeziers.Count > 0 || subjQBeziers.Count > 0 || subjArcs.Count > 0)
+      if (subjCBeziers.Count > 0 || subjQBeziers.Count > 0 || subjArcs.Count > 0 || subjEllipses.Count > 0)
       {
-        curves = new CurveList(0.5 * scale);
-        if (subjCBeziers.Count > 0)
-          curves.AddPaths(subjCBeziers, CurveType.CubicBezier);
-        if (subjQBeziers.Count > 0)
-          curves.AddPaths(subjQBeziers, CurveType.QuadBezier);
-        if (subjArcs.Count > 0)
-          curves.AddPaths(subjArcs, CurveType.Arc);
-        paths = curves.GetFlattenedPaths();
-        DrawPath(bmpGraphics, paths, false, 0x0, 0xFFAAAAAA, fm, 1.0);
+        curves = new CurveList(0.5 * scale); //half pixel precision (accounting for scaling)
+        try
+        {
+          if (subjCBeziers.Count > 0)
+            curves.AddPaths(subjCBeziers, CurveType.CubicBezier);
+          if (subjQBeziers.Count > 0)
+            curves.AddPaths(subjQBeziers, CurveType.QuadBezier);
+          if (subjArcs.Count > 0)
+            curves.AddPaths(subjArcs, CurveType.Arc);
+          if (subjEllipses.Count > 0)
+            curves.AddPaths(subjEllipses, CurveType.Ellipse);
+          openPaths = curves.GetFlattenedPaths(PathType.Open);
+          DrawPath(bmpGraphics, openPaths, false, 0x0, 0xFFAAAAAA, fm, 1.0);
+          closedPaths = curves.GetFlattenedPaths(PathType.Closed);
+          DrawPath(bmpGraphics, closedPaths, true, 0x20808080, 0xFFAAAAAA, fm, 1.0);
+        }
+        catch { curves = null; };
       }
 
       if (!mNone.Checked)
@@ -116,7 +126,8 @@ namespace Clipper_Lines_Demo
         Clipper c = new Clipper();
         c.ZFillFunction = CurveList.ClipCallback; //callback function that's called at intersections
         c.AddPaths(subjLines, PolyType.ptSubject, false);
-        c.AddPaths(paths, PolyType.ptSubject, false); //paths == flattened beziers
+        c.AddPaths(openPaths, PolyType.ptSubject, false); //paths == flattened beziers
+        c.AddPaths(closedPaths, PolyType.ptSubject, true); //paths == flattened beziers
         c.AddPaths(subjPolygons, PolyType.ptSubject, true);
         c.AddPaths(clipPolygons, PolyType.ptClip, true);
         PolyTree polytree = new PolyTree();
@@ -126,7 +137,8 @@ namespace Clipper_Lines_Demo
         DrawPath(bmpGraphics, solution, true, 0x2033AA00, 0xFF33AA00, fm, 2.0);
         solution = Clipper.OpenPathsFromPolyTree(polytree);
         DrawPath(bmpGraphics, solution, false, 0x0, 0xFF33AA00, fm, 2.0);
-        
+
+        Paths paths = new Paths();
         //now to demonstrate reconstructing beziers & arcs ...
         if (curves != null && cbReconstCurve.Checked)
         {
@@ -195,7 +207,7 @@ namespace Clipper_Lines_Demo
     }
     //------------------------------------------------------------------------------
 
-    private static void ClipperPathToGraphicsPath(Path path, GraphicsPath gp, bool Closed)
+    private static void ClipperPathToGraphicsPath(Path path, GraphicsPath gp, bool closed)
     {
       if (path.Count == 0) return;
       PointF[] pts = new PointF[path.Count];
@@ -209,7 +221,7 @@ namespace Clipper_Lines_Demo
       }
       j++;
       if (j < path.Count) Array.Resize(ref pts, j);
-      if (Closed && j > 2)
+      if (closed && j > 2)
       {
           gp.AddPolygon(pts);
       }
@@ -382,6 +394,7 @@ namespace Clipper_Lines_Demo
       else if (rbSubjQBezier.Checked) p = subjQBeziers;
       else if (rbSubjArc.Checked) p = subjArcs;
       else if (rbSubjPoly.Checked) p = subjPolygons;
+      else if (rbSubjEllipses.Checked) p = subjEllipses;
       else p = clipPolygons;
       return p;
     }
@@ -414,7 +427,7 @@ namespace Clipper_Lines_Demo
       else
       {
         Paths p = GetActivePaths();
-        if (p.Count == 0) p.Add(new Path());
+        if (p.Count == 0 || (p == subjEllipses && p[p.Count - 1].Count == 3)) p.Add(new Path());
         int i = p.Count;
         p[i - 1].Add(new IntPoint(e.X * scale, e.Y * scale));
         i = p[i - 1].Count;
@@ -466,8 +479,8 @@ namespace Clipper_Lines_Demo
     private void UpdateBtnAndMenuState()
     {
       mClear.Enabled = subjLines.Count > 0 || subjCBeziers.Count > 0 ||
-        subjQBeziers.Count > 0 || subjArcs.Count > 0 || 
-        subjPolygons.Count > 0 || clipPolygons.Count > 0;
+        subjQBeziers.Count > 0 || subjArcs.Count > 0 ||
+        subjPolygons.Count > 0 || subjEllipses.Count > 0 || clipPolygons.Count > 0;
       Paths p = GetActivePaths();
       int i = p.Count;
       if (i == 0)
@@ -527,6 +540,7 @@ namespace Clipper_Lines_Demo
       subjQBeziers.Clear();
       subjArcs.Clear();
       subjPolygons.Clear();
+      subjEllipses.Clear();
       clipPolygons.Clear();
       UpdateBtnAndMenuState();
       BmpUpdateNeeded();
@@ -575,6 +589,10 @@ namespace Clipper_Lines_Demo
       {
         if (i > 2) p.Add(new Path());
       }
+      else if (p == subjEllipses)
+      {
+        if (i == 3) p.Add(new Path());
+      }
       else if (p == clipPolygons)
       {
         if (i > 2) p.Add(new Path());
@@ -617,7 +635,7 @@ namespace Clipper_Lines_Demo
     private void MainForm_Load(object sender, EventArgs e)
     {
       OnLoadResize(true);
-      cbReconstCurve.Text = "Show &Reconstructed\nCurves in Red.";
+      cbReconstCurve.Text = "Redraw &Reconstructed\nOpen Curves ( bold red )";
     }
     //------------------------------------------------------------------------------
 
@@ -653,8 +671,8 @@ namespace Clipper_Lines_Demo
     private void cbReconstCurve_Click(object sender, EventArgs e)
     {
       cbShowCtrls.Enabled = cbReconstCurve.Checked;
-      if ((subjCBeziers.Count > 0 || subjQBeziers.Count > 0 || 
-        subjArcs.Count > 0) && clipPolygons.Count > 0)
+      if ((subjCBeziers.Count > 0 || subjQBeziers.Count > 0 ||
+        subjArcs.Count > 0 || subjEllipses.Count > 0) && clipPolygons.Count > 0)
           BmpUpdateNeeded();
     }
     //------------------------------------------------------------------------------
@@ -724,6 +742,7 @@ namespace Clipper_Lines_Demo
       SaveToFile("SubjQBeziers.txt", subjQBeziers);
       SaveToFile("SubjArcs.txt", subjArcs);
       SaveToFile("SubjPolys.txt", subjPolygons);
+      SaveToFile("SubjEllipses.txt", subjEllipses);
       SaveToFile("ClipPolys.txt", clipPolygons);
     }
     //------------------------------------------------------------------------------
@@ -735,6 +754,7 @@ namespace Clipper_Lines_Demo
       subjQBeziers.Clear();
       subjArcs.Clear();
       subjPolygons.Clear();
+      subjEllipses.Clear();
       clipPolygons.Clear();
 
       LoadFromFile("SubjLines.txt", subjLines);
@@ -742,6 +762,7 @@ namespace Clipper_Lines_Demo
       LoadFromFile("SubjQBeziers.txt", subjQBeziers);
       LoadFromFile("SubjArcs.txt", subjArcs);
       LoadFromFile("SubjPolys.txt", subjPolygons);
+      LoadFromFile("SubjEllipses.txt", subjEllipses);
       LoadFromFile("ClipPolys.txt", clipPolygons);
 
       UpdateBtnAndMenuState();
