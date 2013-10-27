@@ -322,27 +322,33 @@ namespace ClipperMultiPathsLib
     {
       
       string result = "";
+
       foreach (MultiPath mp in MultiPathList)
       {
         if (!mp.IsValid()) continue;
         IntPoint startPt = mp[0][0];
         result += string.Format("<path refID=\"{0}\" d=\"M {1},{2}", mp.RefID, startPt.X, startPt.Y);
+        CurveType lastCurveType = CurveType.Unknown;
         foreach (MultiPathSegment mps in mp)
         {
-          switch (mps.curvetype)
+          if (lastCurveType != mps.curvetype)
           {
-            case CurveType.Line:
-              result += " L";
-              break;
-            case CurveType.Arc:
-              result += " A";
-              break;
-            case CurveType.CubicBezier:
-              result += " C";
-              break;
-            case CurveType.QuadBezier:
-              result += " Q";
-              break;
+            switch (mps.curvetype)
+            {
+              case CurveType.Line:
+                result += " L";
+                break;
+              case CurveType.Arc:
+                result += " A";
+                break;
+              case CurveType.CubicBezier:
+                result += " C";
+                break;
+              case CurveType.QuadBezier:
+                result += " Q";
+                break;
+            }
+            lastCurveType = mps.curvetype;
           }
           for (int i = 1; i < mps.Count; i++) //nb: skips the first vertex
             result += string.Format(" {0},{1}", mps[i].X, mps[i].Y);
@@ -410,11 +416,16 @@ namespace ClipperMultiPathsLib
         MultiPath currMp = NewMultiPath(0, false);
         currMp.RefID = (UInt16)refId;
 
+        IntPoint lastIp = path[0];
         while (pathStr.Length > 0)
         {
-          path.RemoveRange(0, path.Count -1); //remove all but the last vertex
+          path.Clear();
+          path.Add(lastIp);
           char c = pathStr[0];
           pathStr = pathStr.Substring(1);
+          AddStringToPath(pathStr, path);
+          int cnt = path.Count;
+          lastIp = path[path.Count - 1];
           switch (c)
           {
             case 'Z':
@@ -423,23 +434,31 @@ namespace ClipperMultiPathsLib
               break;
             case 'L':
               if (currMp == null) currMp = NewMultiPath(0, false);
-              AddStringToPath(pathStr, path);
               currMp.NewMultiPathSegment(CurveType.Line, path);
               break;
             case 'A':
               if (currMp == null) currMp = NewMultiPath(0, false);
-              AddStringToPath(pathStr, path);
-              currMp.NewMultiPathSegment(CurveType.Arc, path);
+              for (int m = 0; m < cnt / 2; m++)
+              {
+                currMp.NewMultiPathSegment(CurveType.Arc, path);
+                path.RemoveRange(0, 2);
+              }
               break;
             case 'C':
               if (currMp == null) currMp = NewMultiPath(0, false);
-              AddStringToPath(pathStr, path);
-              currMp.NewMultiPathSegment(CurveType.CubicBezier, path);
+              for (int m = 0; m < cnt / 3; m++)
+              {
+                currMp.NewMultiPathSegment(CurveType.CubicBezier, path);
+                path.RemoveRange(0, 3);
+              }
               break;
             case 'Q':
               if (currMp == null) currMp = NewMultiPath(0, false);
-              AddStringToPath(pathStr, path);
-              currMp.NewMultiPathSegment(CurveType.QuadBezier, path);
+              for (int m = 0; m < cnt / 2; m++)
+              {
+                currMp.NewMultiPathSegment(CurveType.QuadBezier, path);
+                path.RemoveRange(0, 2);
+              }
               break;
             default: return;
           }
@@ -511,7 +530,11 @@ namespace ClipperMultiPathsLib
         default: return null;
       }
       if (path != null)
-        foreach (IntPoint ip in path) mps.Add(ip);
+      {
+        int highI = Math.Min(path.Count, mps.maxCtrlPts) - 1;
+        for (int i = 0; i <= highI; i++) mps.Add(path[i]);
+        //foreach (IntPoint ip in path) mps.Add(ip);
+      }
       segments.Add(mps);
       return mps;
     }
@@ -563,20 +586,26 @@ namespace ClipperMultiPathsLib
 
       if (IsClosed) AddClosingLineSeg();
 
-      //avoid sorting based on either end as they may be 'overlap' vertices ...
-      bool reversed = ((Int16)flatPath[1].Z > (Int16)flatPath[2].Z);
-      if (reversed) flatPath.Reverse();
-
       int seg1 = (UInt16)(flatPath[1].Z >> 16) & 0xFFFF;          //nb: list indices are offset 
       int seg2 = (UInt16)(flatPath[highI - 1].Z >> 16) & 0xFFFF;  //to avoid 'overlap' vertices
 
       if (seg1 != seg2)
         throw new MultiPathException("Reconstruct error: mixing segments");
 
+      MultiPathSegment mps = segments[seg1];
+      if (mps.curvetype == CurveType.Line)
+      {
+        result.NewMultiPathSegment(CurveType.Line, flatPath);
+        return result;
+      }
+
+      //avoid sorting based on either end as they may be 'overlap' vertices ...
+      bool reversed = ((Int16)flatPath[1].Z > (Int16)flatPath[2].Z);
+      if (reversed) flatPath.Reverse();
+
       flatPath[0] = StripTop48Bits(flatPath[0]);
       flatPath[highI] = StripTop48Bits(flatPath[highI]);
 
-      MultiPathSegment mps = segments[seg1];
       if (!mps.Reconstruct(flatPath[0], flatPath[highI], result))
       {
         if (reversed) flatPath.Reverse();
@@ -694,8 +723,8 @@ namespace ClipperMultiPathsLib
     public UInt16 index;
     
     internal int flattenOffset;
+    internal int maxCtrlPts;
     protected Path ctrls = new Path();
-    protected int maxCtrlPts; 
 
     public MultiPathSegment(MultiPath owner, UInt16 index)
     {
@@ -917,7 +946,13 @@ namespace ClipperMultiPathsLib
     {
       Path arcPath = new Path();
 
-      if (!IsValid() || radius == 0) return false; 
+      if (!IsValid() || radius == 0)
+      {
+        arcPath.Add(startPt);
+        arcPath.Add(endPt);
+        mp.NewMultiPathSegment(CurveType.Line, arcPath);
+        return false;
+      }
 
       if (startPt.Z == 0) startPt = ctrls[0];
       if (endPt.Z == 0) endPt = ctrls[2];
@@ -982,7 +1017,13 @@ namespace ClipperMultiPathsLib
     {
       Path arcPath = new Path();
 
-      if (!IsValid() || radii.X == 0 || radii.Y == 0) return false;
+      if (!IsValid() || radii.X == 0 || radii.Y == 0)
+      {
+        arcPath.Add(startPt);
+        arcPath.Add(endPt);
+        mp.NewMultiPathSegment(CurveType.Line, arcPath);
+        return false;
+      }
 
       if (startPt.Z == 0) startPt = ctrls[0];
       if (endPt.Z == 0) endPt = ctrls[4];

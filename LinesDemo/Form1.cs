@@ -23,11 +23,10 @@ namespace Clipper_Lines_Demo
     bool LeftButtonPressed = false;
     int MovingButtonIdx = -1;
     MultiPathSegment MovingButtonSeg = null;
-
     MultiPaths allPaths = new MultiPaths(0.5 * scale);
-
     public Bitmap bmp = null;
     public Graphics bmpGraphics = null;
+    string AppTitle;
 
     public MainForm()
     {
@@ -679,6 +678,7 @@ namespace Clipper_Lines_Demo
     {
       OnLoadResize(true);
       cbReconstCurve.Text = "Redraw &Reconstructed\nOpen Curves ( bold red )";
+      AppTitle = this.Text + " - ";
     }
     //------------------------------------------------------------------------------
 
@@ -726,21 +726,6 @@ namespace Clipper_Lines_Demo
     }
     //------------------------------------------------------------------------------
 
-    private void mSaveAs_Click(object sender, EventArgs e)
-    {
-      if (allPaths.Count == 0 || (allPaths.Count == 1 && allPaths[0].Count < 2))
-        return;
-      if (openFileDialog1.FileName != "") 
-        saveFileDialog1.FileName = openFileDialog1.FileName;
-      if (saveFileDialog1.ShowDialog() != DialogResult.OK) return;
-      openFileDialog1.FileName = saveFileDialog1.FileName;
-      StreamWriter writer = new StreamWriter(saveFileDialog1.FileName);
-      if (writer == null) return;
-      writer.Write(allPaths.ToSvgString());
-      writer.Close();
-    }
-    //------------------------------------------------------------------------------
-
     private void mSave_Click(object sender, EventArgs e)
     {
       if (openFileDialog1.FileName == "")
@@ -755,11 +740,27 @@ namespace Clipper_Lines_Demo
     }
     //------------------------------------------------------------------------------
 
+    private void mSaveAs_Click(object sender, EventArgs e)
+    {
+      if (allPaths.Count == 0 || (allPaths.Count == 1 && allPaths[0].Count < 2))
+        return;
+      if (openFileDialog1.FileName != "")
+        saveFileDialog1.FileName = openFileDialog1.FileName;
+      if (saveFileDialog1.ShowDialog() != DialogResult.OK) return;
+      openFileDialog1.FileName = saveFileDialog1.FileName;
+      this.Text = AppTitle + System.IO.Path.GetFileName(openFileDialog1.FileName);
+      StreamWriter writer = new StreamWriter(saveFileDialog1.FileName);
+      if (writer == null) return;
+      writer.Write(allPaths.ToSvgString());
+      writer.Close();
+    }
+    //------------------------------------------------------------------------------
+
     private void mOpen_Click(object sender, EventArgs e)
     {
       if (openFileDialog1.ShowDialog() != DialogResult.OK) return;
       allPaths.Clear();
-      this.Text = openFileDialog1.FileName;
+      this.Text = AppTitle + System.IO.Path.GetFileName(openFileDialog1.FileName);
       StreamReader sr = new StreamReader(openFileDialog1.FileName);
       allPaths.FromSvgString(sr.ReadToEnd());
       sr.Close();
@@ -770,6 +771,7 @@ namespace Clipper_Lines_Demo
 
     private void cbSubjClosed_Click(object sender, EventArgs e)
     {
+      if (rbClipPoly.Checked) rbSubjLine.Checked = true;
       MultiPath mp = GetActivePath();
       mp.IsClosed = cbSubjClosed.Checked;
       BmpUpdateNeeded();

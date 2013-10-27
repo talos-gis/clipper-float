@@ -388,9 +388,9 @@
       this.rbClipPoly.AutoSize = true;
       this.rbClipPoly.Location = new System.Drawing.Point(26, 218);
       this.rbClipPoly.Name = "rbClipPoly";
-      this.rbClipPoly.Size = new System.Drawing.Size(80, 17);
+      this.rbClipPoly.Size = new System.Drawing.Size(85, 17);
       this.rbClipPoly.TabIndex = 20;
-      this.rbClipPoly.Text = "Closed Li&ne";
+      this.rbClipPoly.Text = "Li&ne (closed)";
       this.rbClipPoly.UseVisualStyleBackColor = true;
       this.rbClipPoly.Click += new System.EventHandler(this.rbAdd_Click);
       // 
