@@ -192,7 +192,7 @@ namespace Clipper_Lines_Demo
               pn = pn.GetNext();
               continue;
             }
-            
+
             if (pn.ChildCount > 0)
               throw new Exception("Sorry, this demo doesn't currently handle holes");
 
@@ -510,7 +510,8 @@ namespace Clipper_Lines_Demo
             Path tmp = new Path();
             if (!mp.IsValid()) 
             {
-              mp[mp.Count - 1].CopyTo(tmp);
+              MultiPathSegment mps = mp[mp.Count - 1];
+              foreach (IntPoint ip in mps) tmp.Add(ip);
               mp.RemoveLast();
             }
             mp.NewMultiPathSegment(rbPathType, tmp);
