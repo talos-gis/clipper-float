@@ -52,6 +52,8 @@
 
 namespace ClipperLib {
 
+#define TOLERANCE (1.0E-8)
+
 enum ClipType { ctIntersection, ctUnion, ctDifference, ctXor };
 enum PolyType { ptSubject, ptClip };
 //By far the most widely used winding rules for polygon filling are
@@ -72,11 +74,12 @@ struct FPoint {
 
   friend inline bool operator== (const FPoint& a, const FPoint& b)
   {
-    return a.X == b.X && a.Y == b.Y;
+    return fabs(a.X - b.X) < TOLERANCE && fabs(a.Y - b.Y) < TOLERANCE;
   }
+
   friend inline bool operator!= (const FPoint& a, const FPoint& b)
   {
-    return a.X != b.X  || a.Y != b.Y; 
+    return !(a == b); 
   }
 };
 //------------------------------------------------------------------------------

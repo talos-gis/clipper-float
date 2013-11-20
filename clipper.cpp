@@ -57,7 +57,7 @@ static int const Unassigned = -1;  //edge not currently 'owning' a solution
 static int const Skip = -2;        //edge that would otherwise close a path
 
 #define HORIZONTAL (-1.0E+40)
-#define TOLERANCE (1.0e-20)
+#define SQRT_TOLERANCE (1.0E-4)
 #define NEAR_ZERO(val) (((val) > -TOLERANCE) && ((val) < TOLERANCE))
 
 struct TEdge {
@@ -351,19 +351,21 @@ bool Poly2ContainsPoly1(OutPt* OutPt1, OutPt* OutPt2)
 
 bool SlopesEqual(const TEdge &e1, const TEdge &e2)
 {
-  return e1.Delta.Y * e2.Delta.X == e1.Delta.X * e2.Delta.Y;
+  return fabs(e1.Delta.Y * e2.Delta.X) - fabs(e1.Delta.X * e2.Delta.Y) < SQRT_TOLERANCE;
 }
 //------------------------------------------------------------------------------
 
 bool SlopesEqual(const FPoint pt1, const FPoint pt2, const FPoint pt3)
 {
-  return (pt1.Y-pt2.Y)*(pt2.X-pt3.X) == (pt1.X-pt2.X)*(pt2.Y-pt3.Y);
+  return fabs((pt1.Y - pt2.Y) * (pt2.X - pt3.X)) - 
+    fabs((pt1.X - pt2.X) * (pt2.Y - pt3.Y)) < SQRT_TOLERANCE;
 }
 //------------------------------------------------------------------------------
 
 bool SlopesEqual(const FPoint pt1, const FPoint pt2, const FPoint pt3, const FPoint pt4)
 {
-  return (pt1.Y-pt2.Y)*(pt3.X-pt4.X) == (pt1.X-pt2.X)*(pt3.Y-pt4.Y);
+  return fabs((pt1.Y - pt2.Y) * (pt3.X - pt4.X)) - 
+    fabs((pt1.X - pt2.X) * (pt3.Y - pt4.Y)) < SQRT_TOLERANCE;
 }
 //------------------------------------------------------------------------------
 
