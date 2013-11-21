@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.1.0                                                           *
-* Date      :  20 November 2013                                                *
+* Date      :  22 November 2013                                                *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -424,19 +424,22 @@ namespace ClipperLib
 
       internal static bool SlopesEqual(TEdge e1, TEdge e2)
       {
-          return (e1.Delta.Y) * (e2.Delta.X) == (e1.Delta.X) * (e2.Delta.Y);
+        return Math.Abs((e1.Delta.Y) * (e2.Delta.X) - 
+          (e1.Delta.X) * (e2.Delta.Y)) < Globals.sqrt_tolerance;
       }
       //------------------------------------------------------------------------------
 
       protected static bool SlopesEqual(FPoint pt1, FPoint pt2, FPoint pt3)
       {
-          return (pt1.Y - pt2.Y) * (pt2.X - pt3.X) - (pt1.X - pt2.X) * (pt2.Y - pt3.Y) == 0;
+        return Math.Abs((pt1.Y - pt2.Y) * (pt2.X - pt3.X) - 
+          (pt1.X - pt2.X) * (pt2.Y - pt3.Y)) < Globals.sqrt_tolerance;
       }
       //------------------------------------------------------------------------------
 
       protected static bool SlopesEqual(FPoint pt1, FPoint pt2, FPoint pt3, FPoint pt4)
       {
-          return (pt1.Y - pt2.Y) * (pt3.X - pt4.X) - (pt1.X - pt2.X) * (pt3.Y - pt4.Y) == 0;
+        return Math.Abs((pt1.Y - pt2.Y) * (pt3.X - pt4.X) - 
+          (pt1.X - pt2.X) * (pt3.Y - pt4.Y)) < Globals.sqrt_tolerance;
       }
       //------------------------------------------------------------------------------
 
@@ -3081,7 +3084,7 @@ namespace ClipperLib
           {
               OutRec outRec = m_PolyOuts[i];
               if (outRec.Pts == null) continue;
-              OutPt p = outRec.Pts;
+              OutPt p = outRec.Pts.Prev;
               int cnt = PointCount(p);
               if (cnt < 2) continue;
               Path pg = new Path(cnt);

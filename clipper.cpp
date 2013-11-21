@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.1.0                                                           *
-* Date      :  20 November 2013                                                *
+* Date      :  22 November 2013                                                *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -118,8 +118,15 @@ struct Join {
   OutPt    *OutPt2;
   FPoint  OffPt;
 };
-
 //------------------------------------------------------------------------------
+
+struct DoublePoint
+{
+  double X;
+  double Y;
+  DoublePoint(double x = 0, double y = 0) : X(x), Y(y) {}
+  DoublePoint(FPoint ip) : X((double)ip.X), Y((double)ip.Y) {}
+};
 //------------------------------------------------------------------------------
 
 inline double Abs(double val)
@@ -351,21 +358,21 @@ bool Poly2ContainsPoly1(OutPt* OutPt1, OutPt* OutPt2)
 
 bool SlopesEqual(const TEdge &e1, const TEdge &e2)
 {
-  return fabs(e1.Delta.Y * e2.Delta.X) - fabs(e1.Delta.X * e2.Delta.Y) < SQRT_TOLERANCE;
+  return std::fabs(e1.Delta.Y * e2.Delta.X - e1.Delta.X * e2.Delta.Y) < SQRT_TOLERANCE;
 }
 //------------------------------------------------------------------------------
 
 bool SlopesEqual(const FPoint pt1, const FPoint pt2, const FPoint pt3)
 {
-  return fabs((pt1.Y - pt2.Y) * (pt2.X - pt3.X)) - 
-    fabs((pt1.X - pt2.X) * (pt2.Y - pt3.Y)) < SQRT_TOLERANCE;
+  return std::fabs((pt1.Y - pt2.Y) * (pt2.X - pt3.X) - 
+    (pt1.X - pt2.X) * (pt2.Y - pt3.Y)) < SQRT_TOLERANCE;
 }
 //------------------------------------------------------------------------------
 
 bool SlopesEqual(const FPoint pt1, const FPoint pt2, const FPoint pt3, const FPoint pt4)
 {
-  return fabs((pt1.Y - pt2.Y) * (pt3.X - pt4.X)) - 
-    fabs((pt1.X - pt2.X) * (pt3.Y - pt4.Y)) < SQRT_TOLERANCE;
+  return std::fabs((pt1.Y - pt2.Y) * (pt3.X - pt4.X) - 
+    (pt1.X - pt2.X) * (pt3.Y - pt4.Y)) < SQRT_TOLERANCE;
 }
 //------------------------------------------------------------------------------
 
@@ -917,7 +924,7 @@ bool ClipperBase::AddPath(const Path &pg, PolyType PolyTyp, bool Closed)
     if (E->Prev == E->Next) 
       break; //only two vertices
     else if (Closed &&
-      SlopesEqual(E->Prev->Curr, E->Curr, E->Next->Curr, m_UseFullRange) && 
+      SlopesEqual(E->Prev->Curr, E->Curr, E->Next->Curr) && 
       (!m_PreserveCollinear ||
       !Pt2IsBetweenPt1AndPt3(E->Prev->Curr, E->Curr, E->Next->Curr)))
     {
