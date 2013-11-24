@@ -1,8 +1,8 @@
 ﻿/*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.1.0                                                           *
-* Date      :  22 November 2013                                                *
+* Version   :  6.1.0 (floats)                                                  *
+* Date      :  25 November 2013                                                *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -391,7 +391,6 @@ namespace ClipperLib
       internal LocalMinima m_MinimaList;
       internal LocalMinima m_CurrentLM;
       internal List<List<TEdge>> m_edges = new List<List<TEdge>>();
-      internal bool m_UseFullRange;
       internal bool m_HasOpenPaths;
 
       //------------------------------------------------------------------------------
@@ -447,7 +446,6 @@ namespace ClipperLib
       {
           m_MinimaList = null;
           m_CurrentLM = null;
-          m_UseFullRange = false;
           m_HasOpenPaths = false;
       }
       //------------------------------------------------------------------------------
@@ -461,7 +459,6 @@ namespace ClipperLib
               m_edges[i].Clear();
           }
           m_edges.Clear();
-          m_UseFullRange = false;
           m_HasOpenPaths = false;
       }
       //------------------------------------------------------------------------------
@@ -1948,13 +1945,13 @@ namespace ClipperLib
           TEdge e2 = e.PrevInAEL;
           while (e2 != null)
           {
-              if (e2.OutIdx >= 0)
-              {
-                  isHole = !isHole;
-                  if (outRec.FirstLeft == null)
-                      outRec.FirstLeft = m_PolyOuts[e2.OutIdx];
-              }
-              e2 = e2.PrevInAEL;
+            if (e2.OutIdx >= 0 && e2.WindDelta != 0)
+            {
+              isHole = !isHole;
+              if (outRec.FirstLeft == null)
+                outRec.FirstLeft = m_PolyOuts[e2.OutIdx];
+            }
+            e2 = e2.PrevInAEL;
           }
           if (isHole) outRec.IsHole = true;
       }
@@ -2737,24 +2734,23 @@ namespace ClipperLib
             FPoint pt;
             if (e.Curr.X > eNext.Curr.X)
             {
-                if (!IntersectPoint(e, eNext, out pt) && e.Curr.X > eNext.Curr.X +1)
-                    throw new ClipperException("Intersection error");
-                if (pt.Y > botY)
-                {
-                    pt.Y = botY;
-                    if (Math.Abs(e.Dx) > Math.Abs(eNext.Dx))
-                      pt.X = TopX(eNext, botY); else
-                      pt.X = TopX(e, botY);
-                }
+              IntersectPoint(e, eNext, out pt);
+              if (pt.Y > botY)
+              {
+                  pt.Y = botY;
+                  if (Math.Abs(e.Dx) > Math.Abs(eNext.Dx))
+                    pt.X = TopX(eNext, botY); else
+                    pt.X = TopX(e, botY);
+              }
 
-                IntersectNode newNode = new IntersectNode();
-                newNode.Edge1 = e;
-                newNode.Edge2 = eNext;
-                newNode.Pt = pt;
-                m_IntersectList.Add(newNode);
+              IntersectNode newNode = new IntersectNode();
+              newNode.Edge1 = e;
+              newNode.Edge2 = eNext;
+              newNode.Pt = pt;
+              m_IntersectList.Add(newNode);
 
-                SwapPositionsInSEL(e, eNext);
-                isModified = true;
+              SwapPositionsInSEL(e, eNext);
+              isModified = true;
             }
             else
               e = eNext;
@@ -3468,39 +3464,60 @@ namespace ClipperLib
       }
       //----------------------------------------------------------------------
 
-      FRect GetBounds(OutPt ops)
+      private int PointInPolygon(FPoint pt, OutPt op)
       {
-        OutPt opStart = ops;
-        FRect result;
-        result.left = ops.Pt.X;
-        result.right = ops.Pt.X;
-        result.top = ops.Pt.Y;
-        result.bottom = ops.Pt.Y;
-        ops = ops.Next;
-        while (ops != opStart)
+        //returns 0 if false, +1 if true, -1 if pt ON polygon boundary
+        //http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.88.5498&rep=rep1&type=pdf
+        int result = 0;
+        OutPt startOp = op;
+        for(;;)
         {
-          if (ops.Pt.X < result.left) result.left = ops.Pt.X;
-          if (ops.Pt.X > result.right) result.right = ops.Pt.X;
-          if (ops.Pt.Y < result.top) result.top = ops.Pt.Y;
-          if (ops.Pt.Y > result.bottom) result.bottom = ops.Pt.Y;
-          ops = ops.Next;
-        }
+          if (op.Next.Pt.Y == pt.Y)
+          {
+            if ((op.Next.Pt.X == pt.X) || (op.Pt.Y == pt.Y &&
+                ((op.Next.Pt.X > pt.X) == (op.Pt.X < pt.X)))) return -1;
+          }
+          if ((op.Pt.Y < pt.Y) != (op.Next.Pt.Y < pt.Y))
+          {
+            if (op.Pt.X >= pt.X)
+            {
+              if (op.Next.Pt.X > pt.X) result = 1 - result;
+              else
+              {
+                double d = (op.Pt.X - pt.X) * (op.Next.Pt.Y - pt.Y) -
+                  (double)(op.Next.Pt.X - pt.X) * (op.Pt.Y - pt.Y);
+                if (d == 0) return -1;
+                if ((d > 0) == (op.Next.Pt.Y > op.Pt.Y)) result = 1 - result;
+              }
+            } else
+            {
+              if (op.Next.Pt.X > pt.X)
+              {
+                double d = (op.Pt.X - pt.X) * (op.Next.Pt.Y - pt.Y) -
+                  (double)(op.Next.Pt.X - pt.X) * (op.Pt.Y - pt.Y);
+                if (d == 0) return -1;
+                if ((d > 0) == (op.Next.Pt.Y > op.Pt.Y)) result = 1 - result;
+              }
+            }
+          } 
+          op = op.Next;
+          if (startOp == op) break;
+        } 
         return result;
       }
       //------------------------------------------------------------------------------
 
       private bool Poly2ContainsPoly1(OutPt outPt1, OutPt outPt2)
       {
-        //A CONVEX polygon will contain another polygon if its bounds contains the
-        //other's bounds. However, this isn't a reliable algorithm for CONCAVE
-        //polygons since it's possible to get false positives.
-        FRect bounds1 = GetBounds(outPt1);
-        FRect bounds2 = GetBounds(outPt2);
-        return (bounds1.left >= bounds2.left) &&
-          (bounds1.right <= bounds2.right) &&
-          (bounds1.top >= bounds2.top) &&
-          (bounds1.bottom <= bounds2.bottom);
-        //?? use PointInPolygon() above to exclude false positives ...
+        OutPt op = outPt1;
+        do
+        {
+          int res = PointInPolygon(op.Pt, outPt2);
+          if (res >= 0) return res != 0;
+          op = op.Next;
+        }
+        while (op != outPt1);
+        return true;
       }
       //----------------------------------------------------------------------
 

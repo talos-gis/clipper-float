@@ -3,8 +3,8 @@ unit clipper;
 (*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.1.0                                                           *
-* Date      :  20 November 2013                                                *
+* Version   :  6.1.0 (floats)                                                  *
+* Date      :  19 November 2013                                                *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -33,11 +33,7 @@ unit clipper;
 *                                                                              *
 *******************************************************************************)
 
-//use_int32: When enabled 32bit ints are used instead of 64bit ints. This
-//improve performance but coordinate values are limited to the range +/- 46340
-{.$DEFINE use_int32}
-
-//use_xyz: adds a Z member to IntPoint (with only a minor cost to performance)
+//use_xyz: adds a Z member to FPoint (with only a minor cost to performance)
 {.$DEFINE use_xyz}
 
 //use_lines: Enables line clipping. Adds a very minor cost to performance.
@@ -46,16 +42,11 @@ unit clipper;
 //When enabled, code developed with earlier versions of Clipper
 //(ie prior to ver 6) should compile without changes.
 //In a future update, this compatibility code will be removed.
-{$DEFINE use_deprecated}
 
 {$IFDEF FPC}
   {$DEFINE INLINING}
-  {$DEFINE UInt64Support}
 {$ELSE}
   {$IFDEF ConditionalExpressions}
-    {$IF CompilerVersion >= 15} //Delphi 7
-      {$DEFINE UInt64Support} //nb: Delphi7 only marginally supports UInt64.
-    {$IFEND}
     {$IF CompilerVersion >= 18} //Delphi 2007
       //Inline has been supported since D2005.
       //However D2005 and D2006 have an Inline codegen bug (QC41166).
@@ -71,30 +62,20 @@ uses
   SysUtils, Types, Classes, Math;
 
 type
-{$IFDEF use_int32}
-{$IF CompilerVersion < 20} //Delphi 2009
-  cInt = Integer; //Int32 supported since D2009.
-{$ELSE}
-  cInt = Int32;
-{$IFEND}
-{$ELSE}
-  cInt = Int64;
-{$ENDIF}
-
-  PIntPoint = ^TIntPoint;
+  PFPoint = ^TFPoint;
 {$IFDEF use_xyz}
-  TIntPoint = record X, Y, Z: cInt; end;
+  TFPoint = record X, Y: Double; Z: UInt64; end;
 {$ELSE}
-  TIntPoint = record X, Y: cInt; end;
+  TFPoint = record X, Y: single; end;
 {$ENDIF}
 
-  TIntRect = record Left, Top, Right, Bottom: cInt; end;
+  TFRect = record Left, Top, Right, Bottom: single; end;
 
   TDoublePoint = record X, Y: Double; end;
   TArrayOfDoublePoint = array of TDoublePoint;
 
 {$IFDEF use_xyz}
-  TZFillCallback = procedure (const Pt1, Pt2: TIntPoint; var Pt: TIntPoint);
+  TZFillCallback = procedure (const Pt1, Pt2: TFPoint; var Pt: TFPoint);
 {$ENDIF}
 
   TInitOption = (ioReverseSolution, ioStrictlySimple, ioPreserveCollinear);
@@ -112,13 +93,8 @@ type
   TJoinType = (jtSquare, jtRound, jtMiter);
   TEndType = (etClosed, etButt, etSquare, etRound);
 
-  TPath = array of TIntPoint;
+  TPath = array of TFPoint;
   TPaths = array of TPath;
-
-{$IFDEF use_deprecated}
-  TPolygon = TPath;
-  TPolygons = TPaths;
-{$ENDIF}
 
   TPolyNode = class;
   TArrayOfPolyNode = array of TPolyNode;
@@ -165,10 +141,10 @@ type
 
   PEdge = ^TEdge;
   TEdge = record
-    Bot  : TIntPoint;      //bottom
-    Curr : TIntPoint;      //current (ie relative to bottom of current scanbeam)
-    Top  : TIntPoint;      //top
-    Delta: TIntPoint;
+    Bot  : TFPoint;      //bottom
+    Curr : TFPoint;      //current (ie relative to bottom of current scanbeam)
+    Top  : TFPoint;      //top
+    Delta: TFPoint;
     Dx   : Double;         //inverse of slope
     PolyType : TPolyType;
     Side     : TEdgeSide;
@@ -190,7 +166,7 @@ type
 
   PScanbeam = ^TScanbeam;
   TScanbeam = record
-    Y   : cInt;
+    Y   : Double;
     Next: PScanbeam;
   end;
 
@@ -198,12 +174,12 @@ type
   TIntersectNode = record
     Edge1: PEdge;
     Edge2: PEdge;
-    Pt   : TIntPoint;
+    Pt   : TFPoint;
   end;
 
   PLocalMinima = ^TLocalMinima;
   TLocalMinima = record
-    Y         : cInt;
+    Y         : Double;
     LeftBound : PEdge;
     RightBound: PEdge;
     Next      : PLocalMinima;
@@ -228,7 +204,7 @@ type
 
   TOutPt = record
     Idx      : Integer;
-    Pt       : TIntPoint;
+    Pt       : TFPoint;
     Next     : POutPt;
     Prev     : POutPt;
   end;
@@ -237,7 +213,7 @@ type
   TJoin = record
     OutPt1   : POutPt;
     OutPt2   : POutPt;
-    OffPt    : TIntPoint; //offset point (provides slope of common edges)
+    OffPt    : TFPoint; //offset point (provides slope of common edges)
   end;
 
   TClipperBase = class
@@ -245,7 +221,6 @@ type
     FEdgeList         : TList;
     FLmList           : PLocalMinima; //localMinima list
     FCurrLm           : PLocalMinima; //current localMinima node
-    FUse64BitRange    : Boolean;      //see LoRange and HiRange consts notes below
     FHasOpenPaths     : Boolean;
     procedure DisposeLocalMinimaList;
     procedure DisposePolyPts(PP: POutPt);
@@ -264,11 +239,6 @@ type
 
     function AddPath(const Path: TPath; PolyType: TPolyType; Closed: Boolean): Boolean;
     function AddPaths(const Paths: TPaths; PolyType: TPolyType; Closed: Boolean): Boolean;
-
-{$IFDEF use_deprecated}
-    function AddPolygon(const Path: TPath; PolyType: TPolyType): Boolean;
-    function AddPolygons(const Paths: TPaths; PolyType: TPolyType): Boolean;
-{$ENDIF}
 
     //PreserveCollinear: Prevents removal of 'inner' vertices when three or
     //more vertices are collinear in solution polygons.
@@ -296,34 +266,34 @@ type
     FZFillCallback    : TZFillCallback;
 {$ENDIF}
     procedure DisposeScanbeamList;
-    procedure InsertScanbeam(const Y: cInt);
-    function PopScanbeam: cInt;
+    procedure InsertScanbeam(const Y: Double);
+    function PopScanbeam: Double;
     procedure SetWindingCount(Edge: PEdge);
     function IsEvenOddFillType(Edge: PEdge): Boolean;
     function IsEvenOddAltFillType(Edge: PEdge): Boolean;
     procedure AddEdgeToSEL(Edge: PEdge);
     procedure CopyAELToSEL;
-    procedure InsertLocalMinimaIntoAEL(const BotY: cInt);
+    procedure InsertLocalMinimaIntoAEL(const BotY: Double);
     procedure SwapPositionsInAEL(E1, E2: PEdge);
     procedure SwapPositionsInSEL(E1, E2: PEdge);
     procedure ProcessHorizontal(HorzEdge: PEdge; IsTopOfScanbeam: Boolean);
     procedure ProcessHorizontals(IsTopOfScanbeam: Boolean);
-    function ProcessIntersections(const BotY, TopY: cInt): Boolean;
-    procedure BuildIntersectList(const BotY, TopY: cInt);
+    function ProcessIntersections(const BotY, TopY: Double): Boolean;
+    procedure BuildIntersectList(const BotY, TopY: Double);
     procedure ProcessIntersectList;
     procedure DeleteFromAEL(E: PEdge);
     procedure DeleteFromSEL(E: PEdge);
     procedure IntersectEdges(E1,E2: PEdge;
-      const Pt: TIntPoint; Protect: Boolean = False);
+      const Pt: TFPoint; Protect: Boolean = False);
     procedure DoMaxima(E: PEdge);
     procedure UpdateEdgeIntoAEL(var E: PEdge);
     function FixupIntersectionOrder: Boolean;
-    procedure ProcessEdgesAtTopOfScanbeam(const TopY: cInt);
+    procedure ProcessEdgesAtTopOfScanbeam(const TopY: Double);
     function IsContributing(Edge: PEdge): Boolean;
     function CreateOutRec: POutRec;
-    function AddOutPt(E: PEdge; const Pt: TIntPoint): POutPt;
-    procedure AddLocalMaxPoly(E1, E2: PEdge; const Pt: TIntPoint);
-    function AddLocalMinPoly(E1, E2: PEdge; const Pt: TIntPoint): POutPt;
+    function AddOutPt(E: PEdge; const Pt: TFPoint): POutPt;
+    procedure AddLocalMaxPoly(E1, E2: PEdge; const Pt: TFPoint);
+    function AddLocalMinPoly(E1, E2: PEdge; const Pt: TFPoint): POutPt;
     function GetOutRec(Idx: integer): POutRec;
     procedure AppendPolygon(E1, E2: PEdge);
     procedure DisposeAllOutRecs;
@@ -333,9 +303,9 @@ type
     function BuildResult2(PolyTree: TPolyTree): Boolean;
     procedure FixupOutPolygon(OutRec: POutRec);
     procedure SetHoleState(E: PEdge; OutRec: POutRec);
-    procedure AddJoin(Op1, Op2: POutPt; const OffPt: TIntPoint);
+    procedure AddJoin(Op1, Op2: POutPt; const OffPt: TFPoint);
     procedure ClearJoins;
-    procedure AddGhostJoin(OutPt: POutPt; const OffPt: TIntPoint);
+    procedure AddGhostJoin(OutPt: POutPt; const OffPt: TFPoint);
     procedure ClearGhostJoins;
     function JoinPoints(Jr: PJoin; out P1, P2: POutPt): Boolean;
     procedure FixupFirstLefts1(OldOutRec, NewOutRec: POutRec);
@@ -369,17 +339,15 @@ type
 
 function Orientation(const Pts: TPath): Boolean; overload;
 function Area(const Pts: TPath): Double; overload;
+function GetBounds(const Polys: TPaths): TFRect; overload;
 
 {$IFDEF use_xyz}
-function IntPoint(const X, Y: Int64; Z: Int64 = 0): TIntPoint; overload;
-function IntPoint(const X, Y: Double; Z: Double = 0): TIntPoint; overload;
+function FPoint(const X, Y: Int64; Z: UInt64 = 0): TFPoint; overload;
+function FPoint(const X, Y: Double; Z: UInt64 = 0): TFPoint; overload;
 {$ELSE}
-function IntPoint(const X, Y: cInt): TIntPoint; overload;
-function IntPoint(const X, Y: Double): TIntPoint; overload;
+//function FPoint(const X, Y: Double): TFPoint; overload;
+function FPoint(const X, Y: Double): TFPoint; overload;
 {$ENDIF}
-
-function DoublePoint(const X, Y: Double): TDoublePoint; overload;
-function DoublePoint(const Ip: TIntPoint): TDoublePoint; overload;
 
 function ReversePath(const Pts: TPath): TPath;
 function ReversePaths(const Pts: TPaths): TPaths;
@@ -387,15 +355,6 @@ function ReversePaths(const Pts: TPaths): TPaths;
 function OffsetPaths(const Polys: TPaths; const Delta: Double;
   JoinType: TJoinType = jtSquare; EndType: TEndType = etClosed;
   Limit: Double = 0): TPaths;
-
-{$IFDEF use_deprecated}
-function ReversePolygon(const Pts: TPolygon): TPolygon;
-function ReversePolygons(const Pts: TPolygons): TPolygons;
-function OffsetPolygons(const Polys: TPolygons; const Delta: Double;
-  JoinType: TJoinType = jtSquare; Limit: Double = 0;
-  AutoFix: Boolean = True): TPolygons;
-function PolyTreeToPolygons(PolyTree: TPolyTree): TPolygons;
-{$ENDIF}
 
 //SimplifyPolygon converts a self-intersecting polygon into a simple polygon.
 function SimplifyPolygon(const Poly: TPath; FillType: TPolyFillType = pftEvenOdd): TPaths;
@@ -415,6 +374,8 @@ function OpenPathsFromPolyTree(PolyTree: TPolyTree): TPaths;
 implementation
 
 const
+  Tolerance: Double = 0.00000001;
+  ToleranceSqrt = 0.0001;
   Horizontal: Double = -3.4e+38;
 
   Unassigned : Integer = -1;
@@ -424,13 +385,6 @@ const
   //So, to avoid overflow errors, they must not exceed the following values...
   //Also, if all coordinates are within +/-LoRange, then calculations will be
   //faster. Otherwise using Int128 math will render the library ~10-15% slower.
-{$IFDEF use_int32}
-  LoRange: cInt = 46340;
-  HiRange: cInt = 46340;
-{$ELSE}
-  LoRange: cInt = $B504F333;          //3.0e+9
-  HiRange: cInt = $7FFFFFFFFFFFFFFF;  //9.2e+18
-{$ENDIF}
 
 resourcestring
   rsDoMaxima = 'DoMaxima error';
@@ -537,253 +491,6 @@ begin
   Result := length(FAllNodes);
 end;
 
-{$IFNDEF use_int32}
-
-//------------------------------------------------------------------------------
-// UInt64 math support for Delphi 6
-//------------------------------------------------------------------------------
-
-{$OVERFLOWCHECKS OFF}
-{$IFNDEF UInt64Support}
-function CompareUInt64(const i, j: Int64): Integer;
-begin
-  if Int64Rec(i).Hi < Int64Rec(j).Hi then
-    Result := -1
-  else if Int64Rec(i).Hi > Int64Rec(j).Hi then
-    Result := 1
-  else if Int64Rec(i).Lo < Int64Rec(j).Lo then
-    Result := -1
-  else if Int64Rec(i).Lo > Int64Rec(j).Lo then
-    Result := 1
-  else
-    Result := 0;
-end;
-{$ENDIF}
-
-function UInt64LT(const i, j: Int64): Boolean; {$IFDEF INLINING} inline; {$ENDIF}
-begin
-{$IFDEF UInt64Support}
-  Result := UInt64(i) < UInt64(j);
-{$ELSE}
-  Result := CompareUInt64(i, j) = -1;
-{$ENDIF}
-end;
-
-function UInt64GT(const i, j: Int64): Boolean; {$IFDEF INLINING} inline; {$ENDIF}
-begin
-{$IFDEF UInt64Support}
-  Result := UInt64(i) > UInt64(j);
-{$ELSE}
-  Result := CompareUInt64(i, j) = 1;
-{$ENDIF}
-end;
-{$OVERFLOWCHECKS ON}
-
-//------------------------------------------------------------------------------
-// Int128 Functions ...
-//------------------------------------------------------------------------------
-
-const
-  Mask32Bits = $FFFFFFFF;
-
-type
-
-  //nb: TInt128.Lo is typed Int64 instead of UInt64 to provide Delphi 7
-  //compatability. However while UInt64 isn't a recognised type in
-  //Delphi 7, it can still be used in typecasts.
-  TInt128 = record
-    Hi   : Int64;
-    Lo   : Int64;
-  end;
-
-{$OVERFLOWCHECKS OFF}
-procedure Int128Negate(var Val: TInt128);
-begin
-  if Val.Lo = 0 then
-  begin
-    Val.Hi := -Val.Hi;
-  end else
-  begin
-    Val.Lo := -Val.Lo;
-    Val.Hi := not Val.Hi;
-  end;
-end;
-//------------------------------------------------------------------------------
-
-function Int128(const val: Int64): TInt128; overload;
-begin
-  Result.Lo := val;
-  if val < 0 then
-    Result.Hi := -1 else
-    Result.Hi := 0;
-end;
-//------------------------------------------------------------------------------
-
-function Int128Equal(const Int1, Int2: TInt128): Boolean;
-begin
-  Result := (Int1.Lo = Int2.Lo) and (Int1.Hi = Int2.Hi);
-end;
-//------------------------------------------------------------------------------
-
-function Int128LessThan(const Int1, Int2: TInt128): Boolean;
-begin
-  if (Int1.Hi <> Int2.Hi) then Result := Int1.Hi < Int2.Hi
-  else Result := UInt64LT(Int1.Lo, Int2.Lo);
-end;
-//------------------------------------------------------------------------------
-
-function Int128Add(const Int1, Int2: TInt128): TInt128;
-begin
-  Result.Lo := Int1.Lo + Int2.Lo;
-  Result.Hi := Int1.Hi + Int2.Hi;
-  if UInt64LT(Result.Lo, Int1.Lo) then Inc(Result.Hi);
-end;
-//------------------------------------------------------------------------------
-
-function Int128Sub(const Int1, Int2: TInt128): TInt128;
-begin
-  Result.Hi := Int1.Hi - Int2.Hi;
-  Result.Lo := Int1.Lo - Int2.Lo;
-  if UInt64GT(Result.Lo, Int1.Lo) then Dec(Result.Hi);
-end;
-//------------------------------------------------------------------------------
-
-function Int128Mul(Int1, Int2: Int64): TInt128;
-var
-  A, B, C: Int64;
-  Int1Hi, Int1Lo, Int2Hi, Int2Lo: Int64;
-  Negate: Boolean;
-begin
-  //save the Result's sign before clearing both sign bits ...
-  Negate := (Int1 < 0) <> (Int2 < 0);
-  if Int1 < 0 then Int1 := -Int1;
-  if Int2 < 0 then Int2 := -Int2;
-
-  Int1Hi := Int1 shr 32;
-  Int1Lo := Int1 and Mask32Bits;
-  Int2Hi := Int2 shr 32;
-  Int2Lo := Int2 and Mask32Bits;
-
-  A := Int1Hi * Int2Hi;
-  B := Int1Lo * Int2Lo;
-  //because the high (sign) bits in both int1Hi & int2Hi have been zeroed,
-  //there's no risk of 64 bit overflow in the following assignment
-  //(ie: $7FFFFFFF*$FFFFFFFF + $7FFFFFFF*$FFFFFFFF < 64bits)
-  C := Int1Hi*Int2Lo + Int2Hi*Int1Lo;
-  //Result = A shl 64 + C shl 32 + B ...
-  Result.Hi := A + (C shr 32);
-  A := C shl 32;
-
-  Result.Lo := A + B;
-  if UInt64LT(Result.Lo, A) then
-    Inc(Result.Hi);
-
-  if Negate then Int128Negate(Result);
-end;
-//------------------------------------------------------------------------------
-
-function Int128Div(Dividend, Divisor: TInt128{; out Remainder: TInt128}): TInt128;
-var
-  Cntr: TInt128;
-  Negate: Boolean;
-begin
-  if (Divisor.Lo = 0) and (Divisor.Hi = 0) then
-    raise Exception.create('int128Div error: divide by zero');
-
-  Negate := (Divisor.Hi < 0) <> (Dividend.Hi < 0);
-  if Dividend.Hi < 0 then Int128Negate(Dividend);
-  if Divisor.Hi < 0 then Int128Negate(Divisor);
-
-  if Int128LessThan(Divisor, Dividend) then
-  begin
-    Result.Hi := 0;
-    Result.Lo := 0;
-    Cntr.Lo := 1;
-    Cntr.Hi := 0;
-    //while (Dividend >= Divisor) do
-    while not Int128LessThan(Dividend, Divisor) do
-    begin
-      //divisor := divisor shl 1;
-      Divisor.Hi := Divisor.Hi shl 1;
-      if Divisor.Lo < 0 then Inc(Divisor.Hi);
-      Divisor.Lo := Divisor.Lo shl 1;
-
-      //Cntr := Cntr shl 1;
-      Cntr.Hi := Cntr.Hi shl 1;
-      if Cntr.Lo < 0 then Inc(Cntr.Hi);
-      Cntr.Lo := Cntr.Lo shl 1;
-    end;
-    //Divisor := Divisor shr 1;
-    Divisor.Lo := Divisor.Lo shr 1;
-    if Divisor.Hi and $1 = $1 then
-      Int64Rec(Divisor.Lo).Hi := Cardinal(Int64Rec(Divisor.Lo).Hi) or $80000000;
-    Divisor.Hi := Divisor.Hi shr 1;
-
-    //Cntr := Cntr shr 1;
-    Cntr.Lo := Cntr.Lo shr 1;
-    if Cntr.Hi and $1 = $1 then
-      Int64Rec(Cntr.Lo).Hi := Cardinal(Int64Rec(Cntr.Lo).Hi) or $80000000;
-    Cntr.Hi := Cntr.Hi shr 1;
-
-    //while (Cntr > 0) do
-    while not ((Cntr.Hi = 0) and (Cntr.Lo = 0)) do
-    begin
-      //if ( Dividend >= Divisor) then
-      if not Int128LessThan(Dividend, Divisor) then
-      begin
-        //Dividend := Dividend - Divisor;
-        Dividend := Int128Sub(Dividend, Divisor);
-
-        //Result := Result or Cntr;
-        Result.Hi := Result.Hi or Cntr.Hi;
-        Result.Lo := Result.Lo or Cntr.Lo;
-      end;
-      //Divisor := Divisor shr 1;
-      Divisor.Lo := Divisor.Lo shr 1;
-      if Divisor.Hi and $1 = $1 then
-        Int64Rec(Divisor.Lo).Hi := Cardinal(Int64Rec(Divisor.Lo).Hi) or $80000000;
-      Divisor.Hi := Divisor.Hi shr 1;
-
-      //Cntr := Cntr shr 1;
-      Cntr.Lo := Cntr.Lo shr 1;
-      if Cntr.Hi and $1 = $1 then
-        Int64Rec(Cntr.Lo).Hi := Cardinal(Int64Rec(Cntr.Lo).Hi) or $80000000;
-      Cntr.Hi := Cntr.Hi shr 1;
-    end;
-    if Negate then Int128Negate(Result);
-    //Remainder := Dividend;
-  end
-  else if (Divisor.Hi = Dividend.Hi) and (Divisor.Lo = Dividend.Lo) then
-  begin
-    Result := Int128(1);
-  end else
-  begin
-    Result := Int128(0);
-  end;
-end;
-//------------------------------------------------------------------------------
-
-function Int128AsDouble(val: TInt128): Double;
-const
-  shift64: Double = 18446744073709551616.0;
-var
-  lo: Int64;
-begin
-  if (val.Hi < 0) then
-  begin
-    lo := -val.Lo;
-    if lo = 0 then
-      Result := val.Hi * shift64 else
-      Result := -(not val.Hi * shift64 + UInt64(lo));
-  end else
-    Result := val.Hi * shift64 + UInt64(val.Lo);
-end;
-//------------------------------------------------------------------------------
-
-{$OVERFLOWCHECKS ON}
-
-{$ENDIF}
-
 //------------------------------------------------------------------------------
 // Miscellaneous Functions ...
 //------------------------------------------------------------------------------
@@ -802,15 +509,15 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function PointsEqual(const P1, P2: TIntPoint): Boolean;
+function PointsEqual(const P1, P2: TFPoint): Boolean;
   {$IFDEF INLINING} inline; {$ENDIF}
 begin
-  Result := (P1.X = P2.X) and (P1.Y = P2.Y);
+  Result := (Abs(P1.X - P2.X) < Tolerance) and (Abs(P1.Y - P2.Y) < Tolerance);
 end;
 //------------------------------------------------------------------------------
 
 {$IFDEF use_xyz}
-function IntPoint(const X, Y: Int64; Z: Int64 = 0): TIntPoint;
+function FPoint(const X, Y: Int64; Z: UInt64 = 0): TFPoint;
 begin
   Result.X := X;
   Result.Y := Y;
@@ -818,28 +525,22 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function IntPoint(const X, Y: Double; Z: Double = 0): TIntPoint;
+function FPoint(const X, Y: Double; Z: UInt64 = 0): TFPoint;
 begin
-  Result.X := Round(X);
-  Result.Y := Round(Y);
-  Result.Z := Round(Z);
+  Result.X := X;
+  Result.Y := Y;
+  Result.Z := Z;
 end;
 //------------------------------------------------------------------------------
 
 {$ELSE}
 
-function IntPoint(const X, Y: cInt): TIntPoint;
+function FPoint(const X, Y: Double): TFPoint;
 begin
   Result.X := X;
   Result.Y := Y;
 end;
 //------------------------------------------------------------------------------
-
-function IntPoint(const X, Y: Double): TIntPoint;
-begin
-  Result.X := Round(X);
-  Result.Y := Round(Y);
-end;
 
 {$ENDIF}
 //------------------------------------------------------------------------------
@@ -848,13 +549,6 @@ function DoublePoint(const X, Y: Double): TDoublePoint;
 begin
   Result.X := X;
   Result.Y := Y;
-end;
-//------------------------------------------------------------------------------
-
-function DoublePoint(const Ip: TIntPoint): TDoublePoint;
-begin
-  Result.X := Ip.X;
-  Result.Y := Ip.Y;
 end;
 //------------------------------------------------------------------------------
 
@@ -927,34 +621,34 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function GetBounds(const polys: TPaths): TIntRect; overload;
+function GetBounds(const Polys: TPaths): TFRect;
 var
   I,J,Len: Integer;
 begin
-  Len := Length(polys);
+  Len := Length(Polys);
   I := 0;
-  while (I < Len) and (Length(polys[I]) = 0) do inc(I);
+  while (I < Len) and (Length(Polys[I]) = 0) do inc(I);
   if (I = Len) then
   begin
     with Result do begin Left := 0; Top := 0; Right := 0; Bottom := 0; end;
     Exit;
   end;
-  Result.Left := polys[I][0].X;
+  Result.Left := Polys[I][0].X;
   Result.Right := Result.Left;
-  Result.Top := polys[I][0].Y;
+  Result.Top := Polys[I][0].Y;
   Result.Bottom := Result.Top;
   for I := I to Len -1 do
-    for J := 0 to High(polys[I]) do
+    for J := 0 to High(Polys[I]) do
     begin
-      if polys[I][J].X < Result.Left then Result.Left := polys[I][J].X
-      else if polys[I][J].X > Result.Right then Result.Right := polys[I][J].X;
-      if polys[I][J].Y < Result.Top then Result.Top := polys[I][J].Y
-      else if polys[I][J].Y > Result.Bottom then Result.Bottom := polys[I][J].Y;
+      if Polys[I][J].X < Result.Left then Result.Left := Polys[I][J].X
+      else if Polys[I][J].X > Result.Right then Result.Right := Polys[I][J].X;
+      if Polys[I][J].Y < Result.Top then Result.Top := Polys[I][J].Y
+      else if Polys[I][J].Y > Result.Bottom then Result.Bottom := Polys[I][J].Y;
     end;
 end;
 //------------------------------------------------------------------------------
 
-function GetBounds(ops: POutPt): TIntRect; overload;
+function GetBounds(ops: POutPt): TFRect; overload;
 var
   opStart: POutPt;
 begin
@@ -975,103 +669,90 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function PointInPolygon (const pt: TIntPoint; const poly: TPath): Integer;
+function PointInPolygon (const pt: TFPoint; ops: POutPt): Integer;
 var
-  I, ip1, Len: Integer;
-  d, d2,d3: Double;
-  poly0x, poly0y, poly1x, poly1y: cInt;
+  d,d2,d3: Double;
+  opStart: POutPt;
 begin
 	//returns 0 if false, +1 if true, -1 if pt ON polygon boundary
 	//http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.88.5498&rep=rep1&type=pdf
   //nb: if poly bounds are known, test them first before calling this function.
 	result := 0;
-  Len := Length(poly);
-	for I := 0 to Len -1 do
-	begin
-		ip1 := (i + 1) mod Len;
-    poly0x := poly[i].X; poly0y := poly[i].Y;
-    poly1x := poly[ip1].X; poly1y := poly[ip1].Y;
-
-		if (poly1Y = pt.Y) then
+  opStart := ops;
+  repeat
+		if (ops.Next.Pt.Y = pt.Y) then
 		begin
-			if (poly1X = pt.X) or ((poly0Y = pt.Y) and
-        ((poly1X > pt.X) = (poly0X < pt.X))) then
+			if (ops.Next.Pt.X = pt.X) or ((ops.Pt.Y = pt.Y) and
+        ((ops.Next.Pt.X > pt.X) = (ops.Pt.X < pt.X))) then
       begin
         result := -1;
         Exit;
       end;
 		end;
 
-		if ((poly0Y < pt.Y) <> (poly1Y < pt.Y)) then
+		if ((ops.Pt.Y < pt.Y) <> (ops.Next.Pt.Y < pt.Y)) then
 		begin
-			if (poly0X >= pt.X) then
+			if (ops.Pt.X >= pt.X) then
 			begin
-				if (poly1X > pt.X) then
+				if (ops.Next.Pt.X > pt.X) then
           result := 1 - result
 				else
 				begin
-          d2 := (poly0X - pt.X);
-          d3 := (poly1X - pt.X);
-					d := d2 * (poly1Y - pt.Y) - d3 * (poly0Y - pt.Y);
+          d2 := (ops.Pt.X - pt.X);
+          d3 := (ops.Next.Pt.X - pt.X);
+					d := d2 * (ops.Next.Pt.Y - pt.Y) - d3 * (ops.Pt.Y - pt.Y);
 					if (d = 0) then begin result := -1; Exit; end;
-					if ((d > 0) = (poly1Y > poly0Y)) then result := 1 - result;
+					if ((d > 0) = (ops.Next.Pt.Y > ops.Pt.Y)) then
+            result := 1 - result;
 				end;
 			end else
 			begin
-				if (poly1X > pt.X) then
+				if (ops.Next.Pt.X > pt.X) then
 				begin
-          d2 := (poly0X - pt.X);
-          d3 := (poly1X - pt.X);
-					d := d2 * (poly1Y - pt.Y) - d3 * (poly0Y - pt.Y);
+          d2 := (ops.Pt.X - pt.X);
+          d3 := (ops.Next.Pt.X - pt.X);
+					d := d2 * (ops.Next.Pt.Y - pt.Y) - d3 * (ops.Pt.Y - pt.Y);
 					if (d = 0) then begin result := -1; Exit; end;
-					if ((d > 0) = (poly1Y > poly0Y)) then result := 1 - result;
+					if ((d > 0) = (ops.Next.Pt.Y > ops.Pt.Y)) then
+            result := 1 - result;
 				end;
 			end;
 		end;
-	end;
+    ops := ops.Next;
+	until ops = opStart;
 end;
 //---------------------------------------------------------------------------
 
 function Poly2ContainsPoly1(OutPt1, OutPt2: POutPt): Boolean;
 var
-  bounds1, bounds2: TIntRect;
+  res: integer;
+  op: POutPt;
 begin
-  //A CONVEX polygon will contain another polygon if its bounds contains the
-  //other's bounds. However, this isn't a reliable algorithm for CONCAVE
-  //polygons since it's possible to get false positives.
-  bounds1 := GetBounds(OutPt1);
-  bounds2 := GetBounds(OutPt2);
-  Result := (bounds1.Left >= bounds2.Left) and
-    (bounds1.Right <= bounds2.Right) and
-    (bounds1.Top >= bounds2.Top) and
-    (bounds1.Bottom <= bounds2.Bottom);
-  //?? use PointInPolygon() above to exclude false positives ...
+  op := OutPt1;
+  repeat
+    res := PointInPolygon(op.Pt, OutPt2);
+    if (res >= 0) then
+    begin
+      Result := res <> 0;
+      Exit;
+    end;
+    op := op.Next;
+  until op = OutPt1;
+  Result := true; //all points on line => result = true
 end;
 //---------------------------------------------------------------------------
 
-function SlopesEqual(E1, E2: PEdge;
-  UseFullInt64Range: Boolean): Boolean; overload;
+function SlopesEqual(E1, E2: PEdge): Boolean; overload;
 begin
-{$IFNDEF use_int32}
-  if UseFullInt64Range then
-    Result := Int128Equal(Int128Mul(E1.Delta.Y, E2.Delta.X),
-      Int128Mul(E1.Delta.X, E2.Delta.Y))
-  else
-{$ENDIF}
-    Result := E1.Delta.Y * E2.Delta.X = E1.Delta.X * E2.Delta.Y;
+  Result := Abs(E1.Delta.Y * E2.Delta.X -
+    E1.Delta.X * E2.Delta.Y) < ToleranceSqrt;
 end;
 //---------------------------------------------------------------------------
 
-function SlopesEqual(const Pt1, Pt2, Pt3: TIntPoint;
-  UseFullInt64Range: Boolean): Boolean; overload;
+function SlopesEqual(const Pt1, Pt2, Pt3: TFPoint): Boolean; overload;
 begin
-{$IFNDEF use_int32}
-  if UseFullInt64Range then
-    Result := Int128Equal(
-      Int128Mul(Pt1.Y-Pt2.Y, Pt2.X-Pt3.X), Int128Mul(Pt1.X-Pt2.X, Pt2.Y-Pt3.Y))
-  else
-{$ENDIF}
-    Result := (Pt1.Y-Pt2.Y)*(Pt2.X-Pt3.X) = (Pt1.X-Pt2.X)*(Pt2.Y-Pt3.Y);
+  Result := Abs((Pt1.Y-Pt2.Y)*(Pt2.X-Pt3.X) -
+    (Pt1.X-Pt2.X)*(Pt2.Y-Pt3.Y)) < ToleranceSqrt;
 end;
 //---------------------------------------------------------------------------
 
@@ -1082,7 +763,7 @@ end;
 *                                                    Slope: inf  = Dx:    0  *
 *****************************************************************************)
 
-function GetDx(const Pt1, Pt2: TIntPoint): Double;
+function GetDx(const Pt1, Pt2: TFPoint): Double;
 begin
   if (Pt1.Y = Pt2.Y) then Result := Horizontal
   else Result := (Pt2.X - Pt1.X)/(Pt2.Y - Pt1.Y);
@@ -1118,16 +799,16 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TopX(Edge: PEdge; const currentY: cInt): cInt;
+function TopX(Edge: PEdge; const currentY: Double): Double;
 begin
   if currentY = Edge.Top.Y then Result := Edge.Top.X
   else if Edge.Top.X = Edge.Bot.X then Result := Edge.Bot.X
-  else Result := Edge.Bot.X + round(Edge.Dx*(currentY - Edge.Bot.Y));
+  else Result := Edge.Bot.X + Edge.Dx*(currentY - Edge.Bot.Y);
 end;
 //------------------------------------------------------------------------------
 
 {$IFDEF use_xyz}
-Procedure SetZ(var Pt: TIntPoint; E: PEdge; ZFillFunc: TZFillCallback);
+Procedure SetZ(var Pt: TFPoint; E: PEdge; ZFillFunc: TZFillCallback);
 begin
   Pt.Z := 0;
   if assigned(ZFillFunc) then
@@ -1142,8 +823,7 @@ end;
 //------------------------------------------------------------------------------
 {$ENDIF}
 
-function IntersectPoint(Edge1, Edge2: PEdge;
-  out ip: TIntPoint; UseFullInt64Range: Boolean): Boolean; overload;
+function IntersectPoint(Edge1, Edge2: PEdge; out ip: TFPoint): Boolean; overload;
 var
   B1,B2,M: Double;
 begin
@@ -1153,7 +833,7 @@ begin
   //nb: with very large coordinate values, it's possible for SlopesEqual() to
   //return false but for the edge.Dx value be equal due to double precision
   //rounding ...
-  if SlopesEqual(Edge1, Edge2, UseFullInt64Range) or (edge1.Dx = edge2.Dx) then
+  if SlopesEqual(Edge1, Edge2) or (edge1.Dx = edge2.Dx) then
   begin
     //parallel edges, but nevertheless prepare to force the intersection
     //since Edge2.Curr.X < Edge1.Curr.X ...
@@ -1171,7 +851,7 @@ begin
     else
     begin
       with Edge2^ do B2 := Bot.Y - (Bot.X/Dx);
-      ip.Y := round(ip.X/Edge2.Dx + B2);
+      ip.Y := ip.X/Edge2.Dx + B2;
     end;
   end
   else if Edge2.Delta.X = 0 then
@@ -1182,18 +862,18 @@ begin
     else
     begin
       with Edge1^ do B1 := Bot.Y - (Bot.X/Dx);
-      ip.Y := round(ip.X/Edge1.Dx + B1);
+      ip.Y := ip.X/Edge1.Dx + B1;
     end;
   end else
   begin
     with Edge1^ do B1 := Bot.X - Bot.Y * Dx;
     with Edge2^ do B2 := Bot.X - Bot.Y * Dx;
     M := (B2-B1)/(Edge1.Dx - Edge2.Dx);
-    ip.Y := round(M);
+    ip.Y := M;
     if Abs(Edge1.Dx) < Abs(Edge2.Dx) then
-      ip.X := round(Edge1.Dx * M + B1)
+      ip.X := Edge1.Dx * M + B1
     else
-      ip.X := round(Edge2.Dx * M + B2);
+      ip.X := Edge2.Dx * M + B2;
   end;
 
   //The precondition - E.Curr.X > eNext.Curr.X - indicates that the two edges do
@@ -1238,7 +918,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function Pt2IsBetweenPt1AndPt3(const Pt1, Pt2, Pt3: TIntPoint): Boolean;
+function CollinearPt2Between1And3(const Pt1, Pt2, Pt3: TFPoint): Boolean;
 begin
   //nb: assumes collinearity.
   if PointsEqual(Pt1, Pt3) or PointsEqual(Pt1, Pt2) or PointsEqual(Pt3, Pt2) then
@@ -1250,7 +930,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function GetOverlap(const A1, A2, B1, B2: cInt; out Left, Right: cInt): Boolean;
+function GetOverlap(const A1, A2, B1, B2: Double; out Left, Right: Double): Boolean;
 begin
   if (A1 < A2) then
   begin
@@ -1277,26 +957,12 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure RangeTest(const Pt: TIntPoint; var Use64BitRange: Boolean);
-begin
-  if Use64BitRange then
-  begin
-    if (Pt.X > HiRange) or (Pt.Y > HiRange) or
-      (-Pt.X > HiRange) or (-Pt.Y > HiRange) then
-        raise exception.Create(rsInvalidInt);
-  end
-  else if (Pt.X > LoRange) or (Pt.Y > LoRange) or
-    (-Pt.X > LoRange) or (-Pt.Y > LoRange) then
-  begin
-    Use64BitRange := true;
-    RangeTest(Pt, Use64BitRange);
-  end;
-end;
-//------------------------------------------------------------------------------
-
 procedure ReverseHorizontal(E: PEdge);
 var
-  tmp: cInt;
+  tmp: Double;
+{$IFDEF use_xyz}
+  tmp2: UInt64;
+{$ENDIF}
 begin
   //swap horizontal edges' top and bottom x's so they follow the natural
   //progression of the bounds - ie so their xbots will align with the
@@ -1306,15 +972,15 @@ begin
   E.Bot.X := tmp;
 
 {$IFDEF use_xyz}
-  tmp := E.Top.Z;
+  tmp2 := E.Top.Z;
   E.Top.Z := E.Bot.Z;
-  E.Bot.Z := tmp;
+  E.Bot.Z := tmp2;
 {$ENDIF}
 end;
 //------------------------------------------------------------------------------
 
 procedure InitEdge(E, Next, Prev: PEdge;
-  const Pt: TIntPoint); {$IFDEF INLINING} inline; {$ENDIF}
+  const Pt: TFPoint); {$IFDEF INLINING} inline; {$ENDIF}
 begin
   E.Curr := Pt;
   E.Next := Next;
@@ -1367,6 +1033,15 @@ begin
   end;
   Result := E;
 end;
+//------------------------------------------------------------------------------
+
+function ParseFirstLeft(FirstLeft: POutRec): POutRec;
+  {$IFDEF INLINING} inline; {$ENDIF}
+begin
+  while Assigned(FirstLeft) and not Assigned(FirstLeft.Pts) do
+    FirstLeft := FirstLeft.FirstLeft;
+  Result := FirstLeft;
+end;
 
 //------------------------------------------------------------------------------
 // TClipperBase methods ...
@@ -1377,7 +1052,6 @@ begin
   FEdgeList := TList.Create;
   FLmList := nil;
   FCurrLm := nil;
-  FUse64BitRange := False; //ie default is False
 end;
 //------------------------------------------------------------------------------
 
@@ -1416,7 +1090,7 @@ function TClipperBase.ProcessBound(E: PEdge; IsClockwise: Boolean): PEdge;
 var
   EStart, Horz: PEdge;
   locMin: PLocalMinima;
-  StartX: cInt;
+  StartX: Double;
 begin
   EStart := E;
   Result := E;
@@ -1549,15 +1223,10 @@ begin
   try
     FillChar(Edges^, sizeof(TEdge)*(HighI +1), 0);
     Edges[1].Curr := Path[1];
-    RangeTest(Path[0], FUse64BitRange);
-    RangeTest(Path[HighI], FUse64BitRange);
     InitEdge(@Edges[0], @Edges[1], @Edges[HighI], Path[0]);
     InitEdge(@Edges[HighI], @Edges[0], @Edges[HighI-1], Path[HighI]);
     for I := HighI - 1 downto 1 do
-    begin
-      RangeTest(Path[I], FUse64BitRange);
       InitEdge(@Edges[I], @Edges[I+1], @Edges[I-1], Path[I]);
-    end;
   except
     FreeMem(Edges);
     raise; //Range test fails
@@ -1582,9 +1251,9 @@ begin
     if (E.Prev = E.Next) then
       Break //only two vertices
     else if Closed and
-      SlopesEqual(E.Prev.Curr, E.Curr, E.Next.Curr, FUse64BitRange) and
+      SlopesEqual(E.Prev.Curr, E.Curr, E.Next.Curr) and
       (not FPreserveCollinear or
-      not Pt2IsBetweenPt1AndPt3(E.Prev.Curr, E.Curr, E.Next.Curr)) then
+      not CollinearPt2Between1And3(E.Prev.Curr, E.Curr, E.Next.Curr)) then
     begin
       //Collinear edges are allowed for open paths but in closed paths
       //the default is to merge adjacent collinear edges into a single edge.
@@ -1708,8 +1377,6 @@ begin
   for I := 0 to FEdgeList.Count -1 do
     FreeMem(PEdgeArray(fEdgeList[I]));
   FEdgeList.Clear;
-
-  FUse64BitRange := False;
   FHasOpenPaths := False;
 end;
 //------------------------------------------------------------------------------
@@ -1915,7 +1582,7 @@ function TClipper.ExecuteInternal: Boolean;
 var
   I: Integer;
   OutRec: POutRec;
-  BotY, TopY: cInt;
+  BotY, TopY: Double;
 begin
   try
     Reset;
@@ -1963,7 +1630,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure TClipper.InsertScanbeam(const Y: cInt);
+procedure TClipper.InsertScanbeam(const Y: Double);
 var
   Sb, Sb2: PScanbeam;
 begin
@@ -1991,7 +1658,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipper.PopScanbeam: cInt;
+function TClipper.PopScanbeam: Double;
 var
   Sb: PScanbeam;
 begin
@@ -2204,7 +1871,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipper.AddLocalMinPoly(E1, E2: PEdge; const Pt: TIntPoint): POutPt;
+function TClipper.AddLocalMinPoly(E1, E2: PEdge; const Pt: TFPoint): POutPt;
 var
   E, prevE: PEdge;
   OutPt: POutPt;
@@ -2235,8 +1902,7 @@ begin
   end;
 
   if Assigned(prevE) and (prevE.OutIdx >= 0) and
-    (TopX(prevE, Pt.Y) = TopX(E, Pt.Y)) and
-    SlopesEqual(E, prevE, FUse64BitRange) and
+    (TopX(prevE, Pt.Y) = TopX(E, Pt.Y)) and SlopesEqual(E, prevE) and
     (E.WindDelta <> 0) and (prevE.WindDelta <> 0) then
   begin
     OutPt := AddOutPt(prevE, Pt);
@@ -2245,7 +1911,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure TClipper.AddLocalMaxPoly(E1, E2: PEdge; const Pt: TIntPoint);
+procedure TClipper.AddLocalMaxPoly(E1, E2: PEdge; const Pt: TFPoint);
 begin
   AddOutPt(E1, Pt);
   if E2.WindDelta = 0 then AddOutPt(E2, Pt);
@@ -2295,7 +1961,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure TClipper.AddJoin(Op1, Op2: POutPt; const OffPt: TIntPoint);
+procedure TClipper.AddJoin(Op1, Op2: POutPt; const OffPt: TFPoint);
 var
   Jr: PJoin;
 begin
@@ -2317,7 +1983,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure TClipper.AddGhostJoin(OutPt: POutPt; const OffPt: TIntPoint);
+procedure TClipper.AddGhostJoin(OutPt: POutPt; const OffPt: TFPoint);
 var
   Jr: PJoin;
 begin
@@ -2338,9 +2004,9 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure SwapPoints(var Pt1, Pt2: TIntPoint);
+procedure SwapPoints(var Pt1, Pt2: TFPoint);
 var
-  Tmp: TIntPoint;
+  Tmp: TFPoint;
 begin
   Tmp := Pt1;
   Pt1 := Pt2;
@@ -2348,7 +2014,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function HorzSegmentsOverlap(const Pt1a, Pt1b, Pt2a, Pt2b: TIntPoint): Boolean;
+function HorzSegmentsOverlap(const Pt1a, Pt1b, Pt2a, Pt2b: TFPoint): Boolean;
 begin
   //precondition: both segments are horizontal
   Result := true;
@@ -2375,7 +2041,7 @@ begin
 end;
 //----------------------------------------------------------------------
 
-procedure TClipper.InsertLocalMinimaIntoAEL(const BotY: cInt);
+procedure TClipper.InsertLocalMinimaIntoAEL(const BotY: Double);
 
   procedure InsertEdgeIntoAEL(Edge, StartEdge: PEdge);
   begin
@@ -2474,7 +2140,7 @@ begin
     if (Lb.OutIdx >= 0) and assigned(Lb.PrevInAEL) and
       (Lb.PrevInAEL.Curr.X = Lb.Bot.X) and
       (Lb.PrevInAEL.OutIdx >= 0) and
-      SlopesEqual(Lb.PrevInAEL, Lb, FUse64BitRange) and
+      SlopesEqual(Lb.PrevInAEL, Lb) and
       (Lb.WindDelta <> 0) and (Lb.PrevInAEL.WindDelta <> 0) then
     begin
         Op2 := AddOutPt(Lb.PrevInAEL, Lb.Bot);
@@ -2484,7 +2150,7 @@ begin
     if (Lb.NextInAEL <> Rb) then
     begin
       if (Rb.OutIdx >= 0) and (Rb.PrevInAEL.OutIdx >= 0) and
-        SlopesEqual(Rb.PrevInAEL, Rb, FUse64BitRange) and
+        SlopesEqual(Rb.PrevInAEL, Rb) and
         (Rb.WindDelta <> 0) and (Rb.PrevInAEL.WindDelta <> 0) then
       begin
           Op2 := AddOutPt(Rb.PrevInAEL, Rb.Bot);
@@ -2538,7 +2204,7 @@ end;
 //------------------------------------------------------------------------------
 
 procedure TClipper.IntersectEdges(E1,E2: PEdge;
-  const Pt: TIntPoint; Protect: Boolean = False);
+  const Pt: TFPoint; Protect: Boolean = False);
 var
   E1stops, E2stops: Boolean;
   E1Contributing, E2contributing: Boolean;
@@ -2999,7 +2665,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipper.AddOutPt(E: PEdge; const Pt: TIntPoint): POutPt;
+function TClipper.AddOutPt(E: PEdge; const Pt: TFPoint): POutPt;
 var
   OutRec: POutRec;
   PrevOp, Op: POutPt;
@@ -3077,13 +2743,13 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function IsMaxima(E: PEdge; const Y: cInt): Boolean; {$IFDEF INLINING} inline; {$ENDIF}
+function IsMaxima(E: PEdge; const Y: Double): Boolean; {$IFDEF INLINING} inline; {$ENDIF}
 begin
   Result := Assigned(E) and (E.Top.Y = Y) and not Assigned(E.NextInLML);
 end;
 //------------------------------------------------------------------------------
 
-function IsIntermediate(E: PEdge; const Y: cInt): Boolean; {$IFDEF INLINING} inline; {$ENDIF}
+function IsIntermediate(E: PEdge; const Y: Double): Boolean; {$IFDEF INLINING} inline; {$ENDIF}
 begin
   Result := (E.Top.Y = Y) and Assigned(E.NextInLML);
 end;
@@ -3204,7 +2870,7 @@ end;
 //------------------------------------------------------------------------
 
 procedure GetHorzDirection(HorzEdge: PEdge; out Dir: TDirection;
-  out Left, Right: cInt); {$IFDEF INLINING} inline; {$ENDIF}
+  out Left, Right: Double); {$IFDEF INLINING} inline; {$ENDIF}
 begin
   if HorzEdge.Bot.X < HorzEdge.Top.X then
   begin
@@ -3252,9 +2918,9 @@ procedure TClipper.ProcessHorizontal(HorzEdge: PEdge; IsTopOfScanbeam: Boolean);
 
 var
   E, eNext, ePrev, eMaxPair, eLastHorz: PEdge;
-  HorzLeft, HorzRight: cInt;
+  HorzLeft, HorzRight: Double;
   Direction: TDirection;
-  Pt: TIntPoint;
+  Pt: TFPoint;
   Op1, Op2: POutPt;
   IsLastHorz: Boolean;
 begin
@@ -3317,11 +2983,11 @@ begin
         end
         else if (Direction = dLeftToRight) then
         begin
-          Pt := IntPoint(E.Curr.X, HorzEdge.Curr.Y);
+          Pt := FPoint(E.Curr.X, HorzEdge.Curr.Y);
           IntersectEdges(HorzEdge, E, Pt, True);
         end else
         begin
-          Pt := IntPoint(E.Curr.X, HorzEdge.Curr.Y);
+          Pt := FPoint(E.Curr.X, HorzEdge.Curr.Y);
           IntersectEdges(E, HorzEdge, Pt, True);
         end;
         SwapPositionsInAEL(HorzEdge, E);
@@ -3358,7 +3024,7 @@ begin
       if Assigned(ePrev) and (ePrev.Curr.X = HorzEdge.Bot.X) and
         (ePrev.Curr.Y = HorzEdge.Bot.Y) and (ePrev.WindDelta <> 0) and
         (ePrev.OutIdx >= 0) and (ePrev.Curr.Y > ePrev.Top.Y) and
-        SlopesEqual(HorzEdge, ePrev, FUse64BitRange) then
+        SlopesEqual(HorzEdge, ePrev) then
       begin
         Op2 := AddOutPt(ePrev, HorzEdge.Bot);
         AddJoin(Op1, Op2, HorzEdge.Top);
@@ -3366,7 +3032,7 @@ begin
       else if Assigned(eNext) and (eNext.Curr.X = HorzEdge.Bot.X) and
         (eNext.Curr.Y = HorzEdge.Bot.Y) and (eNext.WindDelta <> 0) and
           (eNext.OutIdx >= 0) and (eNext.Curr.Y > eNext.Top.Y) and
-        SlopesEqual(HorzEdge, eNext, FUse64BitRange) then
+        SlopesEqual(HorzEdge, eNext) then
       begin
         Op2 := AddOutPt(eNext, HorzEdge.Bot);
         AddJoin(Op1, Op2, HorzEdge.Top);
@@ -3426,7 +3092,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function TClipper.ProcessIntersections(const BotY, TopY: cInt): Boolean;
+function TClipper.ProcessIntersections(const BotY, TopY: Double): Boolean;
 begin
   Result := True;
   try
@@ -3454,10 +3120,10 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure TClipper.BuildIntersectList(const BotY, TopY: cInt);
+procedure TClipper.BuildIntersectList(const BotY, TopY: Double);
 var
   E, eNext: PEdge;
-  Pt: TIntPoint;
+  Pt: TFPoint;
   IsModified: Boolean;
   NewNode: PIntersectNode;
 begin
@@ -3483,9 +3149,7 @@ begin
       eNext := E.NextInSEL;
       if (E.Curr.X > eNext.Curr.X) then
       begin
-        if not IntersectPoint(E, eNext, Pt, FUse64BitRange) and
-          (E.Curr.X > eNext.Curr.X +1) then
-            raise Exception.Create(rsIntersect);
+        IntersectPoint(E, eNext, Pt); //for the moment ignore the result here
         if (Pt.Y > botY) then
         begin
           Pt.Y := botY;
@@ -3583,7 +3247,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-procedure TClipper.ProcessEdgesAtTopOfScanbeam(const TopY: cInt);
+procedure TClipper.ProcessEdgesAtTopOfScanbeam(const TopY: Double);
 var
   E, EMaxPair, ePrev, eNext: PEdge;
   Op, Op2: POutPt;
@@ -3684,7 +3348,7 @@ begin
       if Assigned(ePrev) and (ePrev.Curr.X = E.Bot.X) and
         (ePrev.Curr.Y = E.Bot.Y) and assigned(Op) and
         (ePrev.OutIdx >= 0) and (ePrev.Curr.Y > ePrev.Top.Y) and
-        SlopesEqual(E, ePrev, FUse64BitRange) and
+        SlopesEqual(E, ePrev) and
         (E.WindDelta <> 0) and (ePrev.WindDelta <> 0) then
       begin
         Op2 := AddOutPt(ePrev, E.Bot);
@@ -3693,7 +3357,7 @@ begin
       else if Assigned(eNext) and (eNext.Curr.X = E.Bot.X) and
         (eNext.Curr.Y = E.Bot.Y) and assigned(Op) and
           (eNext.OutIdx >= 0) and (eNext.Curr.Y > eNext.Top.Y) and
-        SlopesEqual(E, eNext, FUse64BitRange) and
+        SlopesEqual(E, eNext) and
         (E.WindDelta <> 0) and (eNext.WindDelta <> 0) then
       begin
         Op2 := AddOutPt(eNext, E.Bot);
@@ -3814,9 +3478,9 @@ begin
 
     //test for duplicate points and collinear edges ...
     if PointsEqual(PP.Pt, PP.Next.Pt) or PointsEqual(PP.Pt, PP.Prev.Pt) or
-      (SlopesEqual(PP.Prev.Pt, PP.Pt, PP.Next.Pt, FUse64BitRange) and
+      (SlopesEqual(PP.Prev.Pt, PP.Pt, PP.Next.Pt) and
       (not FPreserveCollinear or
-      not Pt2IsBetweenPt1AndPt3(PP.Prev.Pt, PP.Pt, PP.Next.Pt))) then
+      not CollinearPt2Between1And3(PP.Prev.Pt, PP.Pt, PP.Next.Pt))) then
     begin
       //OK, we need to delete a point ...
       LastOK := nil;
@@ -3845,8 +3509,14 @@ end;
 //------------------------------------------------------------------------------
 
 function IntersectListSort(Node1, Node2: Pointer): Integer;
+var
+  diff: Double;
 begin
-  Result := Integer(PIntersectNode(Node2).Pt.Y - PIntersectNode(Node1).Pt.Y);
+  diff := PIntersectNode(Node2).Pt.Y - PIntersectNode(Node1).Pt.Y;
+  if diff = 0 then Result := 0
+  else if diff > 0 then Result := 1
+  else Result := -1;
+
 end;
 //------------------------------------------------------------------------------
 
@@ -3908,7 +3578,7 @@ end;
 //------------------------------------------------------------------------------
 
 function JoinHorz(Op1, Op1b, Op2, Op2b: POutPt;
-  const Pt: TIntPoint; DiscardLeft: Boolean): Boolean;
+  const Pt: TFPoint; DiscardLeft: Boolean): Boolean;
 var
   Dir1, Dir2: TDirection;
 begin
@@ -3999,10 +3669,10 @@ function TClipper.JoinPoints(Jr: PJoin; out P1, P2: POutPt): Boolean;
 var
   OutRec1, OutRec2: POutRec;
   Op1, Op1b, Op2, Op2b: POutPt;
-  Pt: TIntPoint;
+  Pt: TFPoint;
   Reverse1, Reverse2, DiscardLeftSide: Boolean;
   IsHorizontal: Boolean;
-  Left, Right: cInt;
+  Left, Right: Double;
 begin
   Result := False;
 
@@ -4016,7 +3686,7 @@ begin
   //along (horizontal) collinear edges (& Join.OffPt is on the same horizontal).
   //2. Non-horizontal joins where Join.OutPt1 & Join.OutPt2 are at the same
   //location at the bottom of the overlapping segment (& Join.OffPt is above).
-  //3. StrictlySimple joins where edges touch but are not collinear and where
+  //3. StrictSimple joins where edges touch but are not collinear and where
   //Join.OutPt1, Join.OutPt2 & Join.OffPt all share the same point.
   IsHorizontal := (Jr.OutPt1.Pt.Y = Jr.OffPt.Y);
 
@@ -4107,24 +3777,24 @@ begin
     Op1b := Op1.Next;
     while PointsEqual(Op1b.Pt, Op1.Pt) and (Op1b <> Op1) do Op1b := Op1b.Next;
     Reverse1 := (Op1b.Pt.Y > Op1.Pt.Y) or
-      not SlopesEqual(Op1.Pt, Op1b.Pt, Jr.OffPt, FUse64BitRange);
+      not SlopesEqual(Op1.Pt, Op1b.Pt, Jr.OffPt);
     if Reverse1 then
     begin
       Op1b := Op1.Prev;
       while PointsEqual(Op1b.Pt, Op1.Pt) and (Op1b <> Op1) do Op1b := Op1b.Prev;
       if (Op1b.Pt.Y > Op1.Pt.Y) or
-        not SlopesEqual(Op1.Pt, Op1b.Pt, Jr.OffPt, FUse64BitRange) then Exit;
+        not SlopesEqual(Op1.Pt, Op1b.Pt, Jr.OffPt) then Exit;
     end;
     Op2b := Op2.Next;
     while PointsEqual(Op2b.Pt, Op2.Pt) and (Op2b <> Op2) do Op2b := Op2b.Next;
     Reverse2 := (Op2b.Pt.Y > Op2.Pt.Y) or
-      not SlopesEqual(Op2.Pt, Op2b.Pt, Jr.OffPt, FUse64BitRange);
+      not SlopesEqual(Op2.Pt, Op2b.Pt, Jr.OffPt);
     if Reverse2 then
     begin
       Op2b := Op2.Prev;
       while PointsEqual(Op2b.Pt, Op2.Pt) and (Op2b <> Op2) do Op2b := Op2b.Prev;
       if (Op2b.Pt.Y > Op2.Pt.Y) or
-        not SlopesEqual(Op2.Pt, Op2b.Pt, Jr.OffPt, FUse64BitRange) then Exit;
+        not SlopesEqual(Op2.Pt, Op2b.Pt, Jr.OffPt) then Exit;
     end;
 
     if (Op1b = Op1) or (Op2b = Op2) or (Op1b = Op2b) or
@@ -4181,14 +3851,6 @@ begin
   for I := 0 to FPolyOutList.Count -1 do
     with POutRec(fPolyOutList[I])^ do
       if (FirstLeft = OldOutRec) then FirstLeft := NewOutRec;
-end;
-//------------------------------------------------------------------------------
-
-function ParseFirstLeft(FirstLeft: POutRec): POutRec;
-begin
-  while Assigned(FirstLeft) and not Assigned(FirstLeft.Pts) do
-    FirstLeft := FirstLeft.FirstLeft;
-  Result := FirstLeft;
 end;
 //------------------------------------------------------------------------------
 
@@ -4365,7 +4027,7 @@ end;
 // OffsetPaths ...
 //------------------------------------------------------------------------------
 
-function GetUnitNormal(const Pt1, Pt2: TIntPoint): TDoublePoint;
+function GetUnitNormal(const Pt1, Pt2: TFPoint): TDoublePoint;
 var
   Dx, Dy, F: Single;
 begin
@@ -4400,7 +4062,7 @@ type
     FInP: TPath;
     FOutP: TPath;
 
-    procedure AddPoint(const Pt: TIntPoint);
+    procedure AddPoint(const Pt: TFPoint);
     procedure DoSquare(J, K: Integer);
     procedure DoMiter(J, K: Integer; R: Double);
     procedure DoRound(J, K: Integer);
@@ -4416,7 +4078,7 @@ type
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
 
-procedure TOffsetBuilder.AddPoint(const Pt: TIntPoint);
+procedure TOffsetBuilder.AddPoint(const Pt: TFPoint);
 const
   BuffLength = 32;
 begin
@@ -4434,12 +4096,12 @@ begin
   //see offset_triginometry.svg in the documentation folder ...
   A := ArcTan2(FSinA, FNorms[K].X * FNorms[J].X + FNorms[K].Y * FNorms[J].Y);
   Dx := tan(A/4);
-  AddPoint(IntPoint(
-    round(FInP[J].X + FDelta * (FNorms[K].X - FNorms[K].Y *Dx)),
-    round(FInP[J].Y + FDelta * (FNorms[K].Y + FNorms[K].X *Dx))));
-  AddPoint(IntPoint(
-    round(FInP[J].X + FDelta * (FNorms[J].X + FNorms[J].Y *Dx)),
-    round(FInP[J].Y + FDelta * (FNorms[J].Y - FNorms[J].X *Dx))));
+  AddPoint(FPoint(
+    FInP[J].X + FDelta * (FNorms[K].X - FNorms[K].Y *Dx),
+    FInP[J].Y + FDelta * (FNorms[K].Y + FNorms[K].X *Dx)));
+  AddPoint(FPoint(
+    FInP[J].X + FDelta * (FNorms[J].X + FNorms[J].Y *Dx),
+    FInP[J].Y + FDelta * (FNorms[J].Y - FNorms[J].X *Dx)));
 end;
 //------------------------------------------------------------------------------
 
@@ -4448,8 +4110,8 @@ var
   Q: Double;
 begin
   Q := FDelta / R;
-  AddPoint(IntPoint(round(FInP[J].X + (FNorms[K].X + FNorms[J].X)*Q),
-    round(FInP[J].Y + (FNorms[K].Y + FNorms[J].Y)*Q)));
+  AddPoint(FPoint(FInP[J].X + (FNorms[K].X + FNorms[J].X)*Q,
+    FInP[J].Y + (FNorms[K].Y + FNorms[J].Y)*Q));
 end;
 //------------------------------------------------------------------------------
 
@@ -4465,16 +4127,13 @@ begin
   Y := FNorms[K].Y;
   for I := 1 to Steps do
   begin
-    AddPoint(IntPoint(
-      round(FInP[J].X + X * FDelta),
-      round(FInP[J].Y + Y * FDelta)));
+    AddPoint(FPoint(FInP[J].X + X * FDelta, FInP[J].Y + Y * FDelta));
     X2 := X;
     X := X * FCos - FSin * Y;
     Y := X2 * FSin + Y * FCos;
   end;
-  AddPoint(IntPoint(
-    round(FInP[J].X + FNorms[J].X * FDelta),
-    round(FInP[J].Y + FNorms[J].Y * FDelta)));
+  AddPoint(FPoint(FInP[J].X + FNorms[J].X * FDelta,
+    FInP[J].Y + FNorms[J].Y * FDelta));
 end;
 //------------------------------------------------------------------------------
 
@@ -4490,11 +4149,11 @@ begin
 
   if FSinA * FDelta < 0 then
   begin
-    AddPoint(IntPoint(round(FInP[J].X + FNorms[K].X * FDelta),
-      round(FInP[J].Y + FNorms[K].Y * FDelta)));
+    AddPoint(FPoint(FInP[J].X + FNorms[K].X * FDelta,
+      FInP[J].Y + FNorms[K].Y * FDelta));
     AddPoint(FInP[J]);
-    AddPoint(IntPoint(round(FInP[J].X + FNorms[J].X * FDelta),
-      round(FInP[J].Y + FNorms[J].Y * FDelta)));
+    AddPoint(FPoint(FInP[J].X + FNorms[J].X * FDelta,
+      FInP[J].Y + FNorms[J].Y * FDelta));
   end
   else
     case JoinType of
@@ -4516,7 +4175,7 @@ constructor TOffsetBuilder.Create(const Pts: TPaths; Delta: Double;
 var
   I, J, K, Len: Integer;
   Outer: TPath;
-  Bounds: TIntRect;
+  Bounds: TFRect;
   X,X2,Y: Double;
 begin
   FSolution := nil;
@@ -4559,9 +4218,7 @@ begin
         X := 1; Y := 0;
         for J := 1 to Round(FSteps360 * 2 * Pi) do
         begin
-          AddPoint(IntPoint(
-            Round(FInP[0].X + X * FDelta),
-            Round(FInP[0].Y + Y * FDelta)));
+          AddPoint(FPoint(FInP[0].X + X * FDelta, FInP[0].Y + Y * FDelta));
           X2 := X;
           X := X * FCos - FSin * Y;
           Y := X2 * FSin + Y * FCos;
@@ -4571,8 +4228,7 @@ begin
         X := -1; Y := -1;
         for J := 1 to 4 do
         begin
-          AddPoint(IntPoint( Round(FInP[0].X + X * FDelta),
-            Round(FInP[0].Y + Y * FDelta)));
+          AddPoint(FPoint(FInP[0].X + X * FDelta, FInP[0].Y + Y * FDelta));
           if X < 0 then X := 1
           else if Y < 0 then Y := 1
           else X := -1;
@@ -4613,10 +4269,10 @@ begin
       if EndType = etButt then
       begin
         J := Len - 1;
-        AddPoint(IntPoint(round(FInP[J].X + FNorms[J].X *FDelta),
-          round(FInP[J].Y + FNorms[J].Y * FDelta)));
-        AddPoint(IntPoint(round(FInP[J].X - FNorms[J].X *FDelta),
-          round(FInP[J].Y - FNorms[J].Y * FDelta)));
+        AddPoint(FPoint(FInP[J].X + FNorms[J].X *FDelta,
+          FInP[J].Y + FNorms[J].Y * FDelta));
+        AddPoint(FPoint(FInP[J].X - FNorms[J].X *FDelta,
+          FInP[J].Y - FNorms[J].Y * FDelta));
       end else
       begin
         J := Len - 1;
@@ -4646,10 +4302,10 @@ begin
       //finally handle the start (butt, round or square) ...
       if EndType = etButt then
       begin
-        AddPoint(IntPoint(round(FInP[0].X - FNorms[0].X *FDelta),
-          round(FInP[0].Y - FNorms[0].Y * FDelta)));
-        AddPoint(IntPoint(round(FInP[0].X + FNorms[0].X *FDelta),
-          round(FInP[0].Y + FNorms[0].Y * FDelta)));
+        AddPoint(FPoint(FInP[0].X - FNorms[0].X *FDelta,
+          FInP[0].Y - FNorms[0].Y * FDelta));
+        AddPoint(FPoint(FInP[0].X + FNorms[0].X *FDelta,
+          FInP[0].Y + FNorms[0].Y * FDelta));
       end else
       begin
         FSinA := 0;
@@ -4673,10 +4329,10 @@ begin
     begin
       Bounds := GetBounds(FSolution);
       SetLength(Outer, 4);
-      Outer[0] := IntPoint(Bounds.left-10, Bounds.bottom+10);
-      Outer[1] := IntPoint(Bounds.right+10, Bounds.bottom+10);
-      Outer[2] := IntPoint(Bounds.right+10, Bounds.top-10);
-      Outer[3] := IntPoint(Bounds.left-10, Bounds.top-10);
+      Outer[0] := FPoint(Bounds.left-10, Bounds.bottom+10);
+      Outer[1] := FPoint(Bounds.right+10, Bounds.bottom+10);
+      Outer[2] := FPoint(Bounds.right+10, Bounds.top-10);
+      Outer[3] := FPoint(Bounds.left-10, Bounds.top-10);
       AddPath(Outer, ptSubject, True);
       ReverseSolution := True;
       Execute(ctUnion, FSolution, pftNegative, pftNegative);
@@ -4692,7 +4348,7 @@ end;
 //------------------------------------------------------------------------------
 
 function StripDupsAndGetBotPt(const Poly: TPath; Closed: Boolean;
-  out BotPt: PIntPoint): TPath;
+  out BotPt: PFPoint): TPath;
 var
   I, J, Len: Integer;
 begin
@@ -4728,7 +4384,7 @@ function OffsetPaths(const Polys: TPaths; const Delta: Double;
 var
   I, Len, BotI: Integer;
   Pts: TPaths;
-  BotPt, Pt: PIntPoint;
+  BotPt, Pt: PFPoint;
 begin
   Result := nil;
   Len := Length(Polys);
@@ -4786,7 +4442,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function DistanceSqrd(const Pt1, Pt2: TIntPoint): Double; {$IFDEF INLINING} inline; {$ENDIF}
+function DistanceSqrd(const Pt1, Pt2: TFPoint): Double; {$IFDEF INLINING} inline; {$ENDIF}
 var
   dx, dy: Double;
 begin
@@ -4796,7 +4452,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function ClosestPointOnLine(const Pt, LinePt1, LinePt2: TIntPoint): TDoublePoint;
+function ClosestPointOnLine(const Pt, LinePt1, LinePt2: TFPoint): TDoublePoint;
 var
   dx, dy, q: Double;
 begin
@@ -4810,7 +4466,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function SlopesNearCollinear(const Pt1, Pt2, Pt3: TIntPoint;
+function SlopesNearCollinear(const Pt1, Pt2, Pt3: TFPoint;
   DistSqrd: Double): Boolean;
 var
   Cpol: TDoublePoint;
@@ -4825,7 +4481,7 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function PointsAreClose(const Pt1, Pt2: TIntPoint;
+function PointsAreClose(const Pt1, Pt2: TFPoint;
   DistSqrd: Double): Boolean;
 begin
   result := DistanceSqrd(Pt1, Pt2) <= DistSqrd;
@@ -4852,7 +4508,7 @@ begin
   //will be stripped. Default ~= sqrt(2) so when adjacent
   //vertices have both x & y coords within 1 unit, then
   //the second vertex will be stripped.
-  DistSqrd := Round(Distance * Distance);
+  DistSqrd := Distance * Distance;
   Result := nil;
   Len := Length(Poly);
   if Len = 0 then Exit;
@@ -5039,46 +4695,5 @@ end;
 
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
-
-{$IFDEF use_deprecated}
-function TClipperBase.AddPolygons(const Paths: TPaths; PolyType: TPolyType): Boolean;
-begin
-  Result := AddPaths(Paths, PolyType, True);
-end;
-//------------------------------------------------------------------------------
-
-function TClipperBase.AddPolygon(const Path: TPath; PolyType: TPolyType): Boolean;
-begin
-  Result := AddPath(Path, PolyType, True);
-end;
-//------------------------------------------------------------------------------
-
-function OffsetPolygons(const Polys: TPolygons; const Delta: Double;
-  JoinType: TJoinType = jtSquare; Limit: Double = 0;
-  AutoFix: Boolean = True): TPolygons;
-begin
-  result := OffsetPaths(Polys, Delta, JoinType, etClosed, Limit);
-end;
-//------------------------------------------------------------------------------
-
-function PolyTreeToPolygons(PolyTree: TPolyTree): TPolygons;
-begin
-  result := PolyTreeToPaths(PolyTree);
-end;
-//------------------------------------------------------------------------------
-
-function ReversePolygon(const Pts: TPolygon): TPolygon;
-begin
-  result := ReversePath(Pts);
-end;
-//------------------------------------------------------------------------------
-
-function ReversePolygons(const Pts: TPolygons): TPolygons;
-begin
-  result := ReversePaths(Pts);
-end;
-//------------------------------------------------------------------------------
-{$ENDIF}
-
 
 end.

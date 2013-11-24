@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.1.0                                                           *
-* Date      :  22 November 2013                                                *
+* Version   :  6.1.0 (floats)                                                  *
+* Date      :  25 November 2013                                                *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -217,7 +217,6 @@ protected:
   void AscendToMax(TEdge *&E, bool Appending, bool IsClosed);
   LocalMinima      *m_CurrentLM;
   LocalMinima      *m_MinimaList;
-  bool              m_UseFullRange;
   EdgeList          m_edges;
   bool             m_PreserveCollinear;
   bool             m_HasOpenPaths;

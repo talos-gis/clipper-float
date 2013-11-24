@@ -1,8 +1,8 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  6.1.0                                                           *
-* Date      :  22 November 2013                                                *
+* Version   :  6.1.0 (floats)                                                  *
+* Date      :  25 November 2013                                                *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -275,84 +275,60 @@ bool PointIsVertex(const FPoint &Pt, OutPt *pp)
 }
 //------------------------------------------------------------------------------
 
-int PointInPolygon (const FPoint& pt, const Path& poly)
+int PointInPolygon (const FPoint& pt, OutPt* op)
 {
   //returns 0 if false, +1 if true, -1 if pt ON polygon boundary
   //http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.88.5498&rep=rep1&type=pdf
   int result = 0;
-  Path::size_type size = poly.size();
-  for (Path::size_type i = 0; i < size; ++i)
+  OutPt* startOp = op;
+  for(;;)
   {
-    Path::size_type ip1 = (i + 1) % size;
-    double poly0x = poly[i].X, poly0y = poly[i].Y;
-    double poly1x = poly[ip1].X, poly1y = poly[ip1].Y;
-
-    if (poly1y == pt.Y)
+    if (op->Next->Pt.Y == pt.Y)
     {
-        if ((poly1x == pt.X) || (poly0y == pt.Y && 
-          ((poly1x > pt.X) == (poly0x < pt.X)))) return -1;
+        if ((op->Next->Pt.X == pt.X) || (op->Pt.Y == pt.Y && 
+          ((op->Next->Pt.X > pt.X) == (op->Pt.X < pt.X)))) return -1;
     }
-    if ((poly0y < pt.Y) != (poly1y < pt.Y))
+    if ((op->Pt.Y < pt.Y) != (op->Next->Pt.Y < pt.Y))
     {
-      if (poly0x >= pt.X)
+      if (op->Pt.X >= pt.X)
       {
-        if (poly1x > pt.X) result = 1 - result;
+        if (op->Next->Pt.X > pt.X) result = 1 - result;
         else
         {
-          double d = (double)(poly0x - pt.X) * (poly1y - pt.Y) - 
-            (double)(poly1x - pt.X) * (poly0y - pt.Y);
+          double d = (op->Pt.X - pt.X) * (op->Next->Pt.Y - pt.Y) - 
+            (op->Next->Pt.X - pt.X) * (op->Pt.Y - pt.Y);
           if (!d) return -1;
-          if ((d > 0) == (poly1y > poly0y)) result = 1 - result;
+          if ((d > 0) == (op->Next->Pt.Y > op->Pt.Y)) result = 1 - result;
         }
       } else
       {
-        if (poly1x > pt.X)
+        if (op->Next->Pt.X > pt.X)
         {
-          double d = (double)(poly0x - pt.X) * (poly1y - pt.Y) - 
-            (double)(poly1x - pt.X) * (poly0y - pt.Y);
+          double d = (op->Pt.X - pt.X) * (op->Next->Pt.Y - pt.Y) - 
+            (op->Next->Pt.X - pt.X) * (op->Pt.Y - pt.Y);
           if (!d) return -1;
-          if ((d > 0) == (poly1y > poly0y)) result = 1 - result;
+          if ((d > 0) == (op->Next->Pt.Y > op->Pt.Y)) result = 1 - result;
         }
       }
     } 
+    op = op->Next;
+    if (startOp == op) break;
   } 
-  return result;
-}
-//------------------------------------------------------------------------------
-
-FRect GetBounds(OutPt* ops)
-{  
-  OutPt* opStart = ops;
-  FRect result;
-  result.left = ops->Pt.X;
-  result.right = ops->Pt.X;
-  result.top = ops->Pt.Y;
-  result.bottom = ops->Pt.Y;
-  ops = ops->Next;
-  while (ops != opStart) 
-  {
-    if (ops->Pt.X < result.left) result.left = ops->Pt.X;
-    if (ops->Pt.X > result.right) result.right = ops->Pt.X;
-    if (ops->Pt.Y < result.top) result.top = ops->Pt.Y;
-    if (ops->Pt.Y > result.bottom) result.bottom = ops->Pt.Y;
-    ops = ops->Next;
-  }
   return result;
 }
 //------------------------------------------------------------------------------
 
 bool Poly2ContainsPoly1(OutPt* OutPt1, OutPt* OutPt2)
 {
-  //A CONVEX polygon will contain another polygon if its bounds contains the
-  //other's bounds. However, this isn't a reliable algorithm for CONCAVE
-  //polygons since it's possible to get false positives.
-  FRect bounds1 = GetBounds(OutPt1);
-  FRect bounds2 = GetBounds(OutPt2);
-  return (bounds1.left >= bounds2.left) &&
-    (bounds1.right <= bounds2.right) &&
-    (bounds1.top >= bounds2.top) &&
-    (bounds1.bottom <= bounds2.bottom);
-  //?? use PointInPolygon() above to exclude false positives ...
+  OutPt* op = OutPt1;
+  do
+  {
+    int res = PointInPolygon(op->Pt, OutPt2);
+    if (res >= 0) return res != 0;
+    op = op->Next; 
+  }
+  while (op != OutPt1);
+  return true; 
 }
 //----------------------------------------------------------------------
 
@@ -733,7 +709,6 @@ ClipperBase::ClipperBase() //constructor
 {
   m_MinimaList = 0;
   m_CurrentLM = 0;
-  m_UseFullRange = false;
 }
 //------------------------------------------------------------------------------
 
@@ -1075,7 +1050,6 @@ void ClipperBase::Clear()
     delete [] edges;
   }
   m_edges.clear();
-  m_UseFullRange = false;
   m_HasOpenPaths = false;
 }
 //------------------------------------------------------------------------------
@@ -1177,7 +1151,6 @@ Clipper::Clipper(int initOptions) : ClipperBase() //constructor
   m_ActiveEdges = 0;
   m_SortedEdges = 0;
   m_ExecuteLocked = false;
-  m_UseFullRange = false;
   m_ReverseOutput = ((initOptions & ioReverseSolution) != 0);
   m_StrictSimple = ((initOptions & ioStrictlySimple) != 0);
   m_PreserveCollinear = ((initOptions & ioPreserveCollinear) != 0);
@@ -2679,8 +2652,8 @@ void Clipper::BuildIntersectList(const double botY, const double topY)
       FPoint Pt;
       if(e->Curr.X > eNext->Curr.X)
       {
-        if (!IntersectPoint(*e, *eNext, Pt) && e->Curr.X > eNext->Curr.X +1)
-          throw clipperException("Intersection error");
+        //for the time being ignore the result of IntersectPoint ... 
+        IntersectPoint(*e, *eNext, Pt);       
         if (Pt.Y > botY)
         {
             Pt.Y = botY;
@@ -2925,7 +2898,7 @@ void Clipper::FixupOutPolygon(OutRec &outrec)
 
     //test for duplicate points and collinear edges ...
     if ((pp->Pt == pp->Next->Pt) || (pp->Pt == pp->Prev->Pt) || 
-      (SlopesEqual(pp->Prev->Pt, pp->Pt, pp->Next->Pt, m_UseFullRange) &&
+      (SlopesEqual(pp->Prev->Pt, pp->Pt, pp->Next->Pt) &&
       (!m_PreserveCollinear || 
       !Pt2IsBetweenPt1AndPt3(pp->Prev->Pt, pp->Pt, pp->Next->Pt))))
     {
@@ -3331,24 +3304,24 @@ bool Clipper::JoinPoints(const Join *j, OutPt *&p1, OutPt *&p2)
     op1b = op1->Next;
     while ((op1b->Pt == op1->Pt) && (op1b != op1)) op1b = op1b->Next;
     bool Reverse1 = ((op1b->Pt.Y > op1->Pt.Y) ||
-      !SlopesEqual(op1->Pt, op1b->Pt, j->OffPt, m_UseFullRange));
+      !SlopesEqual(op1->Pt, op1b->Pt, j->OffPt));
     if (Reverse1)
     {
       op1b = op1->Prev;
       while ((op1b->Pt == op1->Pt) && (op1b != op1)) op1b = op1b->Prev;
       if ((op1b->Pt.Y > op1->Pt.Y) ||
-        !SlopesEqual(op1->Pt, op1b->Pt, j->OffPt, m_UseFullRange)) return false;
+        !SlopesEqual(op1->Pt, op1b->Pt, j->OffPt)) return false;
     };
     op2b = op2->Next;
     while ((op2b->Pt == op2->Pt) && (op2b != op2))op2b = op2b->Next;
     bool Reverse2 = ((op2b->Pt.Y > op2->Pt.Y) ||
-      !SlopesEqual(op2->Pt, op2b->Pt, j->OffPt, m_UseFullRange));
+      !SlopesEqual(op2->Pt, op2b->Pt, j->OffPt));
     if (Reverse2)
     {
       op2b = op2->Prev;
       while ((op2b->Pt == op2->Pt) && (op2b != op2)) op2b = op2b->Prev;
       if ((op2b->Pt.Y > op2->Pt.Y) ||
-        !SlopesEqual(op2->Pt, op2b->Pt, j->OffPt, m_UseFullRange)) return false;
+        !SlopesEqual(op2->Pt, op2b->Pt, j->OffPt)) return false;
     }
 
     if ((op1b == op1) || (op2b == op2) || (op1b == op2b) ||
