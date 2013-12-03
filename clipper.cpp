@@ -408,8 +408,8 @@ bool IntersectPoint(TEdge &Edge1, TEdge &Edge2, FPoint &ip)
   //return false but for the edge.Dx value be equal due to double precision rounding.
   if (SlopesEqual(Edge1, Edge2) || Edge1.Dx == Edge2.Dx)
   {
-    if (Edge2.Bot.Y > Edge1.Bot.Y) ip.Y = Edge2.Bot.Y;
-    else ip.Y = Edge1.Bot.Y;
+    if (Edge2.Bot.Y > Edge1.Bot.Y) ip = Edge2.Bot;
+    else ip = Edge1.Bot;
     return false;
   }
   else if (Edge1.Delta.X == 0)
@@ -449,20 +449,15 @@ bool IntersectPoint(TEdge &Edge1, TEdge &Edge2, FPoint &ip)
   if (ip.Y < Edge1.Top.Y || ip.Y < Edge2.Top.Y) 
   {
     if (Edge1.Top.Y > Edge2.Top.Y)
-    {
       ip.Y = Edge1.Top.Y;
-      ip.X = TopX(Edge2, Edge1.Top.Y);
-      return ip.X < Edge1.Top.X;
-    } 
     else
-    {
       ip.Y = Edge2.Top.Y;
-      ip.X = TopX(Edge1, Edge2.Top.Y);
-      return ip.X > Edge2.Top.X;
-    }
+    if (std::fabs(Edge1.Dx) < std::fabs(Edge2.Dx))
+      ip.X = TopX(Edge1, ip.Y);
+    else
+      ip.X = TopX(Edge2, ip.Y);
   } 
-  else 
-    return true;
+  return true;
 }
 //------------------------------------------------------------------------------
 
@@ -539,9 +534,9 @@ inline void ReverseHorizontal(TEdge &e)
   e.Top.X = e.Bot.X;
   e.Bot.X = tmp;
 #ifdef use_xyz  
-  tmp = e.Top.Z;
+  long long tmp2 = e.Top.Z;
   e.Top.Z = e.Bot.Z;
-  e.Bot.Z = tmp;
+  e.Bot.Z = tmp2;
 #endif
 }
 //------------------------------------------------------------------------------
