@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.1.0 (floats)                                                  *
-* Date      :  25 November 2013                                                *
+* Date      :  4 December 2013                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -66,8 +66,8 @@ struct FPoint {
   double X;
   double Y;
 #ifdef use_xyz
-  double Z;
-  FPoint(double x = 0, double y = 0, double z = 0): X(x), Y(y), Z(z) {};
+  long long Z;
+  FPoint(double x = 0, double y = 0, long long z = 0): X(x), Y(y), Z(z) {};
 #else
   FPoint(double x = 0, double y = 0): X(x), Y(y) {};
 #endif
@@ -120,6 +120,7 @@ private:
     PolyNode* GetNextSiblingUp() const;
     void AddChild(PolyNode& child);
     friend class Clipper; //to access Index
+    friend class ClipperOffset; 
 };
 
 class PolyTree: public PolyNode
@@ -136,13 +137,10 @@ private:
 
 enum InitOptions {ioReverseSolution = 1, ioStrictlySimple = 2, ioPreserveCollinear = 4};
 enum JoinType {jtSquare, jtRound, jtMiter};
-enum EndType {etClosed, etButt, etSquare, etRound};
+enum EndType {etButt, etSquare, etRound};
 
 bool Orientation(const Path &poly);
 double Area(const Path &poly);
-
-void OffsetPaths(const Paths &in_polys, Paths &out_polys,
-  double delta, JoinType jointype, EndType endtype, double limit = 0);
 
 void SimplifyPolygon(const Path &in_poly, Paths &out_polys, PolyFillType fillType = pftEvenOdd);
 void SimplifyPolygons(const Paths &in_polys, Paths &out_polys, PolyFillType fillType = pftEvenOdd);
@@ -321,6 +319,42 @@ private:
 #ifdef use_xyz
   void SetZ(FPoint& pt, TEdge& e);
 #endif
+};
+//------------------------------------------------------------------------------
+
+class ClipperOffset 
+{
+public:
+  ClipperOffset(
+    JoinType joinType = jtSquare, EndType endType = etSquare,
+    double miterLimit = 2.0, double roundPrecision = 0.25);
+  ~ClipperOffset();
+  void AddPath(const Path& path, bool closed);
+  void AddPaths(const Paths& paths, bool closed);
+  void Execute(Paths& solution, double delta);
+  void Execute(PolyTree& polytree, double delta);
+  void Clear();
+  JoinType joinType;
+  EndType endType;
+  double MiterLimit;
+  double ArcTolerance;
+private:
+  Paths m_destPolys;
+  Path m_srcPoly;
+  Path m_destPoly;
+  std::vector<FPoint> m_normals;
+  double m_delta, m_sinA, m_sin, m_cos;
+  double m_miterLim, m_Steps360;
+  int m_lowestX;
+  int m_lowestY;
+  PolyNode m_polyNodes;
+
+  void FixOrientations();
+  void DoOffset(double delta);
+  void OffsetPoint(int j, int& k);
+  void DoSquare(int j, int k);
+  void DoMiter(int j, int k, double r);
+  void DoRound(int j, int k);
 };
 //------------------------------------------------------------------------------
 

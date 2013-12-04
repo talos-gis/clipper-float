@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.1.0 (floats)                                                  *
-* Date      :  25 November 2013                                                *
+* Date      :  4 December 2013                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2013                                         *
 *                                                                              *
@@ -387,6 +387,8 @@ namespace ClipperLib
       protected const double horizontal = -3.4E+38;
       protected const int Skip = -2;
       protected const int Unassigned = -1;
+      protected const double tolerance = 1.0E-20;
+      internal static bool near_zero(double val) { return (val > -tolerance) && (val < tolerance); }
 
       internal LocalMinima m_MinimaList;
       internal LocalMinima m_CurrentLM;
@@ -3745,396 +3747,6 @@ namespace ClipperLib
       }
 
       //------------------------------------------------------------------------------
-      // OffsetPolygon functions ...
-      //------------------------------------------------------------------------------
-
-      internal static DoublePoint GetUnitNormal(FPoint pt1, FPoint pt2)
-      {
-          double dx = (pt2.X - pt1.X);
-          double dy = (pt2.Y - pt1.Y);
-          if ((dx == 0) && (dy == 0)) return new DoublePoint();
-
-          double f = 1 * 1.0 / Math.Sqrt(dx * dx + dy * dy);
-          dx *= f;
-          dy *= f;
-
-          return new DoublePoint(dy, -dx);
-      }
-      //------------------------------------------------------------------------------
-
-      private class PolyOffsetBuilder
-      {
-          private Paths m_p;
-          private Path currentPoly;
-          private List<DoublePoint> normals = new List<DoublePoint>();
-          private double m_delta, m_sinA, m_sin, m_cos;
-          private double m_miterLim, m_Steps360;
-          private int m_i, m_j, m_k;
-          private const int m_buffLength = 128;
-
-          void OffsetPoint(JoinType jointype)
-          {
-              m_sinA = (normals[m_k].X * normals[m_j].Y - normals[m_j].X * normals[m_k].Y);
-              if (m_sinA < 0.00005 && m_sinA > -0.00005) return;
-              else if (m_sinA > 1.0) m_sinA = 1.0;
-              else if (m_sinA < -1.0) m_sinA = -1.0;
-
-              if (m_sinA * m_delta < 0)
-              {
-                  AddPoint(new FPoint(m_p[m_i][m_j].X + normals[m_k].X * m_delta,
-                    m_p[m_i][m_j].Y + normals[m_k].Y * m_delta));
-                  AddPoint(m_p[m_i][m_j]);
-                  AddPoint(new FPoint(m_p[m_i][m_j].X + normals[m_j].X * m_delta,
-                    m_p[m_i][m_j].Y + normals[m_j].Y * m_delta));
-              }
-              else
-                  switch (jointype)
-                  {
-                      case JoinType.jtMiter:
-                          {
-                              double r = 1 + (normals[m_j].X * normals[m_k].X +
-                                normals[m_j].Y * normals[m_k].Y);
-                              if (r >= m_miterLim) DoMiter(r); else DoSquare();
-                              break;
-                          }
-                      case JoinType.jtSquare: DoSquare(); break;
-                      case JoinType.jtRound: DoRound(); break;
-                  }
-              m_k = m_j;
-          }
-          //------------------------------------------------------------------------------
-
-          public PolyOffsetBuilder(Paths pts, out Paths solution, double delta,
-              JoinType jointype, EndType endtype, double limit = 0)
-          {
-              //precondition: solution != pts
-              solution = new Paths();
-              if (Globals.near_zero(delta)) { solution = pts; return; }
-              m_p = pts;
-              if (endtype != EndType.etClosed && delta < 0) delta = -delta;
-              m_delta = delta;
-
-              if (jointype == JoinType.jtMiter)
-              {
-                  //m_miterVal: see offset_triginometry.svg in the documentation folder ...
-                  if (limit > 2) m_miterLim = 2 / (limit * limit);
-                  else m_miterLim = 0.5;
-                  if (endtype == EndType.etRound) limit = 0.25;
-              }
-              if (jointype == JoinType.jtRound || endtype == EndType.etRound)
-              {
-              if (limit <= 0) limit = 0.25;
-              else if (limit > Math.Abs(delta)*0.25) limit = Math.Abs(delta)*0.25;
-              //m_roundVal: see offset_triginometry2.svg in the documentation folder ...
-              m_Steps360 = Math.PI / Math.Acos(1 - limit / Math.Abs(delta));
-              m_sin = Math.Sin(2 * Math.PI / m_Steps360);
-              m_cos = Math.Cos(2 * Math.PI / m_Steps360);
-              m_Steps360 /= Math.PI * 2;
-              if (delta < 0) m_sin = -m_sin;
-              }
-
-              double deltaSq = delta * delta;
-              solution.Capacity = pts.Count;
-              for (m_i = 0; m_i < pts.Count; m_i++)
-              {
-                  int len = pts[m_i].Count;
-                  if (len == 0 || (len < 3 && delta <= 0)) continue;
-                    
-                  if (len == 1)
-                  {
-                      if (jointype == JoinType.jtRound)
-                      {
-                          double X = 1.0, Y = 0.0;
-                          for (double j = 1; j <= m_Steps360 * 2 * Math.PI; j++)
-                          {
-                              AddPoint(new FPoint(
-                                m_p[m_i][0].X + X * delta, m_p[m_i][0].Y + Y * delta));
-                              double X2 = X;
-                              X = X * m_cos - m_sin * Y;
-                              Y = X2 * m_sin + Y * m_cos;
-                          }
-                      }
-                      else
-                      {
-                          double X = -1.0, Y = -1.0;
-                          for (int j = 0; j < 4; ++j)
-                          {
-                              AddPoint(new FPoint(m_p[m_i][0].X + X * delta,
-                                m_p[m_i][0].Y + Y * delta));
-                              if (X < 0) X = 1;
-                              else if (Y < 0) Y = 1;
-                              else X = -1;
-                          }
-                      }
-                      continue;
-                  }
-                    
-                  //build normals ...
-                  normals.Clear();
-                  normals.Capacity = len;
-                  for (int j = 0; j < len -1; ++j)
-                      normals.Add(GetUnitNormal(pts[m_i][j], pts[m_i][j+1]));
-                  if (endtype == EndType.etClosed)
-                      normals.Add(GetUnitNormal(pts[m_i][len - 1], pts[m_i][0]));
-                  else
-                      normals.Add(new DoublePoint(normals[len - 2]));
-
-                  currentPoly = new Path();
-                  if (endtype == EndType.etClosed)
-                  {
-                      m_k = len - 1;
-                      for (m_j = 0; m_j < len; ++m_j)
-                          OffsetPoint(jointype);
-                      solution.Add(currentPoly); 
-                  }
-                  else
-                  {
-                      m_k = 0;
-                      for (m_j = 1; m_j < len - 1; ++m_j)
-                          OffsetPoint(jointype);
-
-                      FPoint pt1;
-                      if (endtype == EndType.etButt)
-                      {
-                          m_j = len - 1;
-                          pt1 = new FPoint(pts[m_i][m_j].X + normals[m_j].X * delta, 
-                            pts[m_i][m_j].Y + normals[m_j].Y * delta);
-                          AddPoint(pt1);
-                          pt1 = new FPoint(pts[m_i][m_j].X - normals[m_j].X * delta, 
-                            pts[m_i][m_j].Y - normals[m_j].Y * delta);
-                          AddPoint(pt1);
-                      }
-                      else
-                      {
-                          m_j = len - 1;
-                          m_k = len - 2;
-                          m_sinA = 0;
-                          normals[m_j] = new DoublePoint(-normals[m_j].X, -normals[m_j].Y);
-                          if (endtype == EndType.etSquare)
-                            DoSquare();
-                          else
-                            DoRound();
-                      }
-
-                      //re-build Normals ...
-                      for (int j = len - 1; j > 0; j--)
-                        normals[j] = new DoublePoint(-normals[j - 1].X, -normals[j - 1].Y);
-                      
-                      normals[0] = new DoublePoint(-normals[1].X, -normals[1].Y);
-
-                      m_k = len - 1;
-                      for (m_j = m_k - 1; m_j > 0; --m_j)
-                          OffsetPoint(jointype);
-
-                      if (endtype == EndType.etButt)
-                      {
-                          pt1 = new FPoint(pts[m_i][0].X - normals[0].X * delta,
-                            pts[m_i][0].Y - normals[0].Y * delta);
-                          AddPoint(pt1);
-                          pt1 = new FPoint(pts[m_i][0].X + normals[0].X * delta,
-                            pts[m_i][0].Y + normals[0].Y * delta);
-                          AddPoint(pt1);
-                      }
-                      else
-                      {
-                          m_k = 1;
-                          m_sinA = 0;
-                          if (endtype == EndType.etSquare) 
-                            DoSquare();
-                          else
-                            DoRound();
-                      }
-                      solution.Add(currentPoly);
-                  }
-              }
-
-              //finally, clean up untidy corners ...
-              Clipper clpr = new Clipper();
-              clpr.AddPaths(solution, PolyType.ptSubject, true);
-              if (delta > 0)
-              {
-                  clpr.Execute(ClipType.ctUnion, solution, PolyFillType.pftPositive, PolyFillType.pftPositive);
-              }
-              else
-              {
-                  FRect r = clpr.GetBounds();
-                  Path outer = new Path(4);
-
-                  outer.Add(new FPoint(r.left - 10, r.bottom + 10));
-                  outer.Add(new FPoint(r.right + 10, r.bottom + 10));
-                  outer.Add(new FPoint(r.right + 10, r.top - 10));
-                  outer.Add(new FPoint(r.left - 10, r.top - 10));
-
-                  clpr.AddPath(outer, PolyType.ptSubject, true);
-                  clpr.ReverseSolution = true;
-                  clpr.Execute(ClipType.ctUnion, solution, PolyFillType.pftNegative, PolyFillType.pftNegative);
-                  if (solution.Count > 0) solution.RemoveAt(0);
-              }
-          }
-          //------------------------------------------------------------------------------
-
-          internal void AddPoint(FPoint pt)
-          {
-              if (currentPoly.Count == currentPoly.Capacity)
-                  currentPoly.Capacity += m_buffLength;
-              currentPoly.Add(pt);
-          }
-          //------------------------------------------------------------------------------
-
-          internal void DoSquare()
-          {
-              double dx = Math.Tan(Math.Atan2(m_sinA, 
-                  normals[m_k].X * normals[m_j].X + normals[m_k].Y * normals[m_j].Y)/4);
-              AddPoint(new FPoint(
-                  m_p[m_i][m_j].X + m_delta * (normals[m_k].X - normals[m_k].Y *dx),
-                  m_p[m_i][m_j].Y + m_delta * (normals[m_k].Y + normals[m_k].X *dx)));
-              AddPoint(new FPoint(
-                  m_p[m_i][m_j].X + m_delta * (normals[m_j].X + normals[m_j].Y *dx),
-                  m_p[m_i][m_j].Y + m_delta * (normals[m_j].Y - normals[m_j].X *dx)));                
-          }
-          //------------------------------------------------------------------------------
-
-          internal void DoMiter(double r)
-          {
-              double q = m_delta / r;
-              AddPoint(new FPoint(m_p[m_i][m_j].X + (normals[m_k].X + normals[m_j].X) * q,
-                  m_p[m_i][m_j].Y + (normals[m_k].Y + normals[m_j].Y) * q));
-          }
-          //------------------------------------------------------------------------------
-
-          internal void DoRound()
-          {
-              double a = Math.Atan2(m_sinA, 
-              normals[m_k].X * normals[m_j].X + normals[m_k].Y * normals[m_j].Y);
-              int steps = (int)(m_Steps360 * Math.Abs(a));
-
-              double X = normals[m_k].X, Y = normals[m_k].Y, X2;
-              for (int i = 0; i < steps; ++i)
-              {
-                  AddPoint(new FPoint(
-                      m_p[m_i][m_j].X + X * m_delta,
-                      m_p[m_i][m_j].Y + Y * m_delta));
-                  X2 = X;
-                  X = X * m_cos - m_sin * Y;
-                  Y = X2 * m_sin + Y * m_cos;
-              }
-              AddPoint(new FPoint(
-              m_p[m_i][m_j].X + normals[m_j].X * m_delta,
-              m_p[m_i][m_j].Y + normals[m_j].Y * m_delta));
-          }
-          //------------------------------------------------------------------------------
-
-      } //end PolyOffsetBuilder
-      //------------------------------------------------------------------------------
-
-      internal static bool UpdateBotPt(FPoint pt, ref FPoint botPt)
-      {
-          if (pt.Y > botPt.Y || (pt.Y == botPt.Y && pt.X < botPt.X))
-          {
-              botPt = pt;
-              return true;
-          }
-          else return false;
-      }
-      //------------------------------------------------------------------------------
-
-      internal static bool StripDupsAndGetBotPt(Path in_path, 
-        Path out_path, bool closed, out FPoint botPt)
-      {
-        botPt = new FPoint(0, 0);
-        int len = in_path.Count;
-        if (closed)    
-          while (len > 0 && (in_path[0] == in_path[len -1])) len--;
-        if (len == 0) return false;
-        out_path.Capacity = len;
-        int j = 0;
-        out_path.Add(in_path[0]);
-        botPt = in_path[0];
-        for (int i = 1; i < len; ++i)
-          if (in_path[i] != out_path[j])
-          {
-            out_path.Add(in_path[i]);
-            j++;
-            if (out_path[j].Y > botPt.Y ||
-              ((out_path[j].Y == botPt.Y) && out_path[j].X < botPt.X))
-                botPt = out_path[j];
-          }
-        j++;
-        if (j < 2 || (closed && (j == 2))) j = 0;
-        while (out_path.Count > j) out_path.RemoveAt(j);
-        return j > 0;
-      }
-      //------------------------------------------------------------------------------
-
-      public static Paths OffsetPaths(Paths polys, double delta,
-          JoinType jointype, EndType endtype, double MiterLimit)
-      {
-        Paths out_polys = new Paths(polys.Count);
-        FPoint botPt = new FPoint();
-        FPoint pt;
-        int botIdx = -1;
-        for (int i = 0; i < polys.Count; ++i)
-        {
-          out_polys.Add(new Path());
-          if (StripDupsAndGetBotPt(polys[i], out_polys[i], endtype == EndType.etClosed, out pt))
-            if (botIdx < 0 || pt.Y > botPt.Y || (pt.Y == botPt.Y && pt.X < botPt.X))
-            {
-              botPt = pt;
-              botIdx = i;
-            }
-        }
-        if (endtype == EndType.etClosed && botIdx >= 0 && !Orientation(out_polys[botIdx]))
-          ReversePaths(out_polys);
-
-        Paths result;
-        new PolyOffsetBuilder(out_polys, out result, delta, jointype, endtype, MiterLimit);
-        return result;
-      }
-      //------------------------------------------------------------------------------
-
-#if use_deprecated
-      public static Paths OffsetPolygons(Paths poly, double delta,
-          JoinType jointype, double MiterLimit, bool AutoFix)
-      {
-        return OffsetPaths(poly, delta, jointype, EndType.etClosed, MiterLimit);
-      }
-      //------------------------------------------------------------------------------
-
-      public static Paths OffsetPolygons(Paths poly, double delta,
-          JoinType jointype, double MiterLimit)
-      {
-        return OffsetPaths(poly, delta, jointype, EndType.etClosed, MiterLimit);
-      }
-      //------------------------------------------------------------------------------
-
-      public static Paths OffsetPolygons(Polygons polys, double delta, JoinType jointype)
-      {
-        return OffsetPaths(polys, delta, jointype, EndType.etClosed, 0);
-      }
-      //------------------------------------------------------------------------------
-
-      public static Paths OffsetPolygons(Polygons polys, double delta)
-      {
-          return OffsetPolygons(polys, delta, JoinType.jtSquare, 0, true);
-      }
-      //------------------------------------------------------------------------------
-
-      public static void ReversePolygons(Polygons polys)
-      {
-        polys.ForEach(delegate(Path poly) { poly.Reverse(); });
-      }
-      //------------------------------------------------------------------------------
-
-      public static void PolyTreeToPolygons(PolyTree polytree, Polygons polys)
-      {
-        polys.Clear();
-        polys.Capacity = polytree.Total;
-        AddPolyNodeToPaths(polytree, NodeType.ntAny, polys);
-      }
-      //------------------------------------------------------------------------------
-#endif
-
-    //------------------------------------------------------------------------------
       // SimplifyPolygon functions ...
       // Convert self-intersecting polygons into simple polygons
       //------------------------------------------------------------------------------
@@ -4388,7 +4000,435 @@ namespace ClipperLib
       //------------------------------------------------------------------------------
 
   } //end Clipper
-  
+
+  //------------------------------------------------------------------------------
+  // ClipperOffset ...
+  //------------------------------------------------------------------------------
+
+  public class ClipperOffset
+  {
+    private Paths m_destPolys;
+    private Path m_srcPoly;
+    private Path m_destPoly;
+    private List<DoublePoint> m_normals = new List<DoublePoint>();
+    private double m_delta, m_sinA, m_sin, m_cos;
+    private double m_miterLim, m_Steps360;
+
+    private FPoint m_lowest;
+    private PolyNode m_polyNodes = new PolyNode();
+
+    public double ArcTolerance { get; set; }
+    public double MiterLimit { get; set; }
+    public EndType EndType { get; set; }
+    public JoinType JoinType { get; set; }
+
+    private const double two_pi = Math.PI * 2;
+
+    public ClipperOffset(
+      JoinType joinType = JoinType.jtSquare, EndType endType = EndType.etSquare,
+      double miterLimit = 2.0, double arcTolerance = 0.25)
+    {
+      JoinType = joinType;
+      EndType = endType;
+      MiterLimit = miterLimit;
+      ArcTolerance = arcTolerance;
+      m_lowest.X = -1;
+    }
+    //------------------------------------------------------------------------------
+
+    public void Clear()
+    {
+      m_polyNodes.Childs.Clear();
+      m_lowest.X = -1;
+    }
+    //------------------------------------------------------------------------------
+
+    public void AddPath(Path path, bool closed)
+    {
+      int highI = path.Count - 1;
+      if (highI < 0) return;
+      PolyNode newNode = new PolyNode();
+      newNode.IsOpen = !closed;
+
+      //strip duplicate points from path and also get index to the lowest point ...
+      if (closed)
+        while (highI > 0 && path[0] == path[highI]) highI--;
+      newNode.m_polygon.Capacity = highI + 1;
+      newNode.m_polygon.Add(path[0]);
+      int j = 0, k = 0;
+      for (int i = 1; i <= highI; i++)
+        if (newNode.m_polygon[j] != path[i])
+        {
+          j++;
+          newNode.m_polygon.Add(path[i]);
+          if (path[i].Y > newNode.m_polygon[k].Y ||
+            (path[i].Y == newNode.m_polygon[k].Y &&
+            path[i].X < newNode.m_polygon[k].X)) k = j;
+        }
+      if ((closed && j < 2) || (!closed && j < 0)) return;
+      m_polyNodes.AddChild(newNode);
+
+      //if this path's lowest pt is lower than all the others then update m_lowest
+      if (!closed) return;
+      if (m_lowest.X < 0)
+        m_lowest = new FPoint(0, k);
+      else
+      {
+        FPoint ip = m_polyNodes.Childs[(int)m_lowest.X].m_polygon[(int)m_lowest.Y];
+        if (newNode.m_polygon[k].Y > ip.Y ||
+          (newNode.m_polygon[k].Y == ip.Y &&
+          newNode.m_polygon[k].X < ip.X))
+          m_lowest = new FPoint(m_polyNodes.ChildCount - 1, k);
+      }
+    }
+    //------------------------------------------------------------------------------
+
+    public void AddPaths(Paths paths, bool closed)
+    {
+      foreach (Path p in paths)
+        AddPath(p, closed);
+    }
+    //------------------------------------------------------------------------------
+
+    private void FixOrientations()
+    {
+      //fixup orientations of all closed paths if the orientation of the
+      //closed path with the lowermost vertex is wrong ...
+      if (m_lowest.X >= 0 &&
+        !Clipper.Orientation(m_polyNodes.Childs[(int)m_lowest.X].m_polygon))
+      {
+        for (int i = 0; i < m_polyNodes.ChildCount; i++)
+          if (!m_polyNodes.Childs[i].IsOpen)
+            m_polyNodes.Childs[i].m_polygon.Reverse();
+      }
+    }
+    //------------------------------------------------------------------------------
+
+    internal static DoublePoint GetUnitNormal(FPoint pt1, FPoint pt2)
+    {
+      double dx = (pt2.X - pt1.X);
+      double dy = (pt2.Y - pt1.Y);
+      if ((dx == 0) && (dy == 0)) return new DoublePoint();
+
+      double f = 1 * 1.0 / Math.Sqrt(dx * dx + dy * dy);
+      dx *= f;
+      dy *= f;
+
+      return new DoublePoint(dy, -dx);
+    }
+    //------------------------------------------------------------------------------
+
+    private void DoOffset(double delta)
+    {
+      m_destPolys = new Paths();
+      m_delta = delta;
+
+      //if Zero offset, just copy any CLOSED polygons to m_p and return ...
+      if (ClipperBase.near_zero(delta))
+      {
+        m_destPolys.Capacity = m_polyNodes.ChildCount;
+        for (int i = 0; i < m_polyNodes.ChildCount; i++)
+          if (!m_polyNodes.Childs[i].IsOpen)
+            m_destPolys.Add(m_polyNodes.Childs[i].m_polygon);
+        return;
+      }
+
+      if (JoinType == JoinType.jtMiter)
+      {
+        //see offset_triginometry3.svg in the documentation folder ...
+        if (MiterLimit > 2) m_miterLim = 2 / (MiterLimit * MiterLimit);
+        else m_miterLim = 0.5;
+      }
+
+      if (JoinType == JoinType.jtRound || EndType == EndType.etRound)
+      {
+        double y;
+        if (ArcTolerance <= 0.0) y = 0.25;
+        else if (ArcTolerance > Math.Abs(delta) * 0.25) y = Math.Abs(delta) * 0.25;
+        else y = ArcTolerance;
+        //see offset_triginometry2.svg in the documentation folder ...
+        m_Steps360 = Math.PI / Math.Acos(1 - y / Math.Abs(delta));
+        m_sin = Math.Sin(two_pi / m_Steps360);
+        m_cos = Math.Cos(two_pi / m_Steps360);
+        m_Steps360 = m_Steps360 / two_pi;
+        if (delta < 0.0) m_sin = -m_sin;
+      }
+
+      for (int m_i = 0; m_i < m_polyNodes.ChildCount; m_i++)
+      {
+        m_srcPoly = m_polyNodes.Childs[m_i].m_polygon;
+        bool isClosed = !m_polyNodes.Childs[m_i].IsOpen;
+
+        int len = m_srcPoly.Count;
+
+        if (len == 0 || (delta <= 0 && (len < 3 || m_polyNodes.Childs[m_i].IsOpen)))
+          continue;
+
+        m_destPoly = new Path();
+
+        if (len == 1)
+        {
+          if (EndType == EndType.etRound)
+          {
+            double X = 1.0, Y = 0.0;
+            int steps = (int)Math.Round(m_Steps360 * two_pi);
+            for (int j = 1; j <= steps; j++)
+            {
+              m_destPoly.Add(new FPoint(
+                m_srcPoly[0].X + X * delta,
+                m_srcPoly[0].Y + Y * delta));
+              double X2 = X;
+              X = X * m_cos - m_sin * Y;
+              Y = X2 * m_sin + Y * m_cos;
+            }
+          }
+          else
+          {
+            double X = -1.0, Y = -1.0;
+            for (int j = 0; j < 4; ++j)
+            {
+              m_destPoly.Add(new FPoint(
+                m_srcPoly[0].X + X * delta,
+                m_srcPoly[0].Y + Y * delta));
+              if (X < 0) X = 1;
+              else if (Y < 0) Y = 1;
+              else X = -1;
+            }
+          }
+          m_destPolys.Add(m_destPoly);
+          continue;
+        }
+
+        //build m_normals ...
+        m_normals.Clear();
+        m_normals.Capacity = len;
+        for (int j = 0; j < len - 1; ++j)
+          m_normals.Add(GetUnitNormal(m_srcPoly[j], m_srcPoly[j + 1]));
+        if (isClosed)
+          m_normals.Add(GetUnitNormal(m_srcPoly[len - 1], m_srcPoly[0]));
+        else
+          m_normals.Add(new DoublePoint(m_normals[len - 2]));
+
+        if (isClosed)
+        {
+          int k = len - 1;
+          for (int j = 0; j < len; ++j)
+            OffsetPoint(j, ref k);
+          m_destPolys.Add(m_destPoly);
+        }
+        else
+        {
+          int k = 0;
+          for (int j = 1; j < len - 1; ++j)
+            OffsetPoint(j, ref k);
+
+          FPoint pt1;
+          if (EndType == EndType.etButt)
+          {
+            int j = len - 1;
+            pt1 = new FPoint(m_srcPoly[j].X + m_normals[j].X *
+              delta, m_srcPoly[j].Y + m_normals[j].Y * delta);
+            m_destPoly.Add(pt1);
+            pt1 = new FPoint(m_srcPoly[j].X - m_normals[j].X * delta,
+              m_srcPoly[j].Y - m_normals[j].Y * delta);
+            m_destPoly.Add(pt1);
+          }
+          else
+          {
+            int j = len - 1;
+            k = len - 2;
+            m_sinA = 0;
+            m_normals[j] = new DoublePoint(-m_normals[j].X, -m_normals[j].Y);
+            if (EndType == EndType.etSquare)
+              DoSquare(j, k);
+            else
+              DoRound(j, k);
+          }
+
+          //re-build m_normals ...
+          for (int j = len - 1; j > 0; j--)
+            m_normals[j] = new DoublePoint(-m_normals[j - 1].X, -m_normals[j - 1].Y);
+
+          m_normals[0] = new DoublePoint(-m_normals[1].X, -m_normals[1].Y);
+
+          k = len - 1;
+          for (int j = k - 1; j > 0; --j)
+            OffsetPoint(j, ref k);
+
+          if (EndType == EndType.etButt)
+          {
+            pt1 = new FPoint(m_srcPoly[0].X - m_normals[0].X * delta,
+              m_srcPoly[0].Y - m_normals[0].Y * delta);
+            m_destPoly.Add(pt1);
+            pt1 = new FPoint(m_srcPoly[0].X + m_normals[0].X * delta,
+              m_srcPoly[0].Y + m_normals[0].Y * delta);
+            m_destPoly.Add(pt1);
+          }
+          else
+          {
+            k = 1;
+            m_sinA = 0;
+            if (EndType == EndType.etSquare)
+              DoSquare(0, 1);
+            else
+              DoRound(0, 1);
+          }
+          m_destPolys.Add(m_destPoly);
+        }
+      }
+    }
+    //------------------------------------------------------------------------------
+
+    public void Execute(ref Paths solution, double delta)
+    {
+      solution.Clear();
+      FixOrientations();
+      DoOffset(delta);
+      //now clean up 'corners' ...
+      Clipper clpr = new Clipper();
+      clpr.AddPaths(m_destPolys, PolyType.ptSubject, true);
+      if (delta > 0)
+      {
+        clpr.Execute(ClipType.ctUnion, solution,
+          PolyFillType.pftPositive, PolyFillType.pftPositive);
+      }
+      else
+      {
+        FRect r = clpr.GetBounds();
+        Path outer = new Path(4);
+
+        outer.Add(new FPoint(r.left - 10, r.bottom + 10));
+        outer.Add(new FPoint(r.right + 10, r.bottom + 10));
+        outer.Add(new FPoint(r.right + 10, r.top - 10));
+        outer.Add(new FPoint(r.left - 10, r.top - 10));
+
+        clpr.AddPath(outer, PolyType.ptSubject, true);
+        clpr.ReverseSolution = true;
+        clpr.Execute(ClipType.ctUnion, solution, PolyFillType.pftNegative, PolyFillType.pftNegative);
+        if (solution.Count > 0) solution.RemoveAt(0);
+      }
+    }
+    //------------------------------------------------------------------------------
+
+    public void Execute(ref PolyTree polytree, double delta)
+    {
+      polytree.Clear();
+      FixOrientations();
+      DoOffset(delta);
+
+      //now clean up 'corners' ...
+      Clipper clpr = new Clipper();
+      clpr.AddPaths(m_destPolys, PolyType.ptSubject, true);
+      if (delta > 0)
+      {
+        clpr.Execute(ClipType.ctUnion, polytree,
+          PolyFillType.pftPositive, PolyFillType.pftPositive);
+      }
+      else
+      {
+        FRect r = clpr.GetBounds();
+        Path outer = new Path(4);
+
+        outer.Add(new FPoint(r.left - 10, r.bottom + 10));
+        outer.Add(new FPoint(r.right + 10, r.bottom + 10));
+        outer.Add(new FPoint(r.right + 10, r.top - 10));
+        outer.Add(new FPoint(r.left - 10, r.top - 10));
+
+        clpr.AddPath(outer, PolyType.ptSubject, true);
+        clpr.ReverseSolution = true;
+        clpr.Execute(ClipType.ctUnion, polytree, PolyFillType.pftNegative, PolyFillType.pftNegative);
+        //remove the outer PolyNode rectangle ...
+        if (polytree.ChildCount == 1 && polytree.Childs[0].ChildCount > 0)
+        {
+          PolyNode outerNode = polytree.Childs[0];
+          polytree.Childs.Capacity = outerNode.ChildCount;
+          polytree.Childs[0] = outerNode.Childs[0];
+          for (int i = 1; i < outerNode.ChildCount; i++)
+            polytree.AddChild(outerNode.Childs[i]);
+        }
+        else
+          polytree.Clear();
+      }
+    }
+    //------------------------------------------------------------------------------
+
+    void OffsetPoint(int j, ref int k)
+    {
+      m_sinA = (m_normals[k].X * m_normals[j].Y - m_normals[j].X * m_normals[k].Y);
+      if (m_sinA < 0.00005 && m_sinA > -0.00005) return;
+      else if (m_sinA > 1.0) m_sinA = 1.0;
+      else if (m_sinA < -1.0) m_sinA = -1.0;
+
+      if (m_sinA * m_delta < 0)
+      {
+        m_destPoly.Add(new FPoint(m_srcPoly[j].X + m_normals[k].X * m_delta,
+          m_srcPoly[j].Y + m_normals[k].Y * m_delta));
+        m_destPoly.Add(m_srcPoly[j]);
+        m_destPoly.Add(new FPoint(m_srcPoly[j].X + m_normals[j].X * m_delta,
+          m_srcPoly[j].Y + m_normals[j].Y * m_delta));
+      }
+      else
+        switch (JoinType)
+        {
+          case JoinType.jtMiter:
+            {
+              double r = 1 + (m_normals[j].X * m_normals[k].X +
+                m_normals[j].Y * m_normals[k].Y);
+              if (r >= m_miterLim) DoMiter(j, k, r); else DoSquare(j, k);
+              break;
+            }
+          case JoinType.jtSquare: DoSquare(j, k); break;
+          case JoinType.jtRound: DoRound(j, k); break;
+        }
+      k = j;
+    }
+    //------------------------------------------------------------------------------
+
+    internal void DoSquare(int j, int k)
+    {
+      double dx = Math.Tan(Math.Atan2(m_sinA,
+          m_normals[k].X * m_normals[j].X + m_normals[k].Y * m_normals[j].Y) / 4);
+      m_destPoly.Add(new FPoint(
+          m_srcPoly[j].X + m_delta * (m_normals[k].X - m_normals[k].Y * dx),
+          m_srcPoly[j].Y + m_delta * (m_normals[k].Y + m_normals[k].X * dx)));
+      m_destPoly.Add(new FPoint(
+          m_srcPoly[j].X + m_delta * (m_normals[j].X + m_normals[j].Y * dx),
+          m_srcPoly[j].Y + m_delta * (m_normals[j].Y - m_normals[j].X * dx)));
+    }
+    //------------------------------------------------------------------------------
+
+    internal void DoMiter(int j, int k, double r)
+    {
+      double q = m_delta / r;
+      m_destPoly.Add(new FPoint(m_srcPoly[j].X + (m_normals[k].X + m_normals[j].X) * q,
+          m_srcPoly[j].Y + (m_normals[k].Y + m_normals[j].Y) * q));
+    }
+    //------------------------------------------------------------------------------
+
+    internal void DoRound(int j, int k)
+    {
+      double a = Math.Atan2(m_sinA,
+      m_normals[k].X * m_normals[j].X + m_normals[k].Y * m_normals[j].Y);
+      int steps = (int)(m_Steps360 * Math.Abs(a));
+
+      double X = m_normals[k].X, Y = m_normals[k].Y, X2;
+      for (int i = 0; i < steps; ++i)
+      {
+        m_destPoly.Add(new FPoint(
+            m_srcPoly[j].X + X * m_delta,
+            m_srcPoly[j].Y + Y * m_delta));
+        X2 = X;
+        X = X * m_cos - m_sin * Y;
+        Y = X2 * m_sin + Y * m_cos;
+      }
+      m_destPoly.Add(new FPoint(
+      m_srcPoly[j].X + m_normals[j].X * m_delta,
+      m_srcPoly[j].Y + m_normals[j].Y * m_delta));
+    }
+    //------------------------------------------------------------------------------
+
+  } //end ClipperOffset
+
   class ClipperException : Exception
   {
       public ClipperException(string description) : base(description){}
