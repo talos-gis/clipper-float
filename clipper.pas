@@ -34,7 +34,7 @@ unit clipper;
 *******************************************************************************)
 
 //use_xyz: adds a Z member to FPoint (with only a minor cost to performance)
-{$DEFINE use_xyz}
+{.$DEFINE use_xyz}
 
 //use_lines: Enables line clipping. Adds a very minor cost to performance.
 {.$DEFINE use_lines}
@@ -761,8 +761,8 @@ var
   i2: Int64 absolute val2;
 begin
     //http://www.cygnus-software.com/papers/comparingfloats/comparingfloats.htm
-    if (i1 < 0) then i1 := $8000000000000000 - i1;
-    if (i2 < 0) then i2 := $8000000000000000 - i2;
+    if (i1 < 0) then i1 := -9223372036854775808 + (-i1); //cumbersome but ...
+    if (i2 < 0) then i2 := -9223372036854775808 + (-i2); //avoids int overflow
     result := abs(i1 - i2) <= 10000000000;
 end;
 //---------------------------------------------------------------------------

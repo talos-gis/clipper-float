@@ -341,11 +341,10 @@ bool Poly2ContainsPoly1(OutPt* OutPt1, OutPt* OutPt2)
 bool IsAlmostEqual(double A, double B)
 {
     //http://www.cygnus-software.com/papers/comparingfloats/comparingfloats.htm
-
     long long aInt = reinterpret_cast<long long&>(A);
-    if (aInt < 0) aInt = 0x8000000000000000LL - aInt;
+    if (aInt < 0) aInt = -9223372036854775808LL - aInt;
     long long bInt = reinterpret_cast<long long&>(B);
-    if (bInt < 0) bInt = 0x8000000000000000LL - bInt;
+    if (bInt < 0) bInt = -9223372036854775808LL - bInt;
     return (std::abs(aInt - bInt) <= 10000000000);
 }
 //----------------------------------------------------------------------
@@ -4015,6 +4014,15 @@ void ReversePaths(Paths& p)
 {
   for (Paths::size_type i = 0; i < p.size(); ++i)
     ReversePath(p[i]);
+}
+//------------------------------------------------------------------------------
+
+void SimplifyPolygon(const Path &in_poly, Paths &out_polys, PolyFillType fillType)
+{
+  Clipper c;
+  c.StrictlySimple(true);
+  c.AddPath(in_poly, ptSubject, true);
+  c.Execute(ctUnion, out_polys, fillType, fillType);
 }
 //------------------------------------------------------------------------------
 

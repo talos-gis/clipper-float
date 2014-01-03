@@ -420,9 +420,9 @@ namespace ClipperLib
       //http://www.cygnus-software.com/papers/comparingfloats/comparingfloats.htm
 
       Int64 aInt = BitConverter.DoubleToInt64Bits(A);
-      if (aInt < 0) aInt = unchecked((Int64)0x8000000000000000 - aInt);
+      if (aInt < 0) aInt = unchecked(-9223372036854775808 - aInt);
       Int64 bInt = BitConverter.DoubleToInt64Bits(B);
-      if (bInt < 0) bInt = unchecked((Int64)0x8000000000000000 - bInt);
+      if (bInt < 0) bInt = unchecked(-9223372036854775808 - bInt);
       return (Math.Abs(aInt - bInt) <= 10000000000);
     }
     //----------------------------------------------------------------------
