@@ -2,9 +2,9 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.1.3 (float) - Experimental                                    *
-* Date      :  23 December 2013                                                *
+* Date      :  11 January 2014                                                 *
 * Website   :  http://www.angusj.com                                           *
-* Copyright :  Angus Johnson 2010-2013                                         *
+* Copyright :  Angus Johnson 2010-2014                                         *
 *                                                                              *
 * License:                                                                     *
 * Use, modification & distribution is subject to Boost Software License Ver 1. *
@@ -74,14 +74,8 @@ struct FPoint {
   FPoint(double x = 0, double y = 0): X(x), Y(y) {};
 #endif
 
-  friend inline bool operator== (const FPoint& a, const FPoint& b)
-  {
-    return a.X == b.X && a.Y == b.Y;
-  }
-  friend inline bool operator!= (const FPoint& a, const FPoint& b)
-  {
-    return a.X != b.X  || a.Y != b.Y; 
-  }
+  friend inline bool operator== (const FPoint& a, const FPoint& b);
+  friend inline bool operator!= (const FPoint& a, const FPoint& b);
 };
 //------------------------------------------------------------------------------
 

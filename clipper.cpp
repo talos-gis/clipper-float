@@ -2,9 +2,9 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.1.3 (float) - Experimental                                    *
-* Date      :  23 December 2013                                                *
+* Date      :  11 January 2014                                                 *
 * Website   :  http://www.angusj.com                                           *
-* Copyright :  Angus Johnson 2010-2013                                         *
+* Copyright :  Angus Johnson 2010-2014                                         *
 *                                                                              *
 * License:                                                                     *
 * Use, modification & distribution is subject to Boost Software License Ver 1. *
@@ -63,9 +63,6 @@ static int const Unassigned = -1;  //edge not currently 'owning' a solution
 static int const Skip = -2;        //edge that would otherwise close a path
 
 #define HORIZONTAL (-1.0E+40)
-#define TOLERANCE (0.00000001)
-#define SQRT_TOLERANCE (0.0001)
-#define NEAR_ZERO(val) (((val) > -TOLERANCE) && ((val) < TOLERANCE))
 
 struct TEdge {
   FPoint Bot;
@@ -346,6 +343,18 @@ bool IsAlmostEqual(double A, double B)
     long long bInt = reinterpret_cast<long long&>(B);
     if (bInt < 0) bInt = -9223372036854775808LL - bInt;
     return (std::abs(aInt - bInt) <= 10000000000);
+}
+//----------------------------------------------------------------------
+
+bool operator== (const FPoint& a, const FPoint& b)
+{
+  return IsAlmostEqual(a.X, b.X) && IsAlmostEqual(a.Y, b.Y);
+}
+//----------------------------------------------------------------------
+
+bool operator!= (const FPoint& a, const FPoint& b)
+{
+  return !IsAlmostEqual(a.X, b.X) || !IsAlmostEqual(a.Y, b.Y);
 }
 //----------------------------------------------------------------------
 
@@ -3701,7 +3710,8 @@ void ClipperOffset::DoOffset(double delta)
   m_delta = delta;
 
   //if Zero offset, just copy any CLOSED polygons to m_p and return ...
-  if (NEAR_ZERO(delta)) 
+  double absDelta = std::fabs(delta);
+  if (absDelta < 1.0e-06) 
   {
     m_destPolys.reserve(m_polyNodes.ChildCount());
     for (int i = 0; i < m_polyNodes.ChildCount(); i++)
@@ -3719,13 +3729,13 @@ void ClipperOffset::DoOffset(double delta)
 
   double y;
   if (ArcTolerance <= 0.0) y = def_arc_tolerance;
-  else if (ArcTolerance > std::fabs(delta) * def_arc_tolerance) 
-    y = std::fabs(delta) * def_arc_tolerance;
+  else if (ArcTolerance > absDelta * def_arc_tolerance) 
+    y = absDelta * def_arc_tolerance;
   else y = ArcTolerance;
   //see offset_triginometry2.svg in the documentation folder ...
-  double steps = pi / std::acos(1 - y / std::fabs(delta));
-  if (steps > std::fabs(delta) * pi) 
-    steps = std::fabs(delta) * pi;  //ie excessive precision check
+  double steps = pi / std::acos(1 - y / absDelta);
+  if (steps > absDelta * pi) 
+    steps = absDelta * pi;  //ie excessive precision check
   m_sin = std::sin(two_pi / steps);
   m_cos = std::cos(two_pi / steps);
   m_StepsPerRad = steps / two_pi;

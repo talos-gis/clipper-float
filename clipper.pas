@@ -4,9 +4,9 @@ unit clipper;
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.1.3 (float) - Experimental                                    *
-* Date      :  23 December 2013                                                *
+* Date      :  11 January 2014                                                 *
 * Website   :  http://www.angusj.com                                           *
-* Copyright :  Angus Johnson 2010-2013                                         *
+* Copyright :  Angus Johnson 2010-2014                                         *
 *                                                                              *
 * License:                                                                     *
 * Use, modification & distribution is subject to Boost Software License Ver 1. *
@@ -422,8 +422,6 @@ implementation
 
 const
   Horizontal: Double = -3.4e+38;
-  Tolerance: Double = 0.00000001;
-  ToleranceSqrt = 0.0001;
 
   Unassigned : Integer = -1;
   Skip       : Integer = -2; //flag for the edge that closes an open path
@@ -555,13 +553,6 @@ begin
     Inc(Result);
     P := P.Next;
   until P = Pts;
-end;
-//------------------------------------------------------------------------------
-
-function PointsEqual(const P1, P2: TFPoint): Boolean;
-  {$IFDEF INLINING} inline; {$ENDIF}
-begin
-  Result := (Abs(P1.X - P2.X) < Tolerance) and (Abs(P1.Y - P2.Y) < Tolerance);
 end;
 //------------------------------------------------------------------------------
 
@@ -767,6 +758,13 @@ begin
 end;
 //---------------------------------------------------------------------------
 
+function PointsEqual(const P1, P2: TFPoint): Boolean;
+  {$IFDEF INLINING} inline; {$ENDIF}
+begin
+  Result := IsAlmostEqual(P1.X, P2.X) and IsAlmostEqual(P1.Y, P2.Y);
+end;
+//------------------------------------------------------------------------------
+
 function SlopesEqual(E1, E2: PEdge): Boolean; overload;
 begin
   Result :=
@@ -780,6 +778,7 @@ begin
     IsAlmostEqual((Pt1.Y-Pt2.Y)*(Pt2.X-Pt3.X), (Pt1.X-Pt2.X)*(Pt2.Y-Pt3.Y));
 end;
 //---------------------------------------------------------------------------
+
 
 (*****************************************************************************
 *  Dx:                  0(90º)                       Slope:   0  = Dx: -inf  *
@@ -4211,7 +4210,7 @@ begin
   AbsDelta := Abs(Delta);
 
   //if Zero offset, just copy any CLOSED polygons to FSolution and return ...
-  if AbsDelta < Tolerance then
+  if AbsDelta < 1.0e-06 then
   begin
     solCount := 0;
     SetLength(FSolution, FPolyNodes.ChildCount);

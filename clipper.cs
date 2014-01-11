@@ -2,9 +2,9 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.1.3 (float) - Experimental                                    *
-* Date      :  23 December 2013                                                *
+* Date      :  11 January 2014                                                 *
 * Website   :  http://www.angusj.com                                           *
-* Copyright :  Angus Johnson 2010-2013                                         *
+* Copyright :  Angus Johnson 2010-2014                                         *
 *                                                                              *
 * License:                                                                     *
 * Use, modification & distribution is subject to Boost Software License Ver 1. *
@@ -205,12 +205,14 @@ namespace ClipperLib
 
     public static bool operator ==(FPoint a, FPoint b)
     {
-      return a.X == b.X && a.Y == b.Y;
+      return Global.IsAlmostEqual(a.X, b.X) &&
+        Global.IsAlmostEqual(a.Y, b.Y);
     }
 
     public static bool operator !=(FPoint a, FPoint b)
     {
-      return a.X != b.X  || a.Y != b.Y; 
+      return !Global.IsAlmostEqual(a.X, b.X) ||
+        !Global.IsAlmostEqual(a.Y, b.Y);
     }
 
     public override bool Equals(object obj)
@@ -219,10 +221,11 @@ namespace ClipperLib
       if (obj is FPoint)
       {
         FPoint a = (FPoint)obj;
-        return (X == a.X) && (Y == a.Y);
+        return (this == a);
       }
       else return false;
     }
+
 
     public override int GetHashCode()
     {
@@ -347,14 +350,29 @@ namespace ClipperLib
     internal FPoint OffPt;
   };
 
+  internal static class Global
+  {
+
+    internal static bool IsAlmostEqual(double A, double B)
+    {
+      //http://www.cygnus-software.com/papers/comparingfloats/comparingfloats.htm
+
+      Int64 aInt = BitConverter.DoubleToInt64Bits(A);
+      if (aInt < 0) aInt = Int64.MinValue - aInt;
+      Int64 bInt = BitConverter.DoubleToInt64Bits(B);
+      if (bInt < 0) bInt = Int64.MinValue - bInt;
+      Int64 sub = unchecked(aInt - bInt);
+      if (sub > aInt != bInt < 0) return false;
+      return (Math.Abs(sub) <= 10000000000);
+    }
+    //----------------------------------------------------------------------
+  };
+
   public class ClipperBase
   {    
     protected const double horizontal = -3.4E+38;
     protected const int Skip = -2;
     protected const int Unassigned = -1;
-    protected const double tolerance = 0.00000001;
-    protected const double toleranceSqrt = 0.0001;
-    internal static bool near_zero(double val) { return (val > -tolerance) && (val < tolerance); }
 
     internal LocalMinima m_MinimaList;
     internal LocalMinima m_CurrentLM;
@@ -415,34 +433,22 @@ namespace ClipperLib
     }
     //------------------------------------------------------------------------------
 
-    private static bool IsAlmostEqual(double A, double B)
-    {
-      //http://www.cygnus-software.com/papers/comparingfloats/comparingfloats.htm
-
-      Int64 aInt = BitConverter.DoubleToInt64Bits(A);
-      if (aInt < 0) aInt = unchecked(-9223372036854775808 - aInt);
-      Int64 bInt = BitConverter.DoubleToInt64Bits(B);
-      if (bInt < 0) bInt = unchecked(-9223372036854775808 - bInt);
-      return (Math.Abs(aInt - bInt) <= 10000000000);
-    }
-    //----------------------------------------------------------------------
-
     internal static bool SlopesEqual(TEdge e1, TEdge e2)
     {
-      return IsAlmostEqual(e1.Delta.Y * e2.Delta.X, e1.Delta.X * e2.Delta.Y);
+      return Global.IsAlmostEqual(e1.Delta.Y * e2.Delta.X, e1.Delta.X * e2.Delta.Y);
     }
     //------------------------------------------------------------------------------
 
     protected static bool SlopesEqual(FPoint pt1, FPoint pt2, FPoint pt3)
     {
-      return IsAlmostEqual((pt1.Y - pt2.Y) * (pt2.X - pt3.X),
+      return Global.IsAlmostEqual((pt1.Y - pt2.Y) * (pt2.X - pt3.X),
         (pt1.X - pt2.X) * (pt2.Y - pt3.Y));
     }
     //------------------------------------------------------------------------------
 
     protected static bool SlopesEqual(FPoint pt1, FPoint pt2, FPoint pt3, FPoint pt4)
     {
-      return IsAlmostEqual((pt1.Y - pt2.Y) * (pt3.X - pt4.X),
+      return Global.IsAlmostEqual((pt1.Y - pt2.Y) * (pt3.X - pt4.X),
         (pt1.X - pt2.X) * (pt3.Y - pt4.Y));
     }
     //------------------------------------------------------------------------------
@@ -4120,9 +4126,9 @@ namespace ClipperLib
     {
       m_destPolys = new Paths();
       m_delta = delta;
-
+      double absDelta = Math.Abs(delta);
       //if Zero offset, just copy any CLOSED polygons to m_p and return ...
-      if (ClipperBase.near_zero(delta)) 
+      if (absDelta < 1.0e-06) 
       {
         m_destPolys.Capacity = m_polyNodes.ChildCount;
         for (int i = 0; i < m_polyNodes.ChildCount; i++)
@@ -4141,12 +4147,12 @@ namespace ClipperLib
       double y;
       if (ArcTolerance <= 0.0) 
         y = def_arc_tolerance;
-      else if (ArcTolerance > Math.Abs(delta) * def_arc_tolerance)
-        y = Math.Abs(delta) * def_arc_tolerance;
+      else if (ArcTolerance > absDelta * def_arc_tolerance)
+        y = absDelta * def_arc_tolerance;
       else 
         y = ArcTolerance;
       //see offset_triginometry2.svg in the documentation folder ...
-      double steps = Math.PI / Math.Acos(1 - y / Math.Abs(delta));
+      double steps = Math.PI / Math.Acos(1 - y / absDelta);
       m_sin = Math.Sin(two_pi / steps);
       m_cos = Math.Cos(two_pi / steps);
       m_StepsPerRad = steps / two_pi;
