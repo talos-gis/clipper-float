@@ -4,7 +4,7 @@ unit clipper;
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.1.3 (float) - Experimental                                    *
-* Date      :  11 January 2014                                                 *
+* Date      :  16 January 2014                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2014                                         *
 *                                                                              *
@@ -746,6 +746,7 @@ begin
 end;
 //---------------------------------------------------------------------------
 
+{$OVERFLOWCHECKS OFF}
 function IsAlmostEqual(val1, val2: Double): Boolean;
 var
   i1: Int64 absolute val1;
@@ -754,9 +755,10 @@ begin
     //http://www.cygnus-software.com/papers/comparingfloats/comparingfloats.htm
     if (i1 < 0) then i1 := -9223372036854775808 + (-i1); //cumbersome but ...
     if (i2 < 0) then i2 := -9223372036854775808 + (-i2); //avoids int overflow
-    result := abs(i1 - i2) <= 10000000000;
+    result := abs(i1 - i2) <= 10000;
 end;
 //---------------------------------------------------------------------------
+{$OVERFLOWCHECKS ON}
 
 function PointsEqual(const P1, P2: TFPoint): Boolean;
   {$IFDEF INLINING} inline; {$ENDIF}
@@ -2235,9 +2237,9 @@ begin
   //E2 in AEL except when E1 is being inserted at the intersection point ...
 
   E1stops := not Protect and not Assigned(E1.NextInLML) and
-    (E1.Top.X = Pt.x) and (E1.Top.Y = Pt.Y);
+    PointsEqual(E1.Top, Pt);
   E2stops := not Protect and not Assigned(E2.NextInLML) and
-    (E2.Top.X = Pt.x) and (E2.Top.Y = Pt.Y);
+    PointsEqual(E2.Top, Pt);
   E1Contributing := (E1.OutIdx >= 0);
   E2contributing := (E2.OutIdx >= 0);
 

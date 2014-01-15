@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.1.3 (float) - Experimental                                    *
-* Date      :  11 January 2014                                                 *
+* Date      :  16 January 2014                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2014                                         *
 *                                                                              *
@@ -342,7 +342,7 @@ bool IsAlmostEqual(double A, double B)
     if (aInt < 0) aInt = -9223372036854775808LL - aInt;
     long long bInt = reinterpret_cast<long long&>(B);
     if (bInt < 0) bInt = -9223372036854775808LL - bInt;
-    return (std::abs(aInt - bInt) <= 10000000000);
+    return (std::abs(aInt - bInt) <= 10000);
 }
 //----------------------------------------------------------------------
 
@@ -1841,10 +1841,8 @@ void Clipper::IntersectEdges(TEdge *e1, TEdge *e2,
 {
   //e1 will be to the Left of e2 BELOW the intersection. Therefore e1 is before
   //e2 in AEL except when e1 is being inserted at the intersection point ...
-  bool e1stops = !protect &&  !e1->NextInLML &&
-    e1->Top.X == Pt.X && e1->Top.Y == Pt.Y;
-  bool e2stops = !protect &&  !e2->NextInLML &&
-    e2->Top.X == Pt.X && e2->Top.Y == Pt.Y;
+  bool e1stops = !protect &&  !e1->NextInLML && (e1->Top == Pt);
+  bool e2stops = !protect &&  !e2->NextInLML && (e2->Top == Pt);
   bool e1Contributing = ( e1->OutIdx >= 0 );
   bool e2Contributing = ( e2->OutIdx >= 0 );
 

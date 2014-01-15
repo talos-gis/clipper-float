@@ -2,7 +2,7 @@
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
 * Version   :  6.1.3 (float) - Experimental                                    *
-* Date      :  11 January 2014                                                 *
+* Date      :  16 January 2014                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2014                                         *
 *                                                                              *
@@ -363,7 +363,7 @@ namespace ClipperLib
       if (bInt < 0) bInt = Int64.MinValue - bInt;
       Int64 sub = unchecked(aInt - bInt);
       if (sub > aInt != bInt < 0) return false;
-      return (Math.Abs(sub) <= 10000000000);
+      return (Math.Abs(sub) <= 10000);
     }
     //----------------------------------------------------------------------
   };
@@ -2169,10 +2169,8 @@ namespace ClipperLib
           //e1 will be to the left of e2 BELOW the intersection. Therefore e1 is before
           //e2 in AEL except when e1 is being inserted at the intersection point ...
 
-          bool e1stops = !protect && e1.NextInLML == null &&
-            e1.Top.X == pt.X && e1.Top.Y == pt.Y;
-          bool e2stops = !protect && e2.NextInLML == null &&
-            e2.Top.X == pt.X && e2.Top.Y == pt.Y;
+          bool e1stops = !protect && e1.NextInLML == null && (e1.Top == pt);
+          bool e2stops = !protect && e2.NextInLML == null && (e2.Top == pt);
           bool e1Contributing = (e1.OutIdx >= 0);
           bool e2Contributing = (e2.OutIdx >= 0);
 
