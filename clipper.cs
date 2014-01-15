@@ -356,14 +356,14 @@ namespace ClipperLib
     internal static bool IsAlmostEqual(double A, double B)
     {
       //http://www.cygnus-software.com/papers/comparingfloats/comparingfloats.htm
-
+      const int maxUlps = 10000;
       Int64 aInt = BitConverter.DoubleToInt64Bits(A);
       if (aInt < 0) aInt = Int64.MinValue - aInt;
       Int64 bInt = BitConverter.DoubleToInt64Bits(B);
       if (bInt < 0) bInt = Int64.MinValue - bInt;
       Int64 sub = unchecked(aInt - bInt);
       if (sub > aInt != bInt < 0) return false;
-      return (Math.Abs(sub) <= 10000);
+      return (sub <= 0 && sub > -maxUlps) || (sub > 0 && sub < maxUlps);
     }
     //----------------------------------------------------------------------
   };
