@@ -1,7 +1,7 @@
 /*******************************************************************************
 *                                                                              *
 * Author    :  Angus Johnson                                                   *
-* Version   :  0.9                                                             *
+* Version   :  0.9.1                                                           *
 * Date      :  11 February 2014                                                *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2014                                         *
@@ -99,6 +99,45 @@ namespace ClipperTestLib
       p.push_back(IntPoint((cInt)(ints[i] * scale), (cInt)(ints[i+1] * scale)));
   }
   //---------------------------------------------------------------------------
+
+  void MakeSquarePolygons(int size, int totalWidth, int totalHeight, Paths &p)
+  {
+    int cols = totalWidth / size;
+    int rows = totalHeight / size;
+    p.resize(cols * rows);
+    for (int i = 0; i < rows; ++i) 
+      for (int j = 0; j < cols; ++j) 
+      {
+        cInt ints[] = {j * size, i * size, (j+1) * size, i * size,
+          (j+1) * size, (i+1) * size, j * size, (i+1) * size};
+        MakePolygonFromInts(ints, sizeof(ints)/sizeof(cInt), p[j * rows + i] );
+      }
+  }
+  //------------------------------------------------------------------------------
+
+  void MakeDiamondPolygons(int size, int totalWidth, int totalHeight, Paths &p)
+  {
+    int halfSize = size / 2;
+    size = halfSize * 2;
+    int cols = totalWidth / size;
+    int rows = totalHeight * 2 / size;
+    p.resize(cols * rows);
+    int dx = 0;
+    for (int i = 0; i < rows; ++i) 
+    {
+      if (dx == 0) dx = halfSize; else dx = 0;
+      for (int j = 0; j < cols; ++j) 
+      {
+        cInt ints[] = {dx + j * size,    i * halfSize + halfSize,
+            dx + j * size + halfSize,   i * halfSize,
+            dx + (j+1) * size,          i * halfSize + halfSize,
+            dx + j * size + halfSize,   i * halfSize + halfSize *2};
+        MakePolygonFromInts(ints, sizeof(ints)/sizeof(cInt), p[j * rows + i] );
+      }
+    }
+  }
+  //------------------------------------------------------------------------------
+
   //------------------------------------------------------------------------------
 
   class Difference1: public virtual ClipperTest
@@ -1506,8 +1545,169 @@ namespace ClipperTestLib
       Clipper c;
       c.AddPaths(subj2, ptSubject, false);
       c.AddPaths(clip, ptClip, true);
-      return c.Execute(ctIntersection, 
-        polytree, pft, pft);
+      return c.Execute(ctIntersection, polytree, pft, pft) && 
+        (polytree.ChildCount() == 1);
+    }
+  };
+  //---------------------------------------------------------------------------
+
+  class Simplify1: public virtual ClipperTest
+  {
+    bool DoTest()
+    {
+      pft = pftEvenOdd;    
+      cInt ints[] = {5048400, 1719180, 5050250, 1717630, 5049070,
+        1717320, 5049150, 1717200, 5049350, 1717570};
+      subj.resize(1);
+      MakePolygonFromInts(ints, sizeof(ints)/sizeof(cInt), subj[0]);
+      Clipper c;
+      c.AddPaths(subj, ptSubject, true);
+      return c.Execute(ctUnion, solution, pft, pft) &&
+        (solution.size() == 2);
+    }
+  };
+  //---------------------------------------------------------------------------
+
+  class Simplify2: public virtual ClipperTest
+  {
+    bool DoTest()
+    {
+      pft = pftNonZero;    
+      cInt ints[] = {220,720, 420,720, 420,520, 320,520, 320,480,
+        480,480, 480,800, 180,800, 180,480, 320,480, 320,520, 220,520};
+      cInt ints2[] = {440,520, 620,520, 620,420, 440,420};
+      subj.resize(2);
+      MakePolygonFromInts(ints, sizeof(ints)/sizeof(cInt), subj[0]);
+      MakePolygonFromInts(ints2, sizeof(ints)/sizeof(cInt), subj[1]);
+      Clipper c;
+      c.AddPaths(subj, ptSubject, true);
+      return c.Execute(ctUnion, solution, pft, pft) && 
+        (solution.size() == 2);
+    }
+  };
+  //---------------------------------------------------------------------------
+
+
+  class Joins1: public virtual ClipperTest
+  {
+    bool DoTest()
+    {
+      pft = pftEvenOdd;    
+      cInt ints[8][8] = {
+        {0, 0, 0, 32, 32, 32, 32, 0},
+        {32, 0, 32, 32, 64, 32, 64, 0},
+        {64, 0, 64, 32, 96, 32, 96, 0},
+        {96, 0, 96, 32, 128, 32, 128, 0},
+        {0, 32, 0, 64, 32, 64, 32, 32},
+        {64, 32, 64, 64, 96, 64, 96, 32},
+        {0, 64, 0, 96, 32, 96, 32, 64},
+        {32, 64, 32, 96, 64, 96, 64, 64}
+      };
+      subj.resize(8);
+      for (size_t i = 0; i < 8; ++i)
+        MakePolygonFromInts(ints[i], 8, subj[i]);
+      Clipper c;
+      c.AddPaths(subj, ptSubject, true);
+      return c.Execute(ctUnion, solution, pft, pft) && 
+        (solution.size() == 1);
+    }
+  };
+  //---------------------------------------------------------------------------
+
+  class Joins2: public virtual ClipperTest
+  {
+    bool DoTest()
+    {
+      pft = pftNonZero;    
+      cInt ints[12][8] = {
+        {100, 100, 100, 91, 200, 91, 200, 100},
+        {200, 91, 209, 91, 209, 250, 200, 250},
+        {209, 250, 209, 259, 100, 259, 100, 250},
+        {100, 250, 109, 250, 109, 300, 100, 300},
+        {109, 300, 109, 309, 50, 309, 50, 300},
+        {50, 309, 41, 309, 41, 250, 50, 250},
+        {50, 250, 50, 259, 0, 259, 0, 250},
+        {0, 259, -9, 259, -9, 100, 0, 100},
+        {-9, 100, -9, 91, 50, 91, 50, 100},
+        {50, 100, 41, 100, 41, 50, 50, 50},
+        {41, 50, 41, 41, 100, 41, 100, 50},
+        {100, 41, 109, 41, 109, 100, 100, 100}
+      };
+      subj.resize(12);
+      for (size_t i = 0; i < 12; ++i)
+        MakePolygonFromInts(ints[i], 8, subj[i]);
+      Clipper c;
+      c.AddPaths(subj, ptSubject, true);
+      return c.Execute(ctUnion, solution, pft, pft) && 
+        (solution.size() == 2) && 
+        (Orientation(solution[0]) != Orientation(solution[1]));
+    }
+  };
+  //---------------------------------------------------------------------------
+
+  class Joins3: public virtual ClipperTest
+  {
+    bool DoTest()
+    {
+      pft = pftNonZero;    
+      cInt ints[] = {220,720,  420,720,  420,520,  320,520,  320,480,  
+        480,480,  480,800, 180,800,  180,480,  320,480,  320,520,  220,520};
+      subj.resize(1);
+      MakePolygonFromInts(ints, sizeof(ints)/sizeof(cInt), subj[0]);
+      cInt ints2[] = {440,520,  620,520,  620,420,  440,420};
+      clip.resize(1);
+      MakePolygonFromInts(ints2, sizeof(ints2)/sizeof(cInt), clip[0]);
+      Clipper c;
+      c.AddPaths(subj, ptSubject, true);
+      c.AddPaths(clip, ptClip, true);
+      return c.Execute(ctUnion, solution, pft, pft) && 
+        (solution.size() == 2) && 
+        (Orientation(solution[0]) != Orientation(solution[1]));
+    }
+  };
+  //---------------------------------------------------------------------------
+
+  class Joins4: public virtual ClipperTest
+  {
+    bool DoTest()
+    {
+      pft = pftEvenOdd;    
+      int ints[120] = {
+        1172, 318, 337, 1066, 154, 639, 479, 448, 1197, 545, 1041, 773, 30, 888,
+        444, 308, 1051, 552, 1109, 102, 658, 683, 394, 596, 972, 1145, 442, 179,
+        470, 441, 227, 564, 1179, 1037, 213, 379, 1072, 872, 587, 171, 723, 329,
+        272, 242, 952, 1121, 714, 1148, 91, 217, 735, 561, 903, 1009, 664, 1168,
+        1160, 847, 9, 7, 619, 142, 1139, 1116, 1134, 369, 760, 647, 372, 134,
+        1106, 183, 311, 103, 265, 185, 1062, 856, 453, 944, 44, 653, 766, 527,
+        334, 965, 443, 971, 474, 36, 397, 1138, 901, 841, 775, 612, 222, 465,
+        148, 955, 417, 540, 997, 472, 666, 802, 754, 32, 907, 638, 927, 42, 990,
+        406, 99, 682, 17, 281, 106, 848};
+      MakeDiamondPolygons(20, 600, 400, subj);
+      for (int i = 0; i < 120; ++i) subj[ints[i]].clear();
+      Clipper c;
+      c.AddPaths(subj, ptSubject, true);
+      return c.Execute(ctUnion, solution, pft, pft) && 
+        (solution.size() == 69);
+    }
+  };
+  //---------------------------------------------------------------------------
+
+  class Joins5: public virtual ClipperTest
+  {
+    bool DoTest()
+    {
+      pft = pftEvenOdd;    
+      int ints[60] = {
+        553, 388, 574, 20, 191, 26, 461, 258, 509, 19, 466, 257, 90, 269, 373, 516,
+    350, 333, 288, 141, 47, 217, 247, 519, 535, 336, 504, 497, 344, 341, 293,
+    177, 558, 598, 399, 286, 482, 185, 266, 24, 27, 118, 338, 413, 514, 510,
+    366, 46, 593, 465, 405, 32, 449, 6, 326, 59, 75, 173, 127, 130};
+      MakeSquarePolygons(20, 600, 400, subj);
+      for (int i = 0; i < 60; ++i) subj[ints[i]].clear();
+      Clipper c;
+      c.AddPaths(subj, ptSubject, true);
+      return c.Execute(ctUnion, solution, pft, pft) && 
+        (solution.size() == 37);
     }
   };
   //---------------------------------------------------------------------------
@@ -1592,6 +1792,11 @@ namespace ClipperTestLib
     AddTest(new OpenPath2(), "OpenPath2");
     AddTest(new OpenPath3(), "OpenPath3");
     AddTest(new OpenPath4(), "OpenPath4");
+    AddTest(new Joins1(), "Joins1");
+    AddTest(new Joins2(), "Joins2");
+    AddTest(new Joins3(), "Joins3");
+    AddTest(new Joins4(), "Joins4");
+    AddTest(new Joins5(), "Joins5");
     AddTest(new OffsetPoly1(), "OffsetPoly1");
   }
   //---------------------------------------------------------------------------

@@ -1,3 +1,17 @@
+/*******************************************************************************
+*                                                                              *
+* Author    :  Angus Johnson                                                   *
+* Version   :  0.9.1                                                           *
+* Date      :  11 February 2014                                                *
+* Website   :  http://www.angusj.com                                           *
+* Copyright :  Angus Johnson 2010-2014                                         *
+*                                                                              *
+* License:                                                                     *
+* Use, modification & distribution is subject to Boost Software License Ver 1. *
+* http://www.boost.org/LICENSE_1_0.txt                                         *
+*                                                                              *
+*******************************************************************************/
+
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
@@ -45,10 +59,12 @@ namespace TestLib
       if (m_list[i]->Title() == title)
       {
         bool result = Run(m_list[i]);
-        std::cout << "  Test on " << m_list[i]->Title() << 
+        std::cout << "  Test on " << title << 
           (result ? " passed." : " failed.") << std::endl << std::endl;
-        break;
+        return;
       }
+    std::cout << "  Test " << title << 
+      " could not be found!" << std::endl << std::endl;
   }
 
   bool TestSuite::Run(Test* t)
