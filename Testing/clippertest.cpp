@@ -1561,6 +1561,7 @@ namespace ClipperTestLib
       subj.resize(1);
       MakePolygonFromInts(ints, sizeof(ints)/sizeof(cInt), subj[0]);
       Clipper c;
+      c.StrictlySimple(true); 
       c.AddPaths(subj, ptSubject, true);
       return c.Execute(ctUnion, solution, pft, pft) &&
         (solution.size() == 2);
@@ -1578,15 +1579,14 @@ namespace ClipperTestLib
       cInt ints2[] = {440,520, 620,520, 620,420, 440,420};
       subj.resize(2);
       MakePolygonFromInts(ints, sizeof(ints)/sizeof(cInt), subj[0]);
-      MakePolygonFromInts(ints2, sizeof(ints)/sizeof(cInt), subj[1]);
+      MakePolygonFromInts(ints2, sizeof(ints2)/sizeof(cInt), subj[1]);
       Clipper c;
       c.AddPaths(subj, ptSubject, true);
       return c.Execute(ctUnion, solution, pft, pft) && 
-        (solution.size() == 2);
+        (solution.size() == 3);
     }
   };
   //---------------------------------------------------------------------------
-
 
   class Joins1: public virtual ClipperTest
   {
@@ -1792,6 +1792,8 @@ namespace ClipperTestLib
     AddTest(new OpenPath2(), "OpenPath2");
     AddTest(new OpenPath3(), "OpenPath3");
     AddTest(new OpenPath4(), "OpenPath4");
+    AddTest(new Simplify1(), "Simplify1");
+    AddTest(new Simplify2(), "Simplify2");
     AddTest(new Joins1(), "Joins1");
     AddTest(new Joins2(), "Joins2");
     AddTest(new Joins3(), "Joins3");
