@@ -33,6 +33,8 @@ unit clipper;
 *                                                                              *
 *******************************************************************************)
 
+{$DEFINE TYPES2}
+
 //use_xyz: adds a Z member to FPoint (with only a minor cost to performance)
 {.$DEFINE use_xyz}
 
@@ -59,6 +61,7 @@ unit clipper;
 interface
 
 uses
+  {$IFDEF TYPES2}Types0, Types2, {$ENDIF} 
   SysUtils, Types, Classes, Math;
 
 const
@@ -66,16 +69,32 @@ const
 
 type
   PFPoint = ^TFPoint;
-{$IFDEF use_xyz}
-  TFPoint = record X, Y: Double; Z: Int64; end;
+
+{$IFDEF TYPES2}
+  {$IFDEF use_xyz}
+    TFPoint = T3DPoint;
+    TPath = TArrayOf3DPoint;
+    TPaths = TArrayOfArrayOf3DPoint;
+  {$ELSE}
+    TFPoint = TDPoint;
+    TPath = TArrayOfDPoint;
+    TPaths = TArrayOfArrayOfDPoint;
+  {$ENDIF}
+  TDoublePoint = TDPoint;
+  TArrayOfDoublePoint = TArrayOfDPoint;
+  //TFRect = Types2.TDRect;
 {$ELSE}
-  TFPoint = record X, Y: Double; end;
-{$ENDIF}
-
-  TFRect = record Left, Top, Right, Bottom: Double; end;
-
+  {$IFDEF use_xyz}
+    TFPoint = record X, Y: Double; Z: Int64; end;
+  {$ELSE}
+    TFPoint = record X, Y: Double; end;
+  {$ENDIF}
   TDoublePoint = record X, Y: Double; end;
   TArrayOfDoublePoint = array of TDoublePoint;
+  TPath = array of TFPoint;
+  TPaths = array of TPath;
+{$ENDIF}
+TFRect = record Left, Top, Right, Bottom: Double; end;
 
 {$IFDEF use_xyz}
   TZFillCallback = procedure (const Pt1, Pt2: TFPoint; var Pt: TFPoint);
@@ -95,10 +114,7 @@ type
   //TJoinType & TEndType are used by OffsetPaths()
   TJoinType = (jtSquare, jtRound, jtMiter);
   TEndType = (etClosedPolygon, etClosedLine,
-    etOpenButt, etOpenSquare, etOpenRound); //and etSingle still to come
-
-  TPath = array of TFPoint;
-  TPaths = array of TPath;
+    etOpenButt, etOpenSquare, etOpenRound, etSingle); //and etSingle still to come
 
 {$IFDEF use_deprecated}
   TEndType_ = (etClosed, etButt = 2, etSquare, etRound);
@@ -751,11 +767,14 @@ function IsAlmostEqual(val1, val2: Double): Boolean;
 var
   i1: Int64 absolute val1;
   i2: Int64 absolute val2;
+const
+  MinInt64: Int64 = -9223372036854775808;
 begin
-    //http://www.cygnus-software.com/papers/comparingfloats/comparingfloats.htm
-    if (i1 < 0) then i1 := -9223372036854775808 + (-i1); //cumbersome but ...
-    if (i2 < 0) then i2 := -9223372036854775808 + (-i2); //avoids int overflow
-    result := abs(i1 - i2) <= 10000;
+  //http://www.cygnus-software.com/papers/comparingfloats/comparingfloats.htm
+  //https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
+  if (i1 < 0) then i1 := MinInt64 + (-i1); //cumbersome but ...
+  if (i2 < 0) then i2 := MinInt64 + (-i2); //avoids int overflow
+  result := abs(i1 - i2) <= 10000;
 end;
 //---------------------------------------------------------------------------
 {$OVERFLOWCHECKS ON}
@@ -4119,10 +4138,23 @@ var
 begin
   HighI := High(Path);
   if HighI < 0 then Exit;
+
+  // support for single points
+  if EndType=etSingle then begin
+    for I := 0 to HighI do begin
+      NewNode := TPolyNode.Create;
+      NewNode.FJoinType := JoinType;
+      NewNode.FEndType := EndType;
+      SetLength(NewNode.FPath, 1);
+      NewNode.FPath[0] := Path[I];
+      FPolyNodes.AddChild(NewNode);
+    end;
+    exit;
+  end;
+
   NewNode := TPolyNode.Create;
   NewNode.FJoinType := JoinType;
   NewNode.FEndType := EndType;
-
   //strip duplicate points from path and also get index to the lowest point ...
   if EndType in [etClosedLine, etClosedPolygon] then
     while (HighI > 0) and PointsEqual(Path[0], Path[HighI]) do dec(HighI);
@@ -4142,6 +4174,10 @@ begin
   inc(J);
   if J < HighI +1 then
     SetLength(NewNode.FPath, J);
+  if ((EndType = etClosedPolygon) and (J < 3)) then begin
+    EndType := etClosedLine; // Points closed polygon will be considered as a line
+    NewNode.FEndType := EndType;
+  end;
   if ((EndType = etClosedPolygon) and (J < 3)) or
     ((EndType <> etClosedPolygon) and (J < 1)) then
   begin
@@ -4550,8 +4586,8 @@ var
   R: Double;
 begin
   FSinA := (FNorms[K].X * FNorms[J].Y - FNorms[J].X * FNorms[K].Y);
-  if (FSinA < 0.00005) and (FSinA > -0.00005) then Exit
-  else if (FSinA > 1.0) then FSinA := 1.0
+  {if (FSinA < 0.00005) and (FSinA > -0.00005) then Exit // FSinA=0 for flat lines
+  else }if (FSinA > 1.0) then FSinA := 1.0
   else if (FSinA < -1.0) then FSinA := -1.0;
 
   if FSinA * FDelta < 0 then
